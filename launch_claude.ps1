@@ -184,6 +184,10 @@ $btnOpen.Add_Click({
         # Fallback to cmd - open new window with docker exec
         Start-Process cmd.exe "/k $dockerCmd"
     }
+
+    # Wait a moment for the terminal to open, then close this launcher window
+    Start-Sleep -Milliseconds 500
+    $form.Close()
 })
 
 [void]$form.ShowDialog()
