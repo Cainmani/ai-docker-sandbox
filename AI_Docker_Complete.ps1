@@ -30,57 +30,57 @@ if ([string]::IsNullOrEmpty($installDir)) {
     $installDir = (Get-Location).Path
 }
 
+# Create a subfolder for all extracted files to keep things organized
+$filesDir = Join-Path $installDir "AI_Manager_Files"
+if (-not (Test-Path $filesDir)) {
+    New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
+}
+
 # Matrix Green Theme Colors
 $script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)
 $script:MatrixDarkGreen = [System.Drawing.Color]::FromArgb(0, 20, 0)
 $script:MatrixMidGreen = [System.Drawing.Color]::FromArgb(0, 40, 10)
 $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)
 
-# Function to extract embedded files
-function Extract-EmbeddedFiles {
-    Write-Host "Extracting embedded files to: $installDir" -ForegroundColor Green
-
-    # Create files from embedded Base64 content
-    $filesBase64 = @{
-        'setup_wizard.ps1' = 'SETUP_WIZARD_PS1_BASE64_HERE'
-        'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
-        'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
-        'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
-        'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
-        'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
-        'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
-        '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
-        'README.md' = 'README_MD_BASE64_HERE'
-    }
-
-    foreach ($fileName in $filesBase64.Keys) {
-        $filePath = Join-Path $installDir $fileName
-        $base64Content = $filesBase64[$fileName]
-
-        # Decode Base64 to get original content
-        $bytes = [System.Convert]::FromBase64String($base64Content)
-        $content = [System.Text.Encoding]::UTF8.GetString($bytes)
-
-        # Write file with UTF8 encoding
-        [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
-        Write-Host "  Extracted: $fileName" -ForegroundColor Cyan
-    }
-
-    Write-Host "All files extracted successfully!" -ForegroundColor Green
+# Embedded files as Base64 - stored in memory, only extracted when Docker needs them
+$script:EmbeddedFiles = @{
+    'setup_wizard.ps1' = 'SETUP_WIZARD_PS1_BASE64_HERE'
+    'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
+    'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
+    'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
+    'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
+    'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
+    'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
+    '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
+    'README.md' = 'README_MD_BASE64_HERE'
 }
 
-# Check if files need to be extracted
-$requiredFiles = @('setup_wizard.ps1', 'launch_claude.ps1', 'docker-compose.yml', 'Dockerfile')
-$needsExtraction = $false
-foreach ($file in $requiredFiles) {
-    if (-not (Test-Path (Join-Path $installDir $file))) {
-        $needsExtraction = $true
-        break
+# Function to decode a file from Base64 to text
+function Get-EmbeddedFileContent {
+    param([string]$fileName)
+
+    if ($script:EmbeddedFiles.ContainsKey($fileName)) {
+        $bytes = [System.Convert]::FromBase64String($script:EmbeddedFiles[$fileName])
+        return [System.Text.Encoding]::UTF8.GetString($bytes)
     }
+    return $null
 }
 
-if ($needsExtraction) {
-    Extract-EmbeddedFiles
+# Function to silently extract only Docker-required files (no popups, no console output)
+function Extract-DockerFiles {
+    param([bool]$silent = $true)
+
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', '.gitattributes')
+
+    foreach ($fileName in $dockerFiles) {
+        $filePath = Join-Path $filesDir $fileName
+        if (-not (Test-Path $filePath)) {
+            $content = Get-EmbeddedFileContent $fileName
+            if ($content) {
+                [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
+            }
+        }
+    }
 }
 
 # Now launch the main GUI
@@ -193,36 +193,80 @@ $form.Controls.Add($btnExit)
 
 # Event Handlers
 $btnSetup.Add_Click({
-    $setupScript = Join-Path $installDir "setup_wizard.ps1"
-    if (Test-Path $setupScript) {
-        $form.Hide()
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"" -Wait
-        $form.Show()
-        [System.Windows.Forms.MessageBox]::Show("Setup wizard completed. You can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+    # Extract Docker files silently (needed for setup)
+    Extract-DockerFiles
+
+    # Get setup wizard content from memory
+    $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
+    if ($setupContent) {
+        # Extract setup wizard to subfolder
+        $setupScript = Join-Path $filesDir "setup_wizard.ps1"
+        [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
+
+        try {
+            $form.Hide()
+            # Run the setup wizard from subfolder with minimized window (GUI scripts can't be fully hidden)
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"" -Wait
+            $form.Show()
+
+            # Check if .env was created in subfolder, then move it to main directory for persistence
+            $envFileInSubfolder = Join-Path $filesDir ".env"
+            $envFileMain = Join-Path $installDir ".env"
+
+            if (Test-Path $envFileInSubfolder) {
+                # Move .env to main directory so it persists even if subfolder is deleted
+                Copy-Item $envFileInSubfolder $envFileMain -Force
+                [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+            }
+        } finally {
+            # Optionally clean up the setup wizard file (or leave it for re-runs)
+            # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
+        }
     } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: setup_wizard.ps1 not found.`n`nPlease run the extraction again.", "File Not Found", 'OK', 'Error')
+        [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.", "Error", 'OK', 'Error')
     }
 })
 
 $btnLaunch.Add_Click({
-    $launchScript = Join-Path $installDir "launch_claude.ps1"
-    if (Test-Path $launchScript) {
-        # Check if .env exists
-        $envFile = Join-Path $installDir ".env"
-        if (-not (Test-Path $envFile)) {
-            $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
-            if ($result -eq 'Yes') {
-                $btnSetup.PerformClick()
-            }
-            return
+    # Check if .env exists in MAIN directory (persists even if subfolder deleted)
+    $envFileMain = Join-Path $installDir ".env"
+    if (-not (Test-Path $envFileMain)) {
+        $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
+        if ($result -eq 'Yes') {
+            $btnSetup.PerformClick()
         }
+        return
+    }
+
+    # Ensure subfolder exists and copy .env there for the launch script to use
+    if (-not (Test-Path $filesDir)) {
+        New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
+    }
+
+    # Copy .env from main directory to subfolder for launch script to access
+    $envFileInSubfolder = Join-Path $filesDir ".env"
+    Copy-Item $envFileMain $envFileInSubfolder -Force
+
+    # Re-extract Docker files if they were deleted
+    Extract-DockerFiles
+
+    # Get launch script content from memory
+    $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
+    if ($launchContent) {
+        # Extract launch script to subfolder
+        $launchScript = Join-Path $filesDir "launch_claude.ps1"
+        [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
 
         $form.Hide()
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$launchScript`""
-        Start-Sleep -Seconds 1
+        # Run the launch script from subfolder with minimized window
+        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$launchScript`""
+
+        # Wait a moment, then close the main form
+        Start-Sleep -Milliseconds 500
         $form.Close()
     } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: launch_claude.ps1 not found.`n`nPlease run the extraction again.", "File Not Found", 'OK', 'Error')
+        [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+        $form.Show()
     }
 })
 

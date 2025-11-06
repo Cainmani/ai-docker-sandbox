@@ -233,9 +233,9 @@ $pages = @()
 
 # Page 0: Welcome
 $p0 = New-PanelPage
-$p0.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p0.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p0.Controls.Add((New-Label -text 'WELCOME TO AI CLI DOCKER SETUP - SECURE AI ENVIRONMENT WIZARD' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p0.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p0.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p0.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p0.Controls.Add((New-Label 'This wizard will help you set up a Docker container to run the AI Command Line' 20 95 880 24 10 $false $true))
 $p0.Controls.Add((New-Label 'Interface (CLI) in a secure, isolated environment. This prevents the AI from' 20 115 880 24 10 $false $true))
@@ -254,9 +254,9 @@ $pages += $p0
 
 # Page 1: Credentials
 $p1 = New-PanelPage
-$p1.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p1.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p1.Controls.Add((New-Label -text 'UBUNTU SYSTEM CREDENTIALS SETUP' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p1.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p1.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p1.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'These credentials will be used for the Ubuntu system running inside the Docker container.' 20 95 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'This is a secure Linux environment isolated from your Windows system.' 20 115 880 24 10 $false $true))
@@ -279,9 +279,9 @@ $pages += $p1
 
 # Page 2: Folder choose
 $p2 = New-PanelPage
-$p2.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p2.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p2.Controls.Add((New-Label -text 'WORKSPACE DIRECTORY SELECTION' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p2.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p2.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p2.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p2.Controls.Add((New-Label 'Select the PARENT directory where your AI_Work folder will be created.' 20 95 880 24 10 $false $true))
 $p2.Controls.Add((New-Label 'This will be the home of all your AI projects and work. You will be able to access' 20 115 880 24 10 $false $true))
@@ -314,9 +314,9 @@ $btnBrowse.Add_Click({
 
 # Page 3: Docker check
 $p3 = New-PanelPage
-$p3.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p3.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p3.Controls.Add((New-Label -text 'DOCKER DESKTOP STATUS CHECK' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p3.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p3.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p3.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p3.Controls.Add((New-Label 'Docker Desktop must be installed and running to proceed with the setup.' 20 95 880 24 10 $false $true))
 $p3.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
@@ -350,9 +350,9 @@ $btnRetryDock.Add_Click({
 
 # Page 4: Build/Up
 $p4 = New-PanelPage
-$p4.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p4.Controls.Add((New-Label -text 'BUILDING AND DEPLOYING CONTAINER' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p4.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p4.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p4.Controls.Add((New-Label 'The wizard is now building the Docker image and deploying the container.' 20 95 880 24 10 $false $true))
 $p4.Controls.Add((New-Label 'This process downloads Ubuntu and installs all necessary packages.' 20 115 880 24 10 $false $true))
@@ -365,9 +365,9 @@ $pages += $p4
 
 # Page 5: Install Claude
 $p5 = New-PanelPage
-$p5.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text 'INSTALLING CLAUDE CODE CLI' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p5.Controls.Add((New-Label 'Installing Claude Code CLI via npm package manager...' 20 95 880 24 10 $false $true))
 $p5.Controls.Add((New-Label 'Command: npm install -g @anthropic-ai/claude-code' 20 115 880 24 10 $false $true))
@@ -381,9 +381,9 @@ $pages += $p5
 
 # Page 6: Done
 $p6 = New-PanelPage
-$p6.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text '══════════════════════════════════════════════════════════════════════════════════' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p6.Controls.Add((New-Label '✓ AI CLI Docker environment successfully initialized!' 20 95 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
@@ -686,3 +686,4 @@ Write-Host "[INIT] Displaying page 0 (Welcome)" -ForegroundColor Green
 [void]$form.ShowDialog()
 Write-Host ""
 Write-Host "[SHUTDOWN] Wizard closed" -ForegroundColor Yellow
+

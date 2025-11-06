@@ -7,6 +7,7 @@ $script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)      # Bright
 $script:MatrixDarkGreen = [System.Drawing.Color]::FromArgb(0, 20, 0)    # Very Dark Green Background
 $script:MatrixMidGreen = [System.Drawing.Color]::FromArgb(0, 40, 10)    # Mid Dark Green
 $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)     # Accent Green
+$script:MatrixRed = [System.Drawing.Color]::FromArgb(220, 20, 60)       # Matrix Red Pill Color (Crimson)
 $script:Arrow = [char]62 + [char]62                                      # >> symbol to avoid parser issues
 
 function ShowMsg($text, $icon='Information') {
@@ -89,10 +90,10 @@ $btnOpen = New-Object System.Windows.Forms.Button
 $btnOpen.Text = "Launch Workspace Shell"
 $btnOpen.Left=320; $btnOpen.Top=190; $btnOpen.Width=200; $btnOpen.Height=40
 $btnOpen.FlatStyle='Flat'
-$btnOpen.FlatAppearance.BorderColor = $script:MatrixAccent
+$btnOpen.FlatAppearance.BorderColor = $script:MatrixRed
 $btnOpen.FlatAppearance.BorderSize = 2
-$btnOpen.BackColor=$script:MatrixMidGreen
-$btnOpen.ForeColor=$script:MatrixGreen
+$btnOpen.BackColor=[System.Drawing.Color]::FromArgb(40, 0, 0)  # Dark red background
+$btnOpen.ForeColor=$script:MatrixRed
 $btnOpen.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($btnOpen)
 
