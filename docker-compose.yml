@@ -1,0 +1,13 @@
+services:
+  ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-cli
+    environment:
+      USER_NAME: ${USER_NAME}
+      USER_PASSWORD: ${USER_PASSWORD}
+    volumes:
+      - ${WORKSPACE_PATH}:/workspace
+    tty: true
+    stdin_open: true

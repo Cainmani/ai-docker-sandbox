@@ -1,0 +1,40 @@
+# User-specific files
+.env
+
+# IDE files
+.idea/
+.vscode/
+*.suo
+*.user
+*.userospm
+*.sln.docstates
+
+# Build results
+*.exe
+*.dll
+*.pdb
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Docker
+.dockerignore
+
