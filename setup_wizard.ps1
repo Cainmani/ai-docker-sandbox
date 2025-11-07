@@ -642,15 +642,50 @@ if ($lineEndingsFixed) {
 }
 Write-Host ""
 
-# 2. Check if old container exists and clean it up
+# 2. Check if old container exists - PROTECT IT!
 Write-Host "[CHECK 2/3] Checking for existing containers..." -ForegroundColor Cyan
 $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
 if ($existingContainer -eq "ai-cli") {
-    Write-Host "[INFO] Found existing ai-cli container" -ForegroundColor Yellow
-    Write-Host "[AUTO-FIX] Removing old container for fresh start..." -ForegroundColor Yellow
-    docker stop ai-cli 2>$null | Out-Null
-    docker rm ai-cli 2>$null | Out-Null
-    Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
+    Write-Host "[WARNING] Found existing ai-cli container with your data!" -ForegroundColor Yellow
+    Write-Host "[PROTECTION] Container contains your Claude authentication and settings" -ForegroundColor Yellow
+    Write-Host ""
+
+    # Show warning dialog with options
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        "*** EXISTING CONTAINER DETECTED ***`n`n" +
+        "An ai-cli container already exists on your system.`n`n" +
+        "This container contains:`n" +
+        "  - Your Claude authentication (you won't need to sign in again)`n" +
+        "  - Your configuration and settings`n" +
+        "  - Persistent data`n`n" +
+        "RECOMMENDED: Click 'No' and use 'Launch Claude' instead.`n`n" +
+        "Click 'Yes' ONLY if you want to DELETE the existing container and start fresh.`n`n" +
+        "Do you want to DELETE the existing container and continue with First Time Setup?",
+        "Container Already Exists - Delete?",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning,
+        [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
+        Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
+        docker stop ai-cli 2>$null | Out-Null
+        docker rm ai-cli 2>$null | Out-Null
+        Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
+    } else {
+        Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
+        Write-Host "[INFO] Please use 'Launch Claude' to access your existing container" -ForegroundColor Cyan
+        [System.Windows.Forms.MessageBox]::Show(
+            "Setup cancelled - your existing container is safe!`n`n" +
+            "To access your container, please use 'Launch Claude' button instead of 'First Time Setup'.`n`n" +
+            "Your Claude authentication and all settings are preserved.",
+            "Setup Cancelled",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        ) | Out-Null
+        exit 1
+    }
 } else {
     Write-Host "[OK] No existing container found" -ForegroundColor Green
 }

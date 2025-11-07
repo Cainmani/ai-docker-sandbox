@@ -5,33 +5,14 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# Get the directory where this exe/script is running from
-$installDir = $null
-
-# Try different methods to get the directory
-if ($PSScriptRoot) {
-    $installDir = $PSScriptRoot
-} elseif ($MyInvocation.MyCommand.Path) {
-    $installDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-} else {
-    # For compiled exe, try to get the assembly location
-    try {
-        $assemblyLocation = [System.Reflection.Assembly]::GetExecutingAssembly().Location
-        if (-not [string]::IsNullOrEmpty($assemblyLocation)) {
-            $installDir = [System.IO.Path]::GetDirectoryName($assemblyLocation)
-        }
-    } catch {
-        # Silently continue if this fails
-    }
+# Use AppData for all persistent files - makes this a true self-contained app
+$appDataDir = Join-Path $env:LOCALAPPDATA "AI_Docker_Manager"
+if (-not (Test-Path $appDataDir)) {
+    New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
 }
 
-# Final fallback to current directory
-if ([string]::IsNullOrEmpty($installDir)) {
-    $installDir = (Get-Location).Path
-}
-
-# Create a subfolder for all extracted files to keep things organized
-$filesDir = Join-Path $installDir "AI_Manager_Files"
+# Create subfolder for Docker-related files
+$filesDir = Join-Path $appDataDir "docker-files"
 if (-not (Test-Path $filesDir)) {
     New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
 }
@@ -178,6 +159,17 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Status label showing where app data is stored
+$lblAppData = New-Object System.Windows.Forms.Label
+$lblAppData.Left = 20; $lblAppData.Top = 390
+$lblAppData.Width = 560; $lblAppData.Height = 40
+$lblAppData.Text = "Configuration stored in:`n$appDataDir"
+$lblAppData.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblAppData.ForeColor = $script:MatrixAccent
+$lblAppData.BackColor = 'Transparent'
+$lblAppData.Font = New-Object System.Drawing.Font('Consolas', 7)
+$form.Controls.Add($lblAppData)
+
 # Button 3: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
@@ -206,18 +198,22 @@ $btnSetup.Add_Click({
         try {
             $form.Hide()
             # Run the setup wizard from subfolder with minimized window (GUI scripts can't be fully hidden)
-            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"" -Wait
+            $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"" -Wait -PassThru
             $form.Show()
 
-            # Check if .env was created in subfolder, then move it to main directory for persistence
-            $envFileInSubfolder = Join-Path $filesDir ".env"
-            $envFileMain = Join-Path $installDir ".env"
+            # Only show success message if wizard completed successfully (exit code 0)
+            if ($process.ExitCode -eq 0) {
+                # Check if .env was created in docker-files folder, then move it to main app directory
+                $envFileInSubfolder = Join-Path $filesDir ".env"
+                $envFileMain = Join-Path $appDataDir ".env"
 
-            if (Test-Path $envFileInSubfolder) {
-                # Move .env to main directory so it persists even if subfolder is deleted
-                Copy-Item $envFileInSubfolder $envFileMain -Force
-                [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+                if (Test-Path $envFileInSubfolder) {
+                    # Move .env to main app directory for easier access
+                    Copy-Item $envFileInSubfolder $envFileMain -Force
+                }
+                [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
             }
+            # If exit code is non-zero (e.g., 1 = cancelled), don't show success message
         } finally {
             # Optionally clean up the setup wizard file (or leave it for re-runs)
             # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
@@ -228,8 +224,8 @@ $btnSetup.Add_Click({
 })
 
 $btnLaunch.Add_Click({
-    # Check if .env exists in MAIN directory (persists even if subfolder deleted)
-    $envFileMain = Join-Path $installDir ".env"
+    # Check if .env exists in AppData directory
+    $envFileMain = Join-Path $appDataDir ".env"
     if (-not (Test-Path $envFileMain)) {
         $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
         if ($result -eq 'Yes') {
@@ -238,12 +234,12 @@ $btnLaunch.Add_Click({
         return
     }
 
-    # Ensure subfolder exists and copy .env there for the launch script to use
+    # Ensure docker-files subfolder exists and copy .env there for the launch script to use
     if (-not (Test-Path $filesDir)) {
         New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
     }
 
-    # Copy .env from main directory to subfolder for launch script to access
+    # Copy .env from main app directory to docker-files folder for launch script to access
     $envFileInSubfolder = Join-Path $filesDir ".env"
     Copy-Item $envFileMain $envFileInSubfolder -Force
 

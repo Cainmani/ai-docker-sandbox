@@ -1,26 +1,18 @@
-# .gitattributes - Ensure correct line endings for all files
+# Line ending normalization
+* text=auto
 
-# Shell scripts MUST use Unix line endings (LF)
+# Shell scripts should always use LF
 *.sh text eol=lf
 
-# PowerShell scripts use Windows line endings (CRLF)
+# PowerShell scripts can use CRLF (Windows default)
 *.ps1 text eol=crlf
 
-# Docker files use Unix line endings (LF)
-Dockerfile text eol=lf
-docker-compose.yml text eol=lf
-
-# Markdown files use Unix line endings for consistency
-*.md text eol=lf
-
-# General text files
-*.txt text
-*.json text
+# YAML files
 *.yml text eol=lf
 *.yaml text eol=lf
 
-# Binary files (do not convert)
-*.png binary
-*.jpg binary
-*.exe binary
+# Dockerfile
+Dockerfile text eol=lf
 
+# Markdown
+*.md text eol=crlf
