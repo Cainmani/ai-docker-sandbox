@@ -9,5 +9,10 @@ services:
       USER_PASSWORD: ${USER_PASSWORD}
     volumes:
       - ${WORKSPACE_PATH}:/workspace
+      - claude-config:/home/${USER_NAME}/.claude
     tty: true
     stdin_open: true
+
+volumes:
+  claude-config:
+    driver: local

@@ -132,9 +132,12 @@ $btnSetup.Add_Click({
     $setupScript = Join-Path $scriptPath "setup_wizard.ps1"
     if (Test-Path $setupScript) {
         $form.Hide()
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"" -Wait
+        $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"" -Wait -PassThru
         $form.Show()
-        [System.Windows.Forms.MessageBox]::Show("Setup wizard completed. You can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+        if ($process.ExitCode -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+        }
+        # If exit code is non-zero (e.g., 1 = cancelled), don't show success message
     } else {
         [System.Windows.Forms.MessageBox]::Show("Error: setup_wizard.ps1 not found in the same directory as this launcher.`n`nPath: $setupScript", "File Not Found", 'OK', 'Error')
     }

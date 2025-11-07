@@ -9,12 +9,14 @@ This project provides a complete, automated setup wizard and launcher for deploy
 ## Features
 
 - ✅ **One-Click Setup Wizard** - Automated installation with GUI
+- ✅ **Self-Contained Application** - All config stored in AppData, .exe can be anywhere
 - ✅ **Secure Isolation** - AI runs in Docker container, can't access system files
 - ✅ **User-Friendly Launcher** - Quick daily access to workspace
 - ✅ **Persistent Storage** - All files accessible from Windows
 - ✅ **Automatic Management** - Container auto-starts when needed
 - ✅ **Professional UX** - Matrix-themed GUI with progress feedback
 - ✅ **User-Ready** - No command-line knowledge required
+- ✅ **Clean Experience** - No scattered files or folders on your desktop
 
 ## Quick Start
 
@@ -60,16 +62,18 @@ C:\your\chosen\path\
     ├── project-2/                    # Each has isolated context
     └── project-n/
 
-ai-docker/
+C:\Users\<YourName>\AppData\Local\AI_Docker_Manager\  # App configuration (auto-created)
 ├── .env                              # Generated credentials
-├── setup_wizard.ps1                  # One-time setup
-├── launch_claude.ps1                 # Daily launcher
-├── docker-compose.yml                # Container config
-├── Dockerfile                        # Image definition
-├── entrypoint.sh                     # Container initialization
-├── setup.sh                          # User setup (unused - wizard handles this)
-└── claude_wrapper.sh                 # Claude command wrapper
+└── docker-files\                     # Docker configuration files
+    ├── docker-compose.yml            # Container config
+    ├── Dockerfile                    # Image definition
+    ├── entrypoint.sh                 # Container initialization
+    ├── claude_wrapper.sh             # Claude command wrapper
+    ├── setup_wizard.ps1              # Extracted when needed
+    └── launch_claude.ps1             # Extracted when needed
 ```
+
+**Note**: All configuration is stored in Windows AppData, making this a true self-contained application. The .exe can be placed anywhere on your system.
 
 ## Architecture
 
@@ -350,29 +354,38 @@ Invoke-ps2exe -inputFile "AI_Docker_Launcher.ps1" -outputFile "AI_Docker_Manager
 
 ### Distribution Package
 
-Include these files in your distribution:
-- `AI_Docker_Manager.exe` (compiled launcher)
-- `setup_wizard.ps1`
-- `launch_claude.ps1`
-- `docker-compose.yml`
-- `Dockerfile`
-- `entrypoint.sh`
-- `claude_wrapper.sh`
-- `fix_line_endings.ps1`
-- `.gitattributes`
-- `README.md`
+**Single-file distribution** - Just distribute `AI_Docker_Manager.exe`!
+
+All files are embedded inside the .exe:
+- setup_wizard.ps1
+- launch_claude.ps1
+- docker-compose.yml
+- Dockerfile
+- entrypoint.sh
+- claude_wrapper.sh
+- fix_line_endings.ps1
+- .gitattributes
+- README.md
+
+Files are automatically extracted to `%LOCALAPPDATA%\AI_Docker_Manager` when needed.
 
 ### User Experience
 
 **First time:**
-1. Extract all files to a folder
+1. Download `AI_Docker_Manager.exe` (place anywhere: Desktop, Downloads, etc.)
 2. Double-click `AI_Docker_Manager.exe`
 3. Click "1. FIRST TIME SETUP"
-4. Follow wizard
+4. Follow wizard - configuration auto-saved to AppData
 
 **Daily use:**
-1. Double-click `AI_Docker_Manager.exe`
+1. Double-click `AI_Docker_Manager.exe` (from anywhere)
 2. Click "2. LAUNCH CLAUDE CLI"
+
+**Benefits:**
+- No installer needed
+- .exe can be on Desktop, USB drive, or anywhere
+- All data stored in proper Windows app location
+- Clean and professional experience
 
 **See `EXE_CREATION_GUIDE.md` for detailed compilation instructions.**
 
