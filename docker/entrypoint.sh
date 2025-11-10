@@ -19,6 +19,14 @@ fi
 # Give user ownership of workspace
 chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
 
+# CRITICAL: Ensure user's home directory has correct ownership
+# This includes the .claude directory which is a Docker volume
+chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>/dev/null || true
+
+# Ensure .claude directory exists with correct permissions
+mkdir -p "/home/$USER_NAME/.claude"
+chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
+chmod 755 "/home/$USER_NAME/.claude"
 
 # Keep container running
 exec tail -f /dev/null

@@ -18,15 +18,18 @@ if (-not (Get-Module -ListAvailable -Name ps2exe)) {
 Write-Host "[1/4] Reading source files..." -ForegroundColor Cyan
 
 $filesToEmbed = @(
-    "setup_wizard.ps1",
-    "launch_claude.ps1",
-    "docker-compose.yml",
-    "Dockerfile",
-    "entrypoint.sh",
-    "claude_wrapper.sh",
-    "fix_line_endings.ps1",
-    ".gitattributes",
-    "README.md"
+   "..\setup_wizard.ps1",
+   "..\launch_claude.ps1",
+   "..\..\docker\docker-compose.yml",
+   "..\..\docker\Dockerfile",
+   "..\..\docker\entrypoint.sh",
+   "..\..\docker\claude_wrapper.sh",
+   "..\fix_line_endings.ps1",
+   "..\..\.gitattributes",
+   "..\..\README.md",
+   "..\..\docs\USER_MANUAL.md",
+   "..\..\docs\QUICK_REFERENCE.md",
+   "..\..\tests\TESTING_CHECKLIST.md"
 )
 
 # Check all files exist before proceeding
@@ -62,28 +65,36 @@ Write-Host "  OK Read $($files.Count) files" -ForegroundColor Green
 # Create the bundled script
 Write-Host "[2/4] Creating bundled script..." -ForegroundColor Cyan
 
-$bundledScript = Get-Content "AI_Docker_Complete.ps1" -Raw
+# Template is in scripts/ directory (one level up)
+$templatePath = "..\AI_Docker_Complete.ps1"
+$bundledScript = Get-Content $templatePath -Raw
 
 # Replace placeholders with actual content (Base64 encoded)
 foreach ($fileName in $files.Keys) {
-    # Convert filename to placeholder format
-    $placeholder = $fileName.ToUpper().Replace('.', '_').Replace('-', '_') + "_BASE64_HERE"
+    # Extract just the filename without path for cleaner placeholders
+    $justFileName = Split-Path -Leaf $fileName
+
+    # Normalize the filename: replace dots and hyphens with underscores
+    $normalizedName = $justFileName.Replace('.', '_').Replace('-', '_').ToUpper()
+    $placeholder = $normalizedName + "_BASE64_HERE"
 
     # Convert content to Base64
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($files[$fileName])
     $base64Content = [System.Convert]::ToBase64String($bytes)
 
-    # Replace placeholder with Base64 content
-    $bundledScript = $bundledScript -replace $placeholder, $base64Content
+    # Use literal replacement to avoid regex issues
+    $bundledScript = $bundledScript.Replace($placeholder, $base64Content)
 
-    Write-Host "    Embedded: $fileName" -ForegroundColor Gray
+    Write-Host "    Embedded: $fileName -> $placeholder" -ForegroundColor Gray
 }
 
-# Save the bundled script
-$bundledScript | Out-File "AI_Docker_Complete_Bundled.ps1" -Encoding UTF8
+# Save the bundled script to project root
+$projectRoot = Join-Path $PSScriptRoot "..\..\"
+$bundledScriptPath = Join-Path $projectRoot "AI_Docker_Complete_Bundled.ps1"
+$bundledScript | Out-File $bundledScriptPath -Encoding UTF8
 
 # Validate that all placeholders were replaced
-$bundledContent = Get-Content "AI_Docker_Complete_Bundled.ps1" -Raw
+$bundledContent = Get-Content $bundledScriptPath -Raw
 $unreplacedCount = 0
 
 # Check for any remaining BASE64_HERE placeholders
@@ -101,7 +112,7 @@ if ($bundledContent -match "([A-Z_]+_BASE64_HERE)") {
         $response = Read-Host
         if ($response -ne 'Y' -and $response -ne 'y') {
             Write-Host "  Build cancelled" -ForegroundColor Red
-            Remove-Item "AI_Docker_Complete_Bundled.ps1" -Force -ErrorAction SilentlyContinue
+            Remove-Item $bundledScriptPath -Force -ErrorAction SilentlyContinue
             exit 1
         }
     }
@@ -112,21 +123,24 @@ Write-Host "  OK Created AI_Docker_Complete_Bundled.ps1" -ForegroundColor Green
 # Compile to exe
 Write-Host "[3/4] Compiling to executable..." -ForegroundColor Cyan
 
+# Output to project root
+$exePath = Join-Path $projectRoot "AI_Docker_Manager.exe"
+
 try {
     Invoke-ps2exe `
-        -inputFile "AI_Docker_Complete_Bundled.ps1" `
-        -outputFile "AI_Docker_Manager.exe" `
+        -inputFile $bundledScriptPath `
+        -outputFile $exePath `
         -title "AI Docker Manager" `
         -description "Complete AI CLI Docker Setup System" `
         -company "Your Company" `
         -product "AI Docker CLI Setup" `
-        -version "1.0.0.0" `
+        -version "2.0.0.0" `
         -noConsole
 
-    if (Test-Path "AI_Docker_Manager.exe") {
+    if (Test-Path $exePath) {
         Write-Host "  OK AI_Docker_Manager.exe created successfully!" -ForegroundColor Green
 
-        $fileSize = (Get-Item "AI_Docker_Manager.exe").Length / 1MB
+        $fileSize = (Get-Item $exePath).Length / 1MB
         Write-Host "  Size: $([math]::Round($fileSize, 2)) MB" -ForegroundColor Gray
     } else {
         throw "EXE file was not created"
@@ -138,7 +152,7 @@ try {
 
 # Clean up temporary bundled script
 Write-Host "[4/4] Cleaning up..." -ForegroundColor Cyan
-Remove-Item "AI_Docker_Complete_Bundled.ps1" -Force -ErrorAction SilentlyContinue
+Remove-Item $bundledScriptPath -Force -ErrorAction SilentlyContinue
 Write-Host "  OK Removed temporary files" -ForegroundColor Green
 
 Write-Host ""
@@ -146,7 +160,7 @@ Write-Host "================================================================" -F
 Write-Host "                BUILD COMPLETE!" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Output: AI_Docker_Manager.exe" -ForegroundColor Cyan
+Write-Host "Output: $exePath" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "This executable contains:" -ForegroundColor Cyan
 Write-Host "  OK Setup Wizard" -ForegroundColor Green

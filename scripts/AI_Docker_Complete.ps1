@@ -34,6 +34,9 @@ $script:EmbeddedFiles = @{
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
     '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
     'README.md' = 'README_MD_BASE64_HERE'
+    'USER_MANUAL.md' = 'USER_MANUAL_MD_BASE64_HERE'
+    'QUICK_REFERENCE.md' = 'QUICK_REFERENCE_MD_BASE64_HERE'
+    'TESTING_CHECKLIST.md' = 'TESTING_CHECKLIST_MD_BASE64_HERE'
 }
 
 # Function to decode a file from Base64 to text
@@ -47,11 +50,11 @@ function Get-EmbeddedFileContent {
     return $null
 }
 
-# Function to silently extract only Docker-required files (no popups, no console output)
+# Function to silently extract Docker-required files and documentation (no popups, no console output)
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', '.gitattributes')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'TESTING_CHECKLIST.md')
 
     foreach ($fileName in $dockerFiles) {
         $filePath = Join-Path $filesDir $fileName
@@ -201,8 +204,9 @@ $btnSetup.Add_Click({
             $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"" -Wait -PassThru
             $form.Show()
 
-            # Only show success message if wizard completed successfully (exit code 0)
+            # Handle different exit codes
             if ($process.ExitCode -eq 0) {
+                # Success - show completion message
                 # Check if .env was created in docker-files folder, then move it to main app directory
                 $envFileInSubfolder = Join-Path $filesDir ".env"
                 $envFileMain = Join-Path $appDataDir ".env"
@@ -212,8 +216,13 @@ $btnSetup.Add_Click({
                     Copy-Item $envFileInSubfolder $envFileMain -Force
                 }
                 [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+            } elseif ($process.ExitCode -eq 1) {
+                # Error/failure - show error message
+                [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+            } elseif ($process.ExitCode -eq 2) {
+                # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
             }
-            # If exit code is non-zero (e.g., 1 = cancelled), don't show success message
+            # Exit codes: 0 = success, 1 = error, 2 = user cancelled
         } finally {
             # Optionally clean up the setup wizard file (or leave it for re-runs)
             # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
