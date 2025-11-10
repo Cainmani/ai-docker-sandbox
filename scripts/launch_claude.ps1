@@ -121,26 +121,29 @@ $btnOpen.Add_Click({
     # Check if Docker is running
     if (-not (DockerOk)) {
         # Docker exists but not running - try to start Docker Desktop
-        ShowMsg ("[INFO] " + $script:Arrow + " Docker Desktop is not running. Attempting to start...`n`nThis may take 30-60 seconds.") 'Information'
+        $autoStartMsg = "Docker Desktop is not running.`n`n" + $script:Arrow + " When you click OK, Docker Desktop will start automatically.`n`n" + "What to expect:`n" + $script:Arrow + " Docker Desktop window will open`n" + $script:Arrow + " Docker will take 1-2 minutes to fully start`n" + $script:Arrow + " This launcher will continue automatically once ready`n`n" + "Please wait and do not close any windows."
+        ShowMsg $autoStartMsg 'Information'
 
         # Try to start Docker Desktop
         $dockerDesktop = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
         if (Test-Path $dockerDesktop) {
             Start-Process $dockerDesktop
 
-            # Wait for Docker to start (max 60 seconds)
+            # Wait for Docker to start (max 120 seconds = 2 minutes)
             $waited = 0
-            while ($waited -lt 60 -and -not (DockerOk)) {
+            while ($waited -lt 120 -and -not (DockerOk)) {
                 Start-Sleep -Seconds 2
                 $waited += 2
             }
 
             if (-not (DockerOk)) {
-                ShowMsg ("[ERROR] " + $script:Arrow + " Docker Desktop did not start in time.`n`n" + $script:Arrow + " Please start Docker Desktop manually and try again.") 'Warning'
+                $timeoutMsg = "Docker Desktop did not start within 2 minutes.`n`n" + "Possible solutions:`n" + $script:Arrow + " Wait a bit longer and try launching again`n" + $script:Arrow + " Check if Docker Desktop is starting (look for icon in system tray)`n" + $script:Arrow + " Restart your computer if Docker Desktop appears stuck`n" + $script:Arrow + " Verify Docker Desktop is properly installed"
+                ShowMsg $timeoutMsg 'Warning'
                 return
             }
         } else {
-            ShowMsg ("[ERROR] " + $script:Arrow + " Docker Desktop is not running.`n`n" + $script:Arrow + " Please start Docker Desktop manually and try again.") 'Warning'
+            $manualStartMsg = "Docker Desktop is not running.`n`n" + "To fix this:`n" + $script:Arrow + " Click the Start menu`n" + $script:Arrow + " Search for `"Docker Desktop`"`n" + $script:Arrow + " Click to start Docker Desktop`n" + $script:Arrow + " Wait for Docker to fully start (icon appears in system tray)`n" + $script:Arrow + " Then try launching Claude CLI again"
+            ShowMsg $manualStartMsg 'Warning'
             return
         }
     }

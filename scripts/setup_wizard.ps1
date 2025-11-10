@@ -7,11 +7,19 @@ Add-Type -AssemblyName System.Drawing
 function Fix-LineEndings {
     param([string]$scriptPath)
 
+    # Docker files location - detect if running from embedded exe or project directory
+    $dockerPath = if ($scriptPath -like '*AI_Docker_Manager*docker-files*') {
+        # Running from embedded exe - docker files are in same folder
+        $scriptPath
+    } else {
+        # Running from project directory - docker files are in ../docker
+        Join-Path $scriptPath '..\docker'
+    }
     $files = @('entrypoint.sh', 'setup.sh', 'claude_wrapper.sh')
     $fixed = $false
 
     foreach ($file in $files) {
-        $filePath = Join-Path $scriptPath $file
+        $filePath = Join-Path $dockerPath $file
 
         if (Test-Path $filePath) {
             $content = Get-Content $filePath -Raw
@@ -91,7 +99,7 @@ function Show-Info([string]$msg) {
 }
 $script:runningProcess = $null
 
-function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $statusLabel) {
+function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $statusLabel, [string]$workingDirectory = '') {
     try {
         # Log command to console with proper variable expansion
         Write-Host '[' -NoNewline -ForegroundColor DarkGray
@@ -100,6 +108,9 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         Write-Host 'EXEC' -NoNewline -ForegroundColor Magenta
         Write-Host '] ' -NoNewline -ForegroundColor DarkGray
         Write-Host "$file $arguments" -ForegroundColor White
+        if ($workingDirectory) {
+            Write-Host "  Working Directory: $workingDirectory" -ForegroundColor DarkGray
+        }
 
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $file
@@ -108,9 +119,39 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         $psi.RedirectStandardError = $true
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
+
+        # Set working directory if provided
+        if ($workingDirectory -and (Test-Path $workingDirectory)) {
+            $psi.WorkingDirectory = $workingDirectory
+        }
+
         $p = New-Object System.Diagnostics.Process
         $p.StartInfo = $psi
+
+        # Set up async output reading to prevent buffer deadlock
+        $outputBuilder = New-Object System.Text.StringBuilder
+        $errorBuilder = New-Object System.Text.StringBuilder
+
+        $outputHandler = {
+            if ($EventArgs.Data -ne $null) {
+                [void]$Event.MessageData.AppendLine($EventArgs.Data)
+            }
+        }
+
+        $errorHandler = {
+            if ($EventArgs.Data -ne $null) {
+                [void]$Event.MessageData.AppendLine($EventArgs.Data)
+            }
+        }
+
+        $outputEvent = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -Action $outputHandler -MessageData $outputBuilder
+        $errorEvent = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -Action $errorHandler -MessageData $errorBuilder
+
         [void]$p.Start()
+
+        # Begin async reading - this prevents buffer deadlock
+        $p.BeginOutputReadLine()
+        $p.BeginErrorReadLine()
 
         $script:runningProcess = $p
 
@@ -147,6 +188,15 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
 
         $script:runningProcess = $null
 
+        # Wait for async readers to finish
+        $p.WaitForExit()
+
+        # Cleanup event handlers
+        Unregister-Event -SourceIdentifier $outputEvent.Name -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $errorEvent.Name -ErrorAction SilentlyContinue
+        Remove-Job -Id $outputEvent.Id -Force -ErrorAction SilentlyContinue
+        Remove-Job -Id $errorEvent.Id -Force -ErrorAction SilentlyContinue
+
         # Complete the progress bar
         if ($progressBar) {
             $progressBar.Value = 100
@@ -156,8 +206,9 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
             [System.Windows.Forms.Application]::DoEvents()
         }
 
-        $out = $p.StandardOutput.ReadToEnd()
-        $err = $p.StandardError.ReadToEnd()
+        $out = $outputBuilder.ToString()
+        $err = $errorBuilder.ToString()
+
         if ($p.ExitCode -ne 0) {
             if ($statusLabel) { $statusLabel.Text = "Command failed (exit $($p.ExitCode))" }
             Write-Host '[ERROR] Exit code: ' -NoNewline -ForegroundColor Red
@@ -191,10 +242,21 @@ $state = [ordered]@{
     ParentPath = ''
     WorkspacePath = ''
 }
-$composePath = Join-Path $PSScriptRoot 'docker-compose.yml'
+# Docker files location - detect if running from embedded exe or project directory
+# If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
+# If running from project scripts folder, use ../docker
+$dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
+    # Running from embedded exe - docker files are in same folder
+    $PSScriptRoot
+} else {
+    # Running from project directory - docker files are in ../docker
+    Join-Path $PSScriptRoot '..\docker'
+}
+
+$composePath = Join-Path $dockerPath 'docker-compose.yml'
 if (-not (Test-Path $composePath)) {
-    Show-Error ('docker-compose.yml not found in this folder.' + [Environment]::NewLine + 'Place setup_wizard.ps1 in the ai-docker folder.')
-    return
+    Show-Error ('docker-compose.yml not found at: ' + $composePath + [Environment]::NewLine + [Environment]::NewLine + 'Project structure may be incorrect.' + [Environment]::NewLine + [Environment]::NewLine + 'Script location: ' + $PSScriptRoot + [Environment]::NewLine + 'Looking for: ' + $composePath)
+    exit 1  # Exit with error code
 }
 
 # ---------- main form ----------
@@ -385,23 +447,23 @@ $p6.Controls.Add((New-Label -text '=============================================
 $p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '✓ AI CLI Docker environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'AI CLI Docker environment successfully initialized!' 20 95 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'You can now use the launcher script to access your workspace shell.' 20 140 880 24 10 $false $true))
+$p6.Controls.Add((New-Label 'FIRST TIME USE - Important Steps:' 20 140 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'Basic Workflow:' 20 190 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 215 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Open a terminal and run: docker exec -it ai-cli bash' 20 240 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 260 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '2. Navigate to your project: cd /workspace/<your-project>' 20 285 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 305 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '3. Run Claude: claude' 20 330 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 350 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'Key Points:' 20 375 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '>> Each subdirectory in AI_Work = isolated AI project context' 20 420 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 440 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '>> All data persists locally in your AI_Work folder on Windows' 20 465 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '1. Click "Launch Claude CLI" (or run launch_claude.ps1)' 20 190 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
+$p6.Controls.Add((New-Label '2. In the terminal, type: claude' 20 235 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
+$p6.Controls.Add((New-Label '3. FIRST RUN ONLY: You will be prompted to authenticate with Anthropic' 20 280 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - Follow the prompts to enter your API key or login' 20 300 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - Authentication persists - you only do this once!' 20 320 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
+$p6.Controls.Add((New-Label '4. After authentication, Claude CLI is ready to use!' 20 365 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 385 880 24 10 $false $true))
+$p6.Controls.Add((New-Label 'Quick Tips:' 20 410 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '' 20 430 880 24 10 $false $true))
+$p6.Controls.Add((New-Label '>> All your work saves to AI_Work folder on your Windows PC' 20 455 880 24 9 $false $true))
 $pages += $p6
 
 # ---------- page plumbing ----------
@@ -415,21 +477,41 @@ function Show-Page([int]$i) {
     if ($i -eq $pages.Count-1) { $btnNext.Text = 'Finish' } else { $btnNext.Text = 'Next' }
 }
 $btnCancel.Add_Click({
-    Write-Host '[WARNING] User cancelled - cleaning up...' -ForegroundColor Yellow
+    Write-Host '[WARNING] User requested cancellation' -ForegroundColor Yellow
+
+    # Confirm cancellation if on a critical page
+    if ($script:current -eq 4 -or $script:current -eq 5) {
+        $result = [System.Windows.Forms.MessageBox]::Show(
+            "Setup is currently in progress.`n`nAre you sure you want to cancel?`n`nThis may leave the system in an incomplete state.",
+            "Cancel Setup?",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+        )
+
+        if ($result -ne [System.Windows.Forms.DialogResult]::Yes) {
+            Write-Host '[INFO] User chose to continue setup' -ForegroundColor Cyan
+            return
+        }
+    }
+
+    Write-Host '[WARNING] Cancelling setup - cleaning up...' -ForegroundColor Yellow
 
     # Kill any running process
     if ($script:runningProcess -and -not $script:runningProcess.HasExited) {
         Write-Host '[INFO] Terminating running process...' -ForegroundColor Cyan
         try {
             $script:runningProcess.Kill()
-            $script:runningProcess.WaitForExit(2000)
+            $script:runningProcess.WaitForExit(5000)
             Write-Host '[INFO] Process terminated' -ForegroundColor Green
         } catch {
             Write-Host '[WARNING] Could not kill process: $($_.Exception.Message)' -ForegroundColor Yellow
         }
     }
 
+    Write-Host '[INFO] Setup cancelled by user' -ForegroundColor Yellow
     $form.Close()
+    exit 2  # Exit code 2 = user cancelled (not an error)
 })
 $btnBack.Add_Click({
     if ($script:current -gt 0) {
@@ -527,8 +609,10 @@ $btnNext.Add_Click({
             # docker compose build
             $status.Text = 'docker compose build - may take 2 to 5 minutes first time'
             Write-Host "[INFO] Building Docker image - this downloads Ubuntu and installs packages" -ForegroundColor Cyan
-            $buildArgs = 'compose -f "' + $composePath + '" build'
-            $r1 = Run-Process-UI -file 'docker' -arguments $buildArgs -progressBar $progress -statusLabel $status
+
+            # Use simple 'compose build' without -f flag - docker will find docker-compose.yml in working directory
+            $buildArgs = 'compose build'
+            $r1 = Run-Process-UI -file 'docker' -arguments $buildArgs -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
             if (-not $r1.Ok) {
                 $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
                 Write-Host "[ERROR] Docker build failed" -ForegroundColor Red
@@ -540,8 +624,9 @@ $btnNext.Add_Click({
             # docker compose up -d
             $status.Text = 'docker compose up -d...'
             Write-Host "[INFO] Starting container" -ForegroundColor Cyan
-            $upArgs = 'compose -f "' + $composePath + '" up -d'
-            $r2 = Run-Process-UI -file 'docker' -arguments $upArgs -progressBar $progress -statusLabel $status
+
+            $upArgs = 'compose up -d'
+            $r2 = Run-Process-UI -file 'docker' -arguments $upArgs -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
             if (-not $r2.Ok) {
                 $errMsg = 'up failed' + [Environment]::NewLine + $r2.StdErr
                 Write-Host "[ERROR] Container startup failed" -ForegroundColor Red
@@ -582,22 +667,42 @@ $btnNext.Add_Click({
             $status.Text = 'Installing Claude Code CLI - may take 1 to 2 minutes'
             Write-Host "[INFO] Installing npm package @anthropic-ai/claude-code" -ForegroundColor Cyan
             Write-Host "[INFO] This will download packages from npm registry..." -ForegroundColor Yellow
+            Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
+
             $r3a = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm install -g @anthropic-ai/claude-code' -progressBar $progress -statusLabel $status
+
             if (-not $r3a.Ok) {
-                $errMsg = 'npm install failed' + [Environment]::NewLine + $r3a.StdErr
                 Write-Host "[ERROR] npm install failed" -ForegroundColor Red
                 Write-Host "[ERROR] Exit code: $($r3a.Code)" -ForegroundColor Red
-                Write-Host "[ERROR] Error details:" -ForegroundColor Red
+                Write-Host "[ERROR] Full error output:" -ForegroundColor Red
                 Write-Host $r3a.StdErr -ForegroundColor Yellow
+
+                $errMsg = "npm install failed (exit code: $($r3a.Code))`n`n" +
+                          "Common causes:`n" +
+                          "- No internet connection`n" +
+                          "- npm registry is down`n" +
+                          "- Firewall blocking npm`n`n" +
+                          "Check console for detailed error output."
+
                 Show-Error $errMsg
                 return
             }
-            Write-Host "[SUCCESS] Claude Code CLI installed" -ForegroundColor Green
+
+            Write-Host "[SUCCESS] Claude Code CLI npm package installed" -ForegroundColor Green
+
+            # Verify npm installation
+            Write-Host "[INFO] Verifying npm installation..." -ForegroundColor Cyan
+            $checkNpm = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm list -g @anthropic-ai/claude-code' -progressBar $null -statusLabel $null
+            if ($checkNpm.Ok) {
+                Write-Host "[SUCCESS] npm package verified" -ForegroundColor Green
+            } else {
+                Write-Host "[WARNING] npm package verification inconclusive" -ForegroundColor Yellow
+            }
 
             # Step 2: Copy wrapper script into container
             $status.Text = 'installing wrapper script...'
             Write-Host "[INFO] Installing wrapper script" -ForegroundColor Cyan
-            $wrapperPath = Join-Path $PSScriptRoot 'claude_wrapper.sh'
+            $wrapperPath = Join-Path $dockerPath 'claude_wrapper.sh'
             $dq = [char]34
             $dockerCpArgs = 'cp ' + $dq + $wrapperPath + $dq + ' ai-cli:/tmp/claude'
             $r3b = Run-Process-UI -file 'docker' -arguments $dockerCpArgs -progressBar $progress -statusLabel $status
@@ -607,6 +712,35 @@ $btnNext.Add_Click({
             $r3c = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo mv /tmp/claude /usr/local/bin/claude' -progressBar $progress -statusLabel $status
             $r3d = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo chmod +x /usr/local/bin/claude' -progressBar $progress -statusLabel $status
 
+            # Step 4: Validate Claude installation and user permissions
+            $status.Text = 'Validating Claude CLI installation and permissions...'
+            Write-Host "[INFO] Validating Claude CLI installation..." -ForegroundColor Cyan
+
+            # Test 1: Check if claude command exists and is executable
+            $validateArgs = 'exec ai-cli bash -c "which claude && test -x /usr/local/bin/claude && echo \"Claude is executable\""'
+            $r3e = Run-Process-UI -file 'docker' -arguments $validateArgs -progressBar $null -statusLabel $null
+
+            if (-not $r3e.Ok) {
+                Write-Host "[ERROR] Claude validation failed" -ForegroundColor Red
+                Write-Host "[ERROR] Details: $($r3e.StdErr)" -ForegroundColor Yellow
+                Show-Error "Claude CLI validation failed. The installation may be incomplete."
+                return
+            }
+
+            Write-Host "[SUCCESS] Claude CLI validated successfully" -ForegroundColor Green
+            Write-Host "[INFO] Claude is ready at: /usr/local/bin/claude" -ForegroundColor Cyan
+
+            # Test 2: Verify user has sudo access with NOPASSWD
+            Write-Host "[INFO] Verifying user sudo privileges..." -ForegroundColor Cyan
+            $userSudoTest = 'exec -u ' + $state.UserName + ' ai-cli sudo -n whoami'
+            $r3f = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
+
+            if ($r3f.Ok -and $r3f.StdOut -match 'root') {
+                Write-Host "[SUCCESS] User has passwordless sudo access" -ForegroundColor Green
+            } else {
+                Write-Host "[WARNING] Sudo test inconclusive, but this may be normal" -ForegroundColor Yellow
+            }
+
             Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
             $status.Text = 'system ready'
             $script:current++; Show-Page $script:current
@@ -614,6 +748,7 @@ $btnNext.Add_Click({
         6 {
             Write-Host "[INFO] User clicked Finish - closing wizard" -ForegroundColor Green
             $form.Close()
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
         }
     }
 })
@@ -684,7 +819,7 @@ if ($existingContainer -eq "ai-cli") {
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Information
         ) | Out-Null
-        exit 1
+        exit 2  # Exit code 2 = user cancelled (not an error)
     }
 } else {
     Write-Host "[OK] No existing container found" -ForegroundColor Green
@@ -718,7 +853,16 @@ Write-Host "[INIT] Creating GUI form..." -ForegroundColor Cyan
 
 Show-Page 0
 Write-Host "[INIT] Displaying page 0 (Welcome)" -ForegroundColor Green
-[void]$form.ShowDialog()
+$result = $form.ShowDialog()
 Write-Host ""
 Write-Host "[SHUTDOWN] Wizard closed" -ForegroundColor Yellow
+
+# Exit with appropriate code based on dialog result
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Host "[SUCCESS] Setup completed successfully - exiting with code 0" -ForegroundColor Green
+    exit 0  # Success
+} else {
+    Write-Host "[INFO] Setup exited without completion - exiting with code 1" -ForegroundColor Yellow
+    exit 1  # Not completed
+}
 

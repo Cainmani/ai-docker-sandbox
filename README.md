@@ -2,6 +2,21 @@
 
 A production-ready system for running AI Command Line Interface tools (Claude Code) in a secure Docker container, designed for non-technical users and ease of setup.
 
+## 📚 Documentation
+
+**For End Users:**
+- **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)** - Complete user guide for non-technical users (👈 START HERE)
+- **[docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - One-page cheatsheet for quick reference
+
+**For Developers:**
+- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Technical documentation and development guide
+- **[docs/CLAUDE.md](docs/CLAUDE.md)** - Claude AI context file (for resuming work)
+- **README.md** (this file) - Project overview and architecture reference
+
+**For Testing:**
+- **[tests/TESTING_CHECKLIST.md](tests/TESTING_CHECKLIST.md)** - Comprehensive QA testing guide
+- **[tests/TESTING_WALKTHROUGH.md](tests/TESTING_WALKTHROUGH.md)** - Step-by-step testing procedures
+
 ## Overview
 
 This project provides a complete, automated setup wizard and launcher for deploying Claude Code CLI in an isolated Docker environment. The AI runs in a secure Ubuntu container with controlled access to your project files, preventing unauthorized access to your Windows system.
@@ -22,38 +37,75 @@ This project provides a complete, automated setup wizard and launcher for deploy
 
 ### Prerequisites
 
-- Windows 10/11
+- Windows 10/11 (64-bit)
 - Docker Desktop ([Download here](https://docs.docker.com/desktop/setup/install/windows-install/))
-- PowerShell 5.1+ (pre-installed on Windows)
+- 4GB RAM minimum, 8GB recommended
 
-### Installation (Run Once)
+### Installation (One-Time Setup)
 
-1. **Run the Setup Wizard:**
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
-   ```
+1. **Download and run `AI_Docker_Manager.exe`** (or build from source)
 
-2. **Follow the 7-page wizard:**
-   - Welcome & overview
+2. **Select "First Time Setup"** from the menu
+
+3. **Follow the interactive wizard:**
    - Enter username/password for container
-   - Select parent folder for AI_Work directory
-   - Verify Docker is running
+   - Select location for AI_Work directory
    - Wait for Docker build (2-5 minutes)
-   - Wait for Claude installation (1-2 minutes)
+   - Wait for Claude CLI installation (1-2 minutes)
    - Complete!
 
 **Total time:** 5-10 minutes
 
 ### Daily Use
 
-**Run the Launcher:**
-```powershell
-powershell -ExecutionPolicy Bypass -File launch_claude.ps1
+1. **Run `AI_Docker_Manager.exe`**
+2. **Select "Launch Claude CLI"**
+3. **Terminal opens** → You're ready to work!
+
+Inside the container:
+```bash
+cd /workspace/your-project
+claude
 ```
 
-**Click "Launch Workspace Shell"** → Terminal opens at /workspace → Start working!
+## Project Structure
 
-## What Gets Created
+**Note**: All configuration is stored in Windows AppData, making this a true self-contained application. The .exe can be placed anywhere on your system.
+
+### Directory Organization
+
+```
+ai-docker-cli-setup/
+├── README.md                          # Main project documentation
+├── .gitattributes                     # Git line ending configuration
+├── AI_Docker_Manager.exe              # Compiled executable (172KB)
+│
+├── docs/                              # 📚 All Documentation
+│   ├── USER_MANUAL.md                 # Complete user guide (end users)
+│   ├── QUICK_REFERENCE.md             # One-page cheatsheet
+│   ├── DEVELOPMENT.md                 # Developer documentation
+│   └── CLAUDE.md                      # Claude AI context file
+│
+├── scripts/                           # 🔧 PowerShell Scripts & Go Source
+│   ├── main.go                        # Main Go application
+│   ├── docker_manager.go              # Docker operations module
+│   ├── go.mod                         # Go dependencies
+│   └── build.ps1                      # Build script
+│
+├── tests/                            # ✅ Testing Infrastructure
+│   ├── TESTING_CHECKLIST.md          # Detailed QA checklist
+│   ├── TESTING_WALKTHROUGH.md        # Step-by-step testing guide
+│   └── TESTING_SESSION.md            # Live testing session template
+│
+└── docker/                           # 🐳 Docker Configuration
+    ├── docker-compose.yml            # Container orchestration
+    ├── Dockerfile                    # Image build instructions (multi-stage)
+    └── entrypoint.sh                 # Container initialization script
+```
+
+### What Gets Installed
+
+When you run the executable for the first time:
 
 ```
 C:\your\chosen\path\
@@ -63,42 +115,53 @@ C:\your\chosen\path\
     └── project-n/
 
 C:\Users\<YourName>\AppData\Local\AI_Docker_Manager\  # App configuration (auto-created)
-├── .env                              # Generated credentials
-└── docker-files\                     # Docker configuration files
-    ├── docker-compose.yml            # Container config
-    ├── Dockerfile                    # Image definition
-    ├── entrypoint.sh                 # Container initialization
-    ├── claude_wrapper.sh             # Claude command wrapper
-    ├── setup_wizard.ps1              # Extracted when needed
-    └── launch_claude.ps1             # Extracted when needed
+└── .env                              # Generated credentials
 ```
 
-**Note**: All configuration is stored in Windows AppData, making this a true self-contained application. The .exe can be placed anywhere on your system.
+### File Statistics
+
+- **Total Project Files**: ~15 core files
+- **Documentation**: 4 user-facing files (docs/)
+- **Scripts**: 4 files (Go source + build script)
+- **Tests**: 3 testing documents (tests/)
+- **Docker**: 3 configuration files (docker/)
+- **Compiled Size**: AI_Docker_Manager.exe (~172KB)
 
 ## Architecture
 
-### Components
+### Technology Stack
 
-**Setup Wizard (`setup_wizard.ps1`)**
-- Collects user credentials
-- Creates .env file
-- Builds Docker image (Ubuntu 24.04 + Node.js + npm)
-- Starts container
-- Installs Claude Code CLI via npm
-- Creates wrapper script
-
-**Launcher (`launch_claude.ps1`)**
-- Checks Docker status (auto-starts if needed)
-- Checks container exists (guides to wizard if not)
-- Starts container if stopped
-- Opens terminal as your user at /workspace
+**AI_Docker_Manager.exe (Go Application)**
+- Built with Go 1.21+ using Bubble Tea TUI framework
+- Interactive menu system with styled components
+- Docker integration via Docker SDK
+- Manages complete container lifecycle
+- Automatic Docker Desktop detection and startup
+- ~172KB compiled executable
 
 **Container (ai-cli)**
 - Ubuntu 24.04 base
-- Node.js, npm, Python, Git
-- Claude Code CLI installed globally
-- Your user account with sudo access
+- Node.js 20.x, npm, Python 3, Git
+- Claude Code CLI installed globally via npm
+- User account with passwordless sudo access
 - /workspace mounted from Windows AI_Work folder
+- Named volume for persistent .claude configuration
+
+### Container Lifecycle
+
+**First Time Setup:**
+1. User provides credentials and workspace location
+2. Creates `.env` file with configuration
+3. Builds Docker image with multi-stage build
+4. Creates container with volume mounts
+5. Installs Claude CLI inside container
+6. Validates installation
+
+**Daily Launch:**
+1. Checks Docker Desktop is running (auto-starts if needed)
+2. Verifies container exists
+3. Starts container if stopped
+4. Opens interactive terminal at /workspace
 
 ### Security
 
@@ -143,7 +206,7 @@ Your AI_Work folder is accessible from Windows File Explorer:
 
 ### Daily Workflow
 
-1. **Morning:** Run launcher → Terminal opens
+1. **Morning:** Run AI_Docker_Manager.exe → Select "Launch Claude CLI"
 2. **Work:** Navigate to project, run `claude`
 3. **Evening:** Exit terminal (files persist)
 4. **Next day:** Run launcher again → Resume work
@@ -151,33 +214,25 @@ Your AI_Work folder is accessible from Windows File Explorer:
 ## Troubleshooting
 
 ### "Docker is not running"
-**Solution:** Start Docker Desktop, wait for green icon, click Retry in launcher
+**Solution:** The application will automatically attempt to start Docker Desktop. Wait 1-2 minutes for Docker to fully start, then try again.
 
 ### "Container does not exist"
-**Solution:** Run setup wizard again:
-```powershell
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
-```
+**Solution:** Run "First Time Setup" from AI_Docker_Manager.exe menu.
 
 ### "claude: command not found"
-**Solution:** Container might not have completed setup. Rebuild:
-```powershell
-docker stop ai-cli
-docker rm ai-cli
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
+**Solution:** Container setup incomplete. Remove and recreate:
+1. Run AI_Docker_Manager.exe
+2. Select "Remove Container"
+3. Select "First Time Setup" again
+
+### Container won't start
+**Solution:** Check Docker Desktop is running. View container logs:
+```bash
+docker logs ai-cli
 ```
 
-### Progress bar not showing in wizard
-**Note:** Progress bar shows activity at the bottom of the wizard. Also watch the console window for detailed logging.
-
-### Terminal shows "root@..." instead of your username
-**Solution:** Rebuild the container - the user creation failed:
-```powershell
-docker stop ai-cli
-docker rm ai-cli
-docker compose build --no-cache
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
-```
+### Permission errors in container
+**Solution:** The entrypoint script should handle permissions automatically. If issues persist, rebuild the container.
 
 ## Advanced
 
@@ -207,7 +262,7 @@ docker exec -it -u yourusername ai-cli bash
 
 If you need to completely rebuild:
 
-```powershell
+```bash
 # Stop and remove container
 docker stop ai-cli
 docker rm ai-cli
@@ -215,89 +270,98 @@ docker rm ai-cli
 # Remove image
 docker rmi ai-docker-ai
 
-# Run wizard again
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
+# Run First Time Setup again from AI_Docker_Manager.exe
 ```
 
 ### Environment Variables
 
-The `.env` file contains:
-```
+Configuration is stored in `%LOCALAPPDATA%\AI_Docker_Manager\.env`:
+```env
 USER_NAME=your-username
 USER_PASSWORD=your-password
 WORKSPACE_PATH=C:\path\to\AI_Work
 ```
 
-**Security Note:** Keep this file secure - it contains container credentials
+**Security Note:** This file contains container credentials (not your Windows password)
+
+### Building from Source
+
+**Prerequisites:**
+- Go 1.21+ installed
+- Git
+
+**Build steps:**
+```bash
+cd scripts
+go build -o ../AI_Docker_Manager.exe .
+```
+
+Or use the PowerShell build script:
+```powershell
+cd scripts
+.\build.ps1
+```
 
 ### Customization
 
-**Add more AI tools:** Edit `Dockerfile` to install additional packages
+**Add more tools to container:** Edit `docker/Dockerfile` to install additional packages
 
-**Change container settings:** Edit `docker-compose.yml`
+**Change container settings:** Edit `docker/docker-compose.yml`
 
-**Modify user setup:** Edit `entrypoint.sh`
+**Modify user setup:** Edit `docker/entrypoint.sh`
 
 ## System Requirements
 
-- **OS:** Windows 10/11
+- **OS:** Windows 10/11 (64-bit)
 - **RAM:** 4GB minimum, 8GB recommended
 - **Disk:** 10GB free space for Docker images
 - **Docker:** Docker Desktop 4.0+
-- **PowerShell:** 5.1+ (included in Windows)
 
-## Files Reference
+## Development & Contributing
 
-### Core Files (Required)
+### Technology Choices
 
-- `setup_wizard.ps1` - Initial setup automation
-- `launch_claude.ps1` - Daily launcher
-- `docker-compose.yml` - Container configuration
-- `Dockerfile` - Image build instructions
-- `entrypoint.sh` - Container startup script
-- `claude_wrapper.sh` - Claude command wrapper
+**Why Go?**
+- Single compiled binary (~172KB)
+- Excellent Docker SDK support
+- Cross-platform compatibility
+- Fast execution and low resource usage
 
-### Utility Files
+**Why Bubble Tea TUI?**
+- Modern, reactive terminal UI framework
+- Excellent keyboard navigation
+- Clean component model
+- Professional appearance
 
-- `.gitattributes` - Git line ending rules
-- `fix_line_endings.ps1` - Converts CRLF to LF
-- `rebuild.ps1` - Quick container rebuild
+**Why Docker?**
+- Complete isolation from host system
+- Reproducible environment
+- Easy to update and maintain
+- Industry standard for containerization
 
-### Generated Files
+### Contributing
 
-- `.env` - User credentials (created by wizard)
-
-## Development History
-
-This project evolved through multiple iterations to achieve production quality:
-
-- Navigation and console logging fixes
-- Progress bar animation implementation
-- Docker command execution improvements
-- Container keep-alive mechanism
-- Line ending handling (Windows CRLF → Unix LF)
-- Full automation with pre-flight checks
-- UI/UX improvements (950px wide, better spacing)
-- Password confirmation for security
-- Docker auto-start capability
-- Proper role separation (wizard vs launcher)
-- Claude wrapper script correction
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for:
+- Development setup
+- Code structure
+- Testing procedures
+- Contribution guidelines
 
 ## Future Enhancements
 
 Potential additions:
-- Support for additional AI CLIs (Codex, Gemini)
-- Project template creation
-- Settings GUI for configuration
+- Support for additional AI CLIs
+- Project template system
+- Settings management UI
 - Automatic Claude updates
 - Backup/restore functionality
-- Compile to .exe for distribution
+- Linux/macOS support
 
-## Support
+## Support & Verification
 
 ### Check Installation
 
-```powershell
+```bash
 # Verify Docker
 docker --version
 
@@ -310,16 +374,24 @@ docker exec ai-cli claude --version
 
 ### Clean Reinstall
 
-```powershell
+```bash
 # Remove everything
 docker stop ai-cli
 docker rm ai-cli
 docker rmi ai-docker-ai
-Remove-Item .env
 
-# Start fresh
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
+# Remove configuration
+# Delete: %LOCALAPPDATA%\AI_Docker_Manager\.env
+
+# Start fresh - Run AI_Docker_Manager.exe
+# Select "First Time Setup"
 ```
+
+### Getting Help
+
+- **User Manual:** [docs/USER_MANUAL.md](docs/USER_MANUAL.md)
+- **Quick Reference:** [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)
+- **Issues:** Report bugs or request features on GitHub
 
 ## License
 
@@ -327,83 +399,28 @@ This project is provided as-is for use in setting up secure AI development envir
 
 ## Credits
 
-Designed for ease of use while maintaining enterprise-grade security and isolation.
+Built with ❤️ for secure, user-friendly AI development environments.
+
+**Technologies:**
+- Go & Bubble Tea (TUI framework)
+- Docker & Docker Compose
+- Claude Code CLI by Anthropic
 
 ---
 
-## EXE Distribution (Optional)
+## Quick Reference Card
 
-For even easier distribution, you can compile the project into a standalone executable.
+**First Time:**
+1. Run `AI_Docker_Manager.exe`
+2. Select "First Time Setup"
+3. Follow the wizard
 
-### Main Launcher EXE
+**Daily Use:**
+1. Run `AI_Docker_Manager.exe`
+2. Select "Launch Claude CLI"
+3. Work in `/workspace`
 
-The `AI_Docker_Launcher.ps1` provides a central menu with two options:
-
-**1. First Time Setup** - Runs the setup wizard (one-time)
-**2. Launch Claude CLI** - Opens workspace terminal (daily use)
-
-### Creating the EXE
-
-```powershell
-# Install ps2exe
-Install-Module -Name ps2exe -Scope CurrentUser
-
-# Compile the launcher
-Invoke-ps2exe -inputFile "AI_Docker_Launcher.ps1" -outputFile "AI_Docker_Manager.exe" -noConsole
-```
-
-### Distribution Package
-
-**Single-file distribution** - Just distribute `AI_Docker_Manager.exe`!
-
-All files are embedded inside the .exe:
-- setup_wizard.ps1
-- launch_claude.ps1
-- docker-compose.yml
-- Dockerfile
-- entrypoint.sh
-- claude_wrapper.sh
-- fix_line_endings.ps1
-- .gitattributes
-- README.md
-
-Files are automatically extracted to `%LOCALAPPDATA%\AI_Docker_Manager` when needed.
-
-### User Experience
-
-**First time:**
-1. Download `AI_Docker_Manager.exe` (place anywhere: Desktop, Downloads, etc.)
-2. Double-click `AI_Docker_Manager.exe`
-3. Click "1. FIRST TIME SETUP"
-4. Follow wizard - configuration auto-saved to AppData
-
-**Daily use:**
-1. Double-click `AI_Docker_Manager.exe` (from anywhere)
-2. Click "2. LAUNCH CLAUDE CLI"
-
-**Benefits:**
-- No installer needed
-- .exe can be on Desktop, USB drive, or anywhere
-- All data stored in proper Windows app location
-- Clean and professional experience
-
-**See `EXE_CREATION_GUIDE.md` for detailed compilation instructions.**
-
----
-
-## Quick Reference
-
-**First time setup:**
-```powershell
-powershell -ExecutionPolicy Bypass -File setup_wizard.ps1
-```
-
-**Daily use:**
-```powershell
-powershell -ExecutionPolicy Bypass -File launch_claude.ps1
-```
-
-**Inside container:**
+**Inside Container:**
 ```bash
 cd /workspace/your-project
 claude
