@@ -31,11 +31,15 @@ $script:EmbeddedFiles = @{
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
     'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
+    'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
+    'auto_update.sh' = 'AUTO_UPDATE_SH_BASE64_HERE'
+    'configure_tools.sh' = 'CONFIGURE_TOOLS_SH_BASE64_HERE'
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
     '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
     'README.md' = 'README_MD_BASE64_HERE'
     'USER_MANUAL.md' = 'USER_MANUAL_MD_BASE64_HERE'
     'QUICK_REFERENCE.md' = 'QUICK_REFERENCE_MD_BASE64_HERE'
+    'CLI_TOOLS_GUIDE.md' = 'CLI_TOOLS_GUIDE_MD_BASE64_HERE'
     'TESTING_CHECKLIST.md' = 'TESTING_CHECKLIST_MD_BASE64_HERE'
 }
 
@@ -54,7 +58,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
     foreach ($fileName in $dockerFiles) {
         $filePath = Join-Path $filesDir $fileName

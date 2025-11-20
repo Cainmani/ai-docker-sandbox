@@ -24,11 +24,15 @@ $filesToEmbed = @(
    "..\..\docker\Dockerfile",
    "..\..\docker\entrypoint.sh",
    "..\..\docker\claude_wrapper.sh",
+   "..\..\docker\install_cli_tools.sh",
+   "..\..\docker\auto_update.sh",
+   "..\..\docker\configure_tools.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",
    "..\..\README.md",
    "..\..\docs\USER_MANUAL.md",
    "..\..\docs\QUICK_REFERENCE.md",
+   "..\..\docs\CLI_TOOLS_GUIDE.md",
    "..\..\tests\TESTING_CHECKLIST.md"
 )
 
