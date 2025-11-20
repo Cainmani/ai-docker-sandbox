@@ -7,8 +7,9 @@
 set -e
 
 # Log file location
-LOG_FILE="/home/${USER_NAME}/.cli_tools_update.log"
-UPDATE_CHECK_FILE="/home/${USER_NAME}/.last_update_check"
+# Use $HOME instead of USER_NAME since cron doesn't pass USER_NAME
+LOG_FILE="${HOME}/.cli_tools_update.log"
+UPDATE_CHECK_FILE="${HOME}/.last_update_check"
 UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 
 # Colors for output
@@ -87,7 +88,7 @@ apply_updates() {
 
     # Update npm packages
     log_message "Updating npm packages..."
-    updated_npm=$(sudo npm update -g 2>&1 | grep -E "added|updated|changed" || echo "No npm updates applied")
+    updated_npm=$(npm update -g 2>&1 | grep -E "added|updated|changed" || echo "No npm updates applied")
     log_message "$updated_npm"
 
     # Update pip packages
@@ -131,7 +132,8 @@ apply_updates() {
 run_auto_update() {
     # Create log file if it doesn't exist
     touch "$LOG_FILE"
-    chown ${USER_NAME}:${USER_NAME} "$LOG_FILE"
+    # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
+    chown $(whoami):$(whoami) "$LOG_FILE"
 
     log_message "=========================================="
     log_message "${BLUE}[INFO]${NC} Starting auto-update check"
@@ -154,7 +156,8 @@ run_auto_update() {
 
     # Update the check timestamp
     date > "$UPDATE_CHECK_FILE"
-    chown ${USER_NAME}:${USER_NAME} "$UPDATE_CHECK_FILE"
+    # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
+    chown $(whoami):$(whoami) "$UPDATE_CHECK_FILE"
 
     log_message "${BLUE}[INFO]${NC} Auto-update check completed"
     log_message "=========================================="

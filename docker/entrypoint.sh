@@ -12,8 +12,8 @@ if ! id -u "$USER_NAME" >/dev/null 2>&1; then
   usermod -aG sudo "$USER_NAME"
 
   # Allow passwordless sudo for this user
-  echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USER_NAME
-  chmod 0440 /etc/sudoers.d/$USER_NAME
+  echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER_NAME"
+  chmod 0440 "/etc/sudoers.d/$USER_NAME"
 fi
 
 # Give user ownership of workspace
@@ -27,6 +27,10 @@ chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>/dev/null || true
 mkdir -p "/home/$USER_NAME/.claude"
 chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
 chmod 755 "/home/$USER_NAME/.claude"
+
+# Configure npm to use user-local directory for global packages
+su - "$USER_NAME" -c "mkdir -p /home/$USER_NAME/.npm-global"
+su - "$USER_NAME" -c "npm config set prefix '/home/$USER_NAME/.npm-global'"
 
 # Create .bashrc with helpful configuration if it doesn't exist
 if [ ! -f "/home/$USER_NAME/.bashrc" ]; then
@@ -49,8 +53,8 @@ alias la='ls -A'
 alias l='ls -CF'
 alias grep='grep --color=auto'
 
-# Add local bin to PATH for pip installed tools
-export PATH="$HOME/.local/bin:$PATH"
+# Add npm global and local bin to PATH
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # CLI tools aliases
 alias update-tools='/usr/local/bin/auto_update.sh'
@@ -86,6 +90,40 @@ if [ -f /home/$USER/.cli_tools_installed ]; then
 fi
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
+else
+  # .bashrc already exists, ensure npm PATH is added
+  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.bashrc"; then
+    echo "" >> "/home/$USER_NAME/.bashrc"
+    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.bashrc"
+    echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.bashrc"
+    chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
+  fi
+fi
+
+# Create .profile to set PATH for login shells (used by 'su -')
+if [ ! -f "/home/$USER_NAME/.profile" ]; then
+  cat > "/home/$USER_NAME/.profile" << 'EOF'
+# ~/.profile: executed by the command interpreter for login shells.
+
+# Add npm global and local bin to PATH
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+
+# If running bash, source .bashrc
+if [ -n "$BASH_VERSION" ]; then
+    if [ -f "$HOME/.bashrc" ]; then
+        . "$HOME/.bashrc"
+    fi
+fi
+EOF
+  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
+else
+  # .profile already exists, ensure npm PATH is added
+  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.profile"; then
+    echo "" >> "/home/$USER_NAME/.profile"
+    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.profile"
+    echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.profile"
+    chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
+  fi
 fi
 
 # Install CLI tools on first run (runs as the user)

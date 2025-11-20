@@ -4,7 +4,8 @@
 # This script installs and configures all necessary CLI tools for AI development
 # It runs on first container start and can be used for updates
 
-set -e  # Exit on error
+# Note: We do NOT use "set -e" here because we want to continue installing other tools
+# even if one tool fails. The marker file will be created regardless to prevent infinite loops.
 
 # Colors for output
 RED='\033[0;31m'
@@ -14,8 +15,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Installation tracking file
-INSTALL_MARKER="/home/${USER_NAME}/.cli_tools_installed"
-TOOLS_VERSION_FILE="/home/${USER_NAME}/.cli_tools_versions"
+# Use $HOME instead of $USER_NAME since $HOME is set by 'su -' but $USER_NAME is not passed
+INSTALL_MARKER="${HOME}/.cli_tools_installed"
+TOOLS_VERSION_FILE="${HOME}/.cli_tools_versions"
 
 # Function to print colored output
 print_status() {
@@ -100,15 +102,31 @@ install_cli_tools() {
 
     # 2. Install/Update Claude Code CLI
     print_status "Installing/Updating Claude Code CLI..."
-    sudo npm install -g @anthropic-ai/claude-code@latest --silent
-    print_success "Claude Code CLI installed/updated successfully"
+    if npm install -g @anthropic-ai/claude-code@latest 2>&1 | tee /tmp/claude_install.log; then
+        print_success "Claude Code CLI installed/updated successfully"
+    else
+        print_error "Failed to install Claude Code CLI"
+        cat /tmp/claude_install.log
+        # Continue with other installations
+    fi
 
-    # 3. Install Google Gemini CLI (if available)
-    # Note: As of now, Google Gemini doesn't have an official CLI, but we'll prepare for it
-    print_status "Checking for Google Gemini CLI..."
-    if npm view @google/gemini-cli >/dev/null 2>&1; then
-        sudo npm install -g @google/gemini-cli@latest --silent
-        print_success "Gemini CLI installed successfully"
+    # 3. Install Google Gemini CLI (official)
+    print_status "Installing Google Gemini CLI..."
+    if npm view @google/gemini-cli version >/dev/null 2>&1; then
+        print_status "Found @google/gemini-cli in npm registry"
+        if npm install -g @google/gemini-cli@latest 2>&1 | tee /tmp/gemini_install.log; then
+            print_success "Gemini CLI installed successfully"
+        else
+            print_error "Failed to install Gemini CLI"
+            cat /tmp/gemini_install.log
+            # Try community version as fallback
+            print_status "Attempting community version as fallback..."
+            if pip3 install --user gemini-cli --quiet; then
+                print_success "Gemini CLI (community) installed as fallback"
+            else
+                print_warning "Could not install any Gemini CLI version"
+            fi
+        fi
     else
         print_warning "Google Gemini CLI not yet available in npm registry"
         # Alternative: Install gemini-cli community tool
@@ -116,8 +134,11 @@ install_cli_tools() {
             print_status "Gemini CLI (community) already installed"
         else
             print_status "Installing Gemini CLI (community version)..."
-            pip3 install --user gemini-cli --quiet
-            print_success "Gemini CLI (community) installed"
+            if pip3 install --user gemini-cli --quiet; then
+                print_success "Gemini CLI (community) installed"
+            else
+                print_warning "Failed to install community Gemini CLI"
+            fi
         fi
     fi
 
@@ -126,17 +147,38 @@ install_cli_tools() {
 
     # Install openai CLI
     if ! pip3 show openai >/dev/null 2>&1; then
-        pip3 install --user openai --quiet
-        print_success "OpenAI Python SDK installed"
+        if pip3 install --user openai --quiet; then
+            print_success "OpenAI Python SDK installed"
+        else
+            print_warning "Failed to install OpenAI Python SDK"
+        fi
     else
         print_status "OpenAI SDK already installed"
+    fi
+
+    # Install OpenAI Codex CLI (official package)
+    # https://developers.openai.com/codex/cli/
+    print_status "Installing OpenAI Codex CLI..."
+    if npm view @openai/codex version >/dev/null 2>&1; then
+        if npm install -g @openai/codex@latest 2>&1 | tee /tmp/codex_install.log; then
+            print_success "OpenAI Codex CLI installed successfully"
+        else
+            print_error "Failed to install OpenAI Codex CLI"
+            cat /tmp/codex_install.log
+        fi
+    else
+        print_warning "OpenAI Codex CLI (@openai/codex) not available in npm registry"
+        print_status "Note: OpenAI API access available via 'openai' Python package and 'sgpt' CLI"
     fi
 
     # Install shell-gpt (sgpt) - a popular GPT CLI tool
     if ! command_exists sgpt; then
         print_status "Installing Shell-GPT..."
-        pip3 install --user shell-gpt --quiet
-        print_success "Shell-GPT installed successfully"
+        if pip3 install --user shell-gpt --quiet; then
+            print_success "Shell-GPT installed successfully"
+        else
+            print_warning "Failed to install Shell-GPT"
+        fi
     else
         print_status "Shell-GPT already installed"
     fi
@@ -153,7 +195,7 @@ install_cli_tools() {
     # 6. Install Continue (AI code assistant)
     print_status "Checking for Continue CLI..."
     if npm view continue >/dev/null 2>&1; then
-        sudo npm install -g continue@latest --silent
+        npm install -g continue@latest --silent
         print_success "Continue CLI installed"
     else
         print_warning "Continue CLI not available in npm registry"
@@ -172,7 +214,7 @@ install_cli_tools() {
     # 8. Install TabNine CLI (if available)
     print_status "Checking for TabNine CLI..."
     if npm view tabnine-cli >/dev/null 2>&1; then
-        sudo npm install -g tabnine-cli@latest --silent
+        npm install -g tabnine-cli@latest --silent
         print_success "TabNine CLI installed"
     else
         print_warning "TabNine CLI not available in npm registry"
@@ -253,18 +295,50 @@ install_cli_tools() {
 
     # tldr - simplified man pages
     if ! command_exists tldr; then
-        sudo npm install -g tldr --silent
+        npm install -g tldr --silent
         print_success "tldr installed"
     fi
 
     # Save versions to file
     save_versions
 
-    # Create marker file
+    print_success "All CLI tools installation completed!"
+}
+
+# Function to ensure marker file is created (prevents infinite loops)
+create_marker_file() {
     echo "Installation completed at: $(date)" > "$INSTALL_MARKER"
     echo "Tools installed by: $(whoami)" >> "$INSTALL_MARKER"
+    echo "Node.js version: $(node --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
+    echo "npm version: $(npm --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
+    echo "Python version: $(python3 --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
 
-    print_success "All CLI tools installation completed!"
+    # Record which tools succeeded
+    if command_exists claude; then
+        echo "✓ Claude CLI: installed" >> "$INSTALL_MARKER"
+    else
+        echo "✗ Claude CLI: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1; then
+        echo "✓ Gemini CLI: installed" >> "$INSTALL_MARKER"
+    else
+        echo "✗ Gemini CLI: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if command_exists gh; then
+        echo "✓ GitHub CLI: installed" >> "$INSTALL_MARKER"
+    else
+        echo "✗ GitHub CLI: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if command_exists codex; then
+        echo "✓ OpenAI Codex CLI: installed" >> "$INSTALL_MARKER"
+    else
+        echo "✗ OpenAI Codex CLI: failed" >> "$INSTALL_MARKER"
+    fi
+
+    print_success "Installation marker file created at: $INSTALL_MARKER"
 }
 
 # Update function
@@ -276,7 +350,7 @@ update_cli_tools() {
 
     # Update npm global packages
     print_status "Updating npm packages..."
-    sudo npm update -g --silent
+    npm update -g --silent
 
     # Update pip packages
     print_status "Updating Python packages..."
@@ -303,12 +377,18 @@ update_cli_tools() {
     print_success "All tools updated successfully!"
 }
 
+# Trap to ensure marker file is created even if script fails
+trap 'create_marker_file' EXIT
+
 # Check if this is first run or update request
 if [ "$1" == "--update" ] || [ "$1" == "-u" ]; then
     update_cli_tools
+    # Update doesn't recreate marker, so disable the trap
+    trap - EXIT
 elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
     rm -f "$INSTALL_MARKER"
     install_cli_tools
+    # Marker will be created by trap
 elif [ -f "$INSTALL_MARKER" ]; then
     print_status "CLI tools already installed. Use --update to update or --force to reinstall."
     if [ -f "$TOOLS_VERSION_FILE" ]; then
@@ -316,9 +396,14 @@ elif [ -f "$INSTALL_MARKER" ]; then
         print_status "Installed versions:"
         cat "$TOOLS_VERSION_FILE" | grep -v "^#"
     fi
+    # Disable trap since already installed
+    trap - EXIT
 else
     install_cli_tools
+    # Marker will be created by trap
 fi
 
-# Set proper permissions
-chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
+# Set proper permissions (run regardless of success/failure)
+if [ -d "${HOME}" ]; then
+    sudo chown -R $(whoami):$(whoami) ${HOME}/ 2>/dev/null || true
+fi
