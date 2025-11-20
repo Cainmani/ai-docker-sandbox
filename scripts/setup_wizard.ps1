@@ -307,7 +307,7 @@ $p0.Controls.Add((New-Label 'The wizard will automatically:' 20 180 880 24 10 $t
 $p0.Controls.Add((New-Label '>> Create a secure AI_Work directory for all your AI projects' 20 205 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Configure environment variables (USER_NAME, USER_PASSWORD, WORKSPACE_PATH)' 20 230 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Build and deploy the Docker container' 20 255 880 24 10 $false $true))
-$p0.Controls.Add((New-Label '>> Install Claude Code CLI inside the container' 20 280 880 24 10 $false $true))
+$p0.Controls.Add((New-Label '>> Auto-install ALL AI CLI tools (Claude, GitHub, OpenAI, Gemini, AWS, Azure, etc.)' 20 280 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 305 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '⚠ NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 355 880 24 10 $false $true))
@@ -447,23 +447,23 @@ $p6.Controls.Add((New-Label -text '=============================================
 $p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AI CLI Docker environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'FIRST TIME USE - Important Steps:' 20 140 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude, GitHub CLI, OpenAI/GPT, Gemini, AWS CLI, Azure CLI, & more!' 20 140 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Click "Launch Claude CLI" (or run launch_claude.ps1)' 20 190 880 24 9 $false $true))
+$p6.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '2. In the terminal, type: claude' 20 235 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '1. Click "Launch Claude CLI" (or run launch_claude.ps1)' 20 235 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '3. FIRST RUN ONLY: You will be prompted to authenticate with Anthropic' 20 280 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - Follow the prompts to enter your API key or login' 20 300 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - Authentication persists - you only do this once!' 20 320 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '4. After authentication, Claude CLI is ready to use!' 20 365 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 385 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'Quick Tips:' 20 410 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 430 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '>> All your work saves to AI_Work folder on your Windows PC' 20 455 880 24 9 $false $true))
+$p6.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '   claude, gh, sgpt, aider, codeium, aws, az, gcloud' 20 385 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
+$p6.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
 $pages += $p6
 
 # ---------- page plumbing ----------
@@ -660,82 +660,76 @@ $btnNext.Add_Click({
             # move to install page
             $script:current++; Show-Page $script:current
 
-            # install AI CLI and create wrapper
-            $status.Text = 'installing AI CLI...'
-
-            # Step 1: Install claude-code via npm
-            $status.Text = 'Installing Claude Code CLI - may take 1 to 2 minutes'
-            Write-Host "[INFO] Installing npm package @anthropic-ai/claude-code" -ForegroundColor Cyan
-            Write-Host "[INFO] This will download packages from npm registry..." -ForegroundColor Yellow
+            # AI CLI tools will be auto-installed by entrypoint.sh
+            $status.Text = 'Installing AI CLI tools suite...'
+            Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, OpenAI tools, Gemini, AWS CLI, Azure CLI, and more..." -ForegroundColor Yellow
+            Write-Host "[INFO] This will take 3-5 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
-            $r3a = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm install -g @anthropic-ai/claude-code' -progressBar $progress -statusLabel $status
+            # Wait for the entrypoint to run the installation
+            $status.Text = 'Waiting for CLI tools installation (3-5 minutes)...'
 
-            if (-not $r3a.Ok) {
-                Write-Host "[ERROR] npm install failed" -ForegroundColor Red
-                Write-Host "[ERROR] Exit code: $($r3a.Code)" -ForegroundColor Red
-                Write-Host "[ERROR] Full error output:" -ForegroundColor Red
-                Write-Host $r3a.StdErr -ForegroundColor Yellow
+            # Give entrypoint time to start the installation
+            Start-Sleep -Seconds 10
 
-                $errMsg = "npm install failed (exit code: $($r3a.Code))`n`n" +
-                          "Common causes:`n" +
-                          "- No internet connection`n" +
-                          "- npm registry is down`n" +
-                          "- Firewall blocking npm`n`n" +
-                          "Check console for detailed error output."
+            # Check installation progress by looking for the marker file
+            $maxWaitTime = 300  # 5 minutes
+            $waitedTime = 0
+            $checkInterval = 5
 
-                Show-Error $errMsg
-                return
+            while ($waitedTime -lt $maxWaitTime) {
+                # Check if installation completed
+                $checkInstallCmd = 'exec ai-cli test -f /home/' + $state.UserName + '/.cli_tools_installed && echo "INSTALLED"'
+                $checkResult = Run-Process-UI -file 'docker' -arguments $checkInstallCmd -progressBar $null -statusLabel $null
+
+                if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
+                    Write-Host "[SUCCESS] CLI tools installation completed!" -ForegroundColor Green
+                    break
+                }
+
+                # Update progress
+                $progress.Value = [Math]::Min(95, 20 + ($waitedTime * 75 / $maxWaitTime))
+                $status.Text = "Installing CLI tools... ($([Math]::Round($waitedTime/60, 1)) minutes elapsed)"
+
+                Start-Sleep -Seconds $checkInterval
+                $waitedTime += $checkInterval
             }
 
-            Write-Host "[SUCCESS] Claude Code CLI npm package installed" -ForegroundColor Green
+            if ($waitedTime -ge $maxWaitTime) {
+                Write-Host "[WARNING] Installation is taking longer than expected, but will continue in background" -ForegroundColor Yellow
+            }
 
-            # Verify npm installation
-            Write-Host "[INFO] Verifying npm installation..." -ForegroundColor Cyan
-            $checkNpm = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm list -g @anthropic-ai/claude-code' -progressBar $null -statusLabel $null
-            if ($checkNpm.Ok) {
-                Write-Host "[SUCCESS] npm package verified" -ForegroundColor Green
+            # Verify at least the core tools are available
+            $status.Text = 'Verifying core CLI tools...'
+            Write-Host "[INFO] Verifying core CLI tools installation..." -ForegroundColor Cyan
+
+            # Test 1: Check if claude command exists
+            $validateClaude = 'exec ai-cli bash -c "which claude && echo \"Claude found\""'
+            $r3a = Run-Process-UI -file 'docker' -arguments $validateClaude -progressBar $null -statusLabel $null
+
+            if ($r3a.Ok -and $r3a.StdOut -match 'Claude found') {
+                Write-Host "[SUCCESS] Claude CLI verified" -ForegroundColor Green
             } else {
-                Write-Host "[WARNING] npm package verification inconclusive" -ForegroundColor Yellow
+                Write-Host "[WARNING] Claude CLI not found yet, will be installed in background" -ForegroundColor Yellow
             }
 
-            # Step 2: Copy wrapper script into container
-            $status.Text = 'installing wrapper script...'
-            Write-Host "[INFO] Installing wrapper script" -ForegroundColor Cyan
-            $wrapperPath = Join-Path $dockerPath 'claude_wrapper.sh'
-            $dq = [char]34
-            $dockerCpArgs = 'cp ' + $dq + $wrapperPath + $dq + ' ai-cli:/tmp/claude'
-            $r3b = Run-Process-UI -file 'docker' -arguments $dockerCpArgs -progressBar $progress -statusLabel $status
+            # Test 2: Check if GitHub CLI exists
+            $validateGH = 'exec ai-cli bash -c "which gh && echo \"GitHub CLI found\""'
+            $r3b = Run-Process-UI -file 'docker' -arguments $validateGH -progressBar $null -statusLabel $null
 
-            # Step 3: Move to bin and make executable
-            Write-Host "[INFO] Making wrapper executable" -ForegroundColor Cyan
-            $r3c = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo mv /tmp/claude /usr/local/bin/claude' -progressBar $progress -statusLabel $status
-            $r3d = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo chmod +x /usr/local/bin/claude' -progressBar $progress -statusLabel $status
-
-            # Step 4: Validate Claude installation and user permissions
-            $status.Text = 'Validating Claude CLI installation and permissions...'
-            Write-Host "[INFO] Validating Claude CLI installation..." -ForegroundColor Cyan
-
-            # Test 1: Check if claude command exists and is executable
-            $validateArgs = 'exec ai-cli bash -c "which claude && test -x /usr/local/bin/claude && echo \"Claude is executable\""'
-            $r3e = Run-Process-UI -file 'docker' -arguments $validateArgs -progressBar $null -statusLabel $null
-
-            if (-not $r3e.Ok) {
-                Write-Host "[ERROR] Claude validation failed" -ForegroundColor Red
-                Write-Host "[ERROR] Details: $($r3e.StdErr)" -ForegroundColor Yellow
-                Show-Error "Claude CLI validation failed. The installation may be incomplete."
-                return
+            if ($r3b.Ok -and $r3b.StdOut -match 'GitHub CLI found') {
+                Write-Host "[SUCCESS] GitHub CLI verified" -ForegroundColor Green
+            } else {
+                Write-Host "[INFO] GitHub CLI will be installed in background" -ForegroundColor Yellow
             }
 
-            Write-Host "[SUCCESS] Claude CLI validated successfully" -ForegroundColor Green
-            Write-Host "[INFO] Claude is ready at: /usr/local/bin/claude" -ForegroundColor Cyan
-
-            # Test 2: Verify user has sudo access with NOPASSWD
+            # Test 3: Verify user has sudo access with NOPASSWD
             Write-Host "[INFO] Verifying user sudo privileges..." -ForegroundColor Cyan
             $userSudoTest = 'exec -u ' + $state.UserName + ' ai-cli sudo -n whoami'
-            $r3f = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
+            $r3c = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
 
-            if ($r3f.Ok -and $r3f.StdOut -match 'root') {
+            if ($r3c.Ok -and $r3c.StdOut -match 'root') {
                 Write-Host "[SUCCESS] User has passwordless sudo access" -ForegroundColor Green
             } else {
                 Write-Host "[WARNING] Sudo test inconclusive, but this may be normal" -ForegroundColor Yellow

@@ -28,5 +28,75 @@ mkdir -p "/home/$USER_NAME/.claude"
 chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
 chmod 755 "/home/$USER_NAME/.claude"
 
+# Create .bashrc with helpful configuration if it doesn't exist
+if [ ! -f "/home/$USER_NAME/.bashrc" ]; then
+  cat > "/home/$USER_NAME/.bashrc" << 'EOF'
+# ~/.bashrc: executed by bash(1) for non-login shells.
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# Set up the prompt
+PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@ai-cli\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# Enable color support
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias grep='grep --color=auto'
+
+# Add local bin to PATH for pip installed tools
+export PATH="$HOME/.local/bin:$PATH"
+
+# CLI tools aliases
+alias update-tools='/usr/local/bin/auto_update.sh'
+alias check-updates='/usr/local/bin/auto_update.sh --check'
+alias configure-tools='/usr/local/bin/configure_tools.sh'
+alias config-status='/usr/local/bin/configure_tools.sh --status'
+
+# Show available CLI tools on login
+if [ -f /home/$USER/.cli_tools_installed ]; then
+  echo ""
+  echo "╔════════════════════════════════════════════════════════════╗"
+  echo "║          AI CLI Tools Environment Ready!                    ║"
+  echo "╠════════════════════════════════════════════════════════════╣"
+  echo "║ Available AI Tools:                                         ║"
+  echo "║   • claude       - Claude Code CLI                          ║"
+  echo "║   • gh           - GitHub CLI                               ║"
+  echo "║   • sgpt         - Shell GPT (OpenAI)                       ║"
+  echo "║   • aider        - AI pair programming                      ║"
+  echo "║   • codeium      - Codeium AI assistant                     ║"
+  echo "║   • aws          - AWS CLI (for AI services)                ║"
+  echo "║   • az           - Azure CLI (for AI services)              ║"
+  echo "║   • gcloud       - Google Cloud CLI                         ║"
+  echo "║                                                              ║"
+  echo "║ Management Commands:                                        ║"
+  echo "║   • configure-tools  - Set up API keys and authentication   ║"
+  echo "║   • config-status    - Check configuration status           ║"
+  echo "║   • update-tools     - Update all CLI tools                 ║"
+  echo "║   • check-updates    - Check for available updates          ║"
+  echo "╚════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "First time? Run 'configure-tools' to set up your API keys!"
+  echo ""
+fi
+EOF
+  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
+fi
+
+# Install CLI tools on first run (runs as the user)
+echo "Checking CLI tools installation..."
+su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh"
+
+# Setup auto-update cron job (weekly on Sunday at 2 AM)
+if ! crontab -u "$USER_NAME" -l 2>/dev/null | grep -q "auto_update.sh"; then
+  echo "Setting up auto-update schedule..."
+  (crontab -u "$USER_NAME" -l 2>/dev/null; echo "0 2 * * 0 /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -u "$USER_NAME" -
+fi
+
 # Keep container running
 exec tail -f /dev/null
