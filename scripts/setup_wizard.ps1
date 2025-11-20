@@ -163,26 +163,34 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         }
 
         $lastDot = [DateTime]::Now
+        $lastProgressUpdate = [DateTime]::Now
         $progressIncrement = 0
 
+        # Optimized polling loop to reduce overhead for long-running processes like Docker builds
+        # Changes: Longer sleep (250ms vs 120ms), less frequent progress updates (500ms), less console I/O (2s vs 1s)
+        # This significantly improves performance for Docker Compose build operations
         while (-not $p.HasExited) {
+            # Process Windows messages less frequently to reduce overhead
             [System.Windows.Forms.Application]::DoEvents()
 
-            # Update progress bar - increment gradually
-            if ($progressBar) {
+            $now = [DateTime]::Now
+
+            # Update progress bar every 500ms instead of every loop iteration
+            if ($progressBar -and ($now - $lastProgressUpdate).TotalMilliseconds -gt 500) {
                 $progressIncrement += 2
                 if ($progressIncrement -gt 95) { $progressIncrement = 95 } # Cap at 95% until complete
                 $progressBar.Value = $progressIncrement
-                [System.Windows.Forms.Application]::DoEvents()
+                $lastProgressUpdate = $now
             }
 
-            # Show progress dots in console
-            if (([DateTime]::Now - $lastDot).TotalSeconds -gt 1) {
+            # Show progress dots every 2 seconds (reduced console I/O)
+            if (($now - $lastDot).TotalSeconds -gt 2) {
                 Write-Host '.' -NoNewline -ForegroundColor DarkGray
-                $lastDot = [DateTime]::Now
+                $lastDot = $now
             }
 
-            Start-Sleep -Milliseconds 120
+            # Longer sleep interval reduces CPU usage and polling overhead
+            Start-Sleep -Milliseconds 250
         }
         Write-Host '' # New line
 
@@ -679,8 +687,9 @@ $btnNext.Add_Click({
             $checkInterval = 5
 
             while ($waitedTime -lt $maxWaitTime) {
-                # Check if installation completed
-                $checkInstallCmd = 'exec ai-cli test -f /home/' + $state.UserName + '/.cli_tools_installed && echo "INSTALLED"'
+                # Check if installation completed - use sh -c to properly handle shell operators
+                # Use "|| true" to ensure exit code 0 even when file doesn't exist (prevents error spam in logs)
+                $checkInstallCmd = 'exec ai-cli sh -c "test -f /home/' + $state.UserName + '/.cli_tools_installed && echo INSTALLED || true"'
                 $checkResult = Run-Process-UI -file 'docker' -arguments $checkInstallCmd -progressBar $null -statusLabel $null
 
                 if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
