@@ -273,6 +273,25 @@ $state = [ordered]@{
     ParentPath = ''
     WorkspacePath = ''
 }
+
+# Load existing .env file if present (for retry scenarios)
+$script:envPath = Join-Path $PSScriptRoot '.env'
+if (Test-Path $script:envPath) {
+    Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
+    $envLines = Get-Content $script:envPath
+    foreach ($line in $envLines) {
+        if ($line -match '^USER_NAME=(.*)$') { $state.UserName = $Matches[1] }
+        if ($line -match '^USER_PASSWORD=(.*)$') { $state.Password = $Matches[1] }
+        if ($line -match '^WORKSPACE_PATH=(.*)$') {
+            $state.WorkspacePath = $Matches[1]
+            $state.ParentPath = Split-Path $Matches[1] -Parent
+        }
+    }
+    if ($state.UserName) {
+        Write-Host "[INFO] Loaded credentials for user: $($state.UserName)" -ForegroundColor Green
+    }
+}
+
 # Docker files location - detect if running from embedded exe or project directory
 # If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
 # If running from project scripts folder, use ../docker
@@ -399,6 +418,14 @@ $p2.Controls.Add((New-Label '>> All your AI project data will be stored in AI_Wo
 $p2.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
 $p2.Controls.Add((New-Label '>> You can access these files directly from Windows File Explorer' 20 420 880 24 9 $false $true))
 $pages += $p2
+
+# Pre-populate textboxes from loaded .env values (for retry scenarios)
+if ($state.UserName) { $script:tbUser.Text = $state.UserName }
+if ($state.Password) {
+    $script:tbPass.Text = $state.Password
+    $script:tbPassConfirm.Text = $state.Password
+}
+if ($state.ParentPath) { $script:tbParent.Text = $state.ParentPath }
 
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -589,6 +616,16 @@ $btnNext.Add_Click({
                 Write-Host "[SUCCESS] Credentials validated - advancing" -ForegroundColor Green
                 $state.UserName = $script:tbUser.Text
                 $state.Password = $script:tbPass.Text
+
+                # Save credentials to .env immediately (persist for retry scenarios)
+                Write-Host "[INFO] Saving credentials to .env" -ForegroundColor Cyan
+                $nl = [Environment]::NewLine
+                $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl
+                if ($state.WorkspacePath) {
+                    $envContent += "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                }
+                $envContent | Out-File $script:envPath -Encoding UTF8
+                Write-Host "[SUCCESS] Credentials saved to .env" -ForegroundColor Green
             }
             $script:current++; Show-Page $script:current
         }
@@ -624,14 +661,13 @@ $btnNext.Add_Click({
                     Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
                 }
 
-                # write .env
-                Write-Host "[INFO] Creating .env file" -ForegroundColor Cyan
-                $envPath = Join-Path $PSScriptRoot '.env'
+                # Update .env with workspace path
+                Write-Host "[INFO] Updating .env with workspace path" -ForegroundColor Cyan
                 $nl = [Environment]::NewLine
                 $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-                $envContent | Out-File $envPath -Encoding UTF8
-                $status.Text = ".env created at $envPath"
-                Write-Host "[SUCCESS] .env file created" -ForegroundColor Green
+                $envContent | Out-File $script:envPath -Encoding UTF8
+                $status.Text = ".env updated at $script:envPath"
+                Write-Host "[SUCCESS] .env updated with workspace path" -ForegroundColor Green
             }
 
             $script:current++; Show-Page $script:current
