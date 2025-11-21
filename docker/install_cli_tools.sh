@@ -210,27 +210,27 @@ create_marker_file() {
 
     # Record which tools succeeded
     if command_exists claude; then
-        echo "✓ Claude CLI: installed" >> "$INSTALL_MARKER"
+        echo "[OK] Claude CLI: installed" >> "$INSTALL_MARKER"
     else
-        echo "✗ Claude CLI: failed" >> "$INSTALL_MARKER"
+        echo "[ERROR] Claude CLI: failed" >> "$INSTALL_MARKER"
     fi
 
     if command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1; then
-        echo "✓ Gemini CLI: installed" >> "$INSTALL_MARKER"
+        echo "[OK] Gemini CLI: installed" >> "$INSTALL_MARKER"
     else
-        echo "✗ Gemini CLI: failed" >> "$INSTALL_MARKER"
+        echo "[ERROR] Gemini CLI: failed" >> "$INSTALL_MARKER"
     fi
 
     if command_exists gh; then
-        echo "✓ GitHub CLI: installed" >> "$INSTALL_MARKER"
+        echo "[OK] GitHub CLI: installed" >> "$INSTALL_MARKER"
     else
-        echo "✗ GitHub CLI: failed" >> "$INSTALL_MARKER"
+        echo "[ERROR] GitHub CLI: failed" >> "$INSTALL_MARKER"
     fi
 
     if command_exists codex; then
-        echo "✓ OpenAI Codex CLI: installed" >> "$INSTALL_MARKER"
+        echo "[OK] OpenAI Codex CLI: installed" >> "$INSTALL_MARKER"
     else
-        echo "✗ OpenAI Codex CLI: failed" >> "$INSTALL_MARKER"
+        echo "[ERROR] OpenAI Codex CLI: failed" >> "$INSTALL_MARKER"
     fi
 
     print_success "Installation marker file created at: $INSTALL_MARKER"
