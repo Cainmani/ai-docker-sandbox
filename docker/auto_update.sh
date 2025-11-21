@@ -4,7 +4,13 @@
 # This script checks for updates and installs them automatically
 # Can be run via cron or manually
 
-set -e
+# Note: We do NOT use "set -e" because we want to continue updating other tools
+# even if one tool fails to update.
+
+# Ensure npm is configured to use user-local directory (fixes permission issues)
+mkdir -p "${HOME}/.npm-global"
+npm config set prefix "${HOME}/.npm-global"
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Log file location
 # Use $HOME instead of USER_NAME since cron doesn't pass USER_NAME

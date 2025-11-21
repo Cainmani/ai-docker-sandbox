@@ -131,7 +131,7 @@ Ready for distribution!
 **Verify**:
 - [ ] Main menu appears
 - [ ] Matrix green theme visible
-- [ ] Two buttons: "1. FIRST TIME SETUP" and "2. LAUNCH CLAUDE CLI"
+- [ ] Two buttons: "1. FIRST TIME SETUP" and "2. LAUNCH AI WORKSPACE"
 
 **Result**: [ ] Launcher opens correctly
 **Notes**: _______________________________________________
@@ -288,7 +288,7 @@ Enter test credentials:
 ```
 Setup wizard completed successfully!
 
-You can now use 'Launch Claude CLI' to access your workspace.
+You can now use 'Launch AI Workspace' to access your environment.
 
 Configuration stored in: C:\Users\...\AppData\Local\AI_Docker_Manager
 ```
@@ -302,10 +302,10 @@ Configuration stored in: C:\Users\...\AppData\Local\AI_Docker_Manager
 
 **This tests the fix for the permission error your boss encountered!**
 
-### Step 5.1: Launch Claude CLI
+### Step 5.1: Launch AI Workspace
 
 - [ ] Double-click AI_Docker_Manager.exe
-- [ ] Click "2. LAUNCH CLAUDE CLI"
+- [ ] Click "2. LAUNCH AI WORKSPACE"
 - [ ] Launcher window appears
 - [ ] Click "Launch Workspace Shell"
 
@@ -461,7 +461,7 @@ exit
 
 - [ ] Terminal closes
 - [ ] Double-click AI_Docker_Manager.exe
-- [ ] Click "2. LAUNCH CLAUDE CLI"
+- [ ] Click "2. LAUNCH AI WORKSPACE"
 - [ ] Terminal opens again
 
 ```bash
@@ -488,7 +488,7 @@ docker start ai-cli
 
 **Then relaunch**:
 - [ ] Double-click AI_Docker_Manager.exe
-- [ ] Click "2. LAUNCH CLAUDE CLI"
+- [ ] Click "2. LAUNCH AI WORKSPACE"
 - [ ] Type: `claude`
 
 **Verify**:
@@ -534,7 +534,7 @@ This container contains:
   - Your configuration and settings
   - Persistent data
 
-RECOMMENDED: Click 'No' and use 'Launch Claude' instead.
+RECOMMENDED: Click 'No' and use 'Launch AI Workspace' instead.
 
 Do you want to DELETE the existing container?
 ```
@@ -638,7 +638,7 @@ Do you want to DELETE the existing container?
 1. Show AI_Docker_Manager.exe on desktop
 2. Run First Time Setup (~5 minutes)
 3. Show completion message
-4. Launch Claude CLI
+4. Launch AI Workspace
 5. Type `claude` and authenticate
 6. Ask Claude to create simple project
 7. Show files in Windows Explorer

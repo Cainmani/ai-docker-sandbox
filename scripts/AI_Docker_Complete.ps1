@@ -1,4 +1,4 @@
-# AI_Docker_Complete.ps1 - Complete self-contained installer
+﻿# AI_Docker_Complete.ps1 - Complete self-contained installer
 # This script contains all files embedded and will extract them on first run
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -60,15 +60,61 @@ function Extract-DockerFiles {
 
     $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
-    foreach ($fileName in $dockerFiles) {
-        $filePath = Join-Path $filesDir $fileName
-        if (-not (Test-Path $filePath)) {
-            $content = Get-EmbeddedFileContent $fileName
-            if ($content) {
-                [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
-            }
+    # Version tracking to detect when embedded files have been updated
+    $versionFile = Join-Path $filesDir ".version"
+    $currentVersion = [System.DateTime]::Now.ToString("yyyyMMddHHmmss")
+
+    # Calculate hash of all embedded docker files to detect changes
+    $hashBuilder = New-Object System.Text.StringBuilder
+    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh')) {
+        $content = Get-EmbeddedFileContent $fileName
+        if ($content) {
+            $hashBuilder.Append($content) | Out-Null
         }
     }
+    $currentHash = (Get-FileHash -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($hashBuilder.ToString()))) -Algorithm SHA256).Hash
+
+    # Check if files need updating
+    $needsUpdate = $false
+    $oldHash = ""
+    if (Test-Path $versionFile) {
+        $versionData = Get-Content $versionFile -Raw | ConvertFrom-Json
+        $oldHash = $versionData.Hash
+        if ($oldHash -ne $currentHash) {
+            $needsUpdate = $true
+        }
+    } else {
+        $needsUpdate = $true
+    }
+
+    # If docker files changed, clean up old containers/images automatically
+    if ($needsUpdate -and $oldHash -ne "") {
+        try {
+            # Silently clean up old container and image to force rebuild with new files
+            $null = docker stop ai-cli 2>$null
+            $null = docker rm ai-cli 2>$null
+            $null = docker rmi docker-files-ai 2>$null
+        } catch {
+            # Ignore errors - container/image might not exist
+        }
+    }
+
+    # Always extract files to ensure they're up-to-date (overwrites existing)
+    foreach ($fileName in $dockerFiles) {
+        $filePath = Join-Path $filesDir $fileName
+        $content = Get-EmbeddedFileContent $fileName
+        if ($content) {
+            [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+
+    # Update version file with new hash
+    $versionData = @{
+        Version = $currentVersion
+        Hash = $currentHash
+        UpdatedAt = [System.DateTime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+    }
+    $versionData | ConvertTo-Json | Out-File $versionFile -Encoding UTF8
 }
 
 # Now launch the main GUI
@@ -87,6 +133,7 @@ $lblHeader = New-Object System.Windows.Forms.Label
 $lblHeader.Left = 20; $lblHeader.Top = 20
 $lblHeader.Width = 560; $lblHeader.Height = 30
 $lblHeader.Text = "============================================================"
+$lblHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblHeader.ForeColor = $script:MatrixGreen
 $lblHeader.BackColor = 'Transparent'
 $lblHeader.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
@@ -106,6 +153,7 @@ $lblFooter = New-Object System.Windows.Forms.Label
 $lblFooter.Left = 20; $lblFooter.Top = 80
 $lblFooter.Width = 560; $lblFooter.Height = 30
 $lblFooter.Text = "============================================================"
+$lblFooter.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblFooter.ForeColor = $script:MatrixGreen
 $lblFooter.BackColor = 'Transparent'
 $lblFooter.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
@@ -115,7 +163,7 @@ $form.Controls.Add($lblFooter)
 $lblDesc = New-Object System.Windows.Forms.Label
 $lblDesc.Left = 20; $lblDesc.Top = 120
 $lblDesc.Width = 560; $lblDesc.Height = 60
-$lblDesc.Text = "Select an option below to manage your AI Docker environment:`n`nFirst time? Run 'First Time Setup' to install everything.`nAlready setup? Use 'Launch Claude CLI' for daily access."
+$lblDesc.Text = "Select an option below to manage your AI Docker environment:`n`nFirst time? Run 'First Time Setup' to install everything.`nAlready setup? Use 'Launch AI Workspace' for daily access."
 $lblDesc.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblDesc.ForeColor = $script:MatrixGreen
 $lblDesc.BackColor = 'Transparent'
@@ -138,15 +186,15 @@ $form.Controls.Add($btnSetup)
 $lblSetupInfo = New-Object System.Windows.Forms.Label
 $lblSetupInfo.Left = 70; $lblSetupInfo.Top = 265
 $lblSetupInfo.Width = 460; $lblSetupInfo.Height = 20
-$lblSetupInfo.Text = "Installs Docker image and Claude CLI (5-10 minutes)"
+$lblSetupInfo.Text = "Installs Docker image and AI CLI tools (5-10 minutes)"
 $lblSetupInfo.ForeColor = $script:MatrixGreen
 $lblSetupInfo.BackColor = 'Transparent'
 $lblSetupInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblSetupInfo)
 
-# Button 2: Launch Claude
+# Button 2: Launch AI Workspace
 $btnLaunch = New-Object System.Windows.Forms.Button
-$btnLaunch.Text = "2. LAUNCH CLAUDE CLI"
+$btnLaunch.Text = "2. LAUNCH AI WORKSPACE"
 $btnLaunch.Left = 50; $btnLaunch.Top = 295
 $btnLaunch.Width = 500; $btnLaunch.Height = 60
 $btnLaunch.FlatStyle = 'Flat'
@@ -204,8 +252,16 @@ $btnSetup.Add_Click({
 
         try {
             $form.Hide()
+
+            # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
+            $devModeArg = ""
+            if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+                $devModeArg = " -DevMode"
+                Write-Host "[DEV MODE] Shift key detected - launching setup wizard in DEV mode" -ForegroundColor Magenta
+            }
+
             # Run the setup wizard from subfolder with minimized window (GUI scripts can't be fully hidden)
-            $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"" -Wait -PassThru
+            $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"$devModeArg" -Wait -PassThru
             $form.Show()
 
             # Handle different exit codes
@@ -219,10 +275,20 @@ $btnSetup.Add_Click({
                     # Move .env to main app directory for easier access
                     Copy-Item $envFileInSubfolder $envFileMain -Force
                 }
-                [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+
+                # Different message for DEV mode
+                if ($devModeArg) {
+                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Setup wizard UI walkthrough completed.`n`nNo actual changes were made to the system.", "DEV MODE Complete", 'OK', 'Information')
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+                }
             } elseif ($process.ExitCode -eq 1) {
-                # Error/failure - show error message
-                [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                # Error/failure - show error message (but softer for DEV mode)
+                if ($devModeArg) {
+                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Wizard closed without completing all pages.`n`nThis is normal if you were just testing specific pages.", "DEV MODE Ended", 'OK', 'Information')
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                }
             } elseif ($process.ExitCode -eq 2) {
                 # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
             }

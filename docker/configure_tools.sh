@@ -3,7 +3,10 @@
 # CLI Tools Configuration Helper
 # This script helps users configure and sign into various AI CLI tools
 
-set -e
+# Ensure npm is configured to use user-local directory (fixes permission issues)
+mkdir -p "${HOME}/.npm-global"
+npm config set prefix "${HOME}/.npm-global"
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,14 +18,15 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Configuration file
-CONFIG_FILE="/home/${USER_NAME}/.cli_tools_config"
+# Use $HOME instead of USER_NAME since this runs as the user
+CONFIG_FILE="${HOME}/.cli_tools_config"
 
 # Function to print colored headers
 print_header() {
     echo ""
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
     echo -e "${CYAN}  $1${NC}"
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${NC}"
 }
 
 print_status() {
@@ -30,7 +34,7 @@ print_status() {
 }
 
 print_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
+    echo -e "${GREEN}[âœ“]${NC} $1"
 }
 
 print_warning() {
@@ -38,7 +42,7 @@ print_warning() {
 }
 
 print_error() {
-    echo -e "${RED}[✗]${NC} $1"
+    echo -e "${RED}[âœ—]${NC} $1"
 }
 
 # Function to check if a tool is configured
@@ -46,7 +50,7 @@ is_configured() {
     local tool=$1
     case $tool in
         claude)
-            if [ -f "/home/${USER_NAME}/.claude/config.json" ]; then
+            if [ -f "${HOME}/.claude/config.json" ]; then
                 return 0
             fi
             ;;
@@ -56,17 +60,17 @@ is_configured() {
             fi
             ;;
         openai)
-            if [ ! -z "$OPENAI_API_KEY" ] || [ -f "/home/${USER_NAME}/.config/openai/api_key" ]; then
+            if [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
                 return 0
             fi
             ;;
         gemini)
-            if [ ! -z "$GEMINI_API_KEY" ] || [ -f "/home/${USER_NAME}/.config/gemini/api_key" ]; then
+            if [ ! -z "$GEMINI_API_KEY" ] || [ -f "${HOME}/.config/gemini/api_key" ]; then
                 return 0
             fi
             ;;
         aws)
-            if [ -f "/home/${USER_NAME}/.aws/credentials" ]; then
+            if [ -f "${HOME}/.aws/credentials" ]; then
                 return 0
             fi
             ;;
@@ -81,7 +85,7 @@ is_configured() {
             fi
             ;;
         codeium)
-            if [ -f "/home/${USER_NAME}/.codeium/config.json" ]; then
+            if [ -f "${HOME}/.codeium/config.json" ]; then
                 return 0
             fi
             ;;
@@ -157,20 +161,20 @@ configure_openai() {
 
         if [ ! -z "$api_key" ]; then
             # Save to config file
-            mkdir -p "/home/${USER_NAME}/.config/openai"
-            echo "$api_key" > "/home/${USER_NAME}/.config/openai/api_key"
-            chmod 600 "/home/${USER_NAME}/.config/openai/api_key"
+            mkdir -p "${HOME}/.config/openai"
+            echo "$api_key" > "${HOME}/.config/openai/api_key"
+            chmod 600 "${HOME}/.config/openai/api_key"
 
             # Add to bashrc
-            if ! grep -q "OPENAI_API_KEY" "/home/${USER_NAME}/.bashrc"; then
-                echo "" >> "/home/${USER_NAME}/.bashrc"
-                echo "# OpenAI API Configuration" >> "/home/${USER_NAME}/.bashrc"
-                echo "export OPENAI_API_KEY='$api_key'" >> "/home/${USER_NAME}/.bashrc"
+            if ! grep -q "OPENAI_API_KEY" "${HOME}/.bashrc"; then
+                echo "" >> "${HOME}/.bashrc"
+                echo "# OpenAI API Configuration" >> "${HOME}/.bashrc"
+                echo "export OPENAI_API_KEY='$api_key'" >> "${HOME}/.bashrc"
             fi
 
             # Configure shell-gpt
-            mkdir -p "/home/${USER_NAME}/.config/shell_gpt"
-            cat > "/home/${USER_NAME}/.config/shell_gpt/.sgptrc" << EOF
+            mkdir -p "${HOME}/.config/shell_gpt"
+            cat > "${HOME}/.config/shell_gpt/.sgptrc" << EOF
 DEFAULT_MODEL=gpt-4
 OPENAI_API_KEY=$api_key
 CHAT_CACHE_PATH=/tmp/sgpt_cache
@@ -178,7 +182,7 @@ CHAT_CACHE_LENGTH=100
 REQUEST_TIMEOUT=60
 DEFAULT_COLOR=magenta
 EOF
-            chmod 600 "/home/${USER_NAME}/.config/shell_gpt/.sgptrc"
+            chmod 600 "${HOME}/.config/shell_gpt/.sgptrc"
 
             export OPENAI_API_KEY="$api_key"
             print_success "OpenAI API configured successfully"
@@ -205,15 +209,15 @@ configure_gemini() {
 
         if [ ! -z "$api_key" ]; then
             # Save to config file
-            mkdir -p "/home/${USER_NAME}/.config/gemini"
-            echo "$api_key" > "/home/${USER_NAME}/.config/gemini/api_key"
-            chmod 600 "/home/${USER_NAME}/.config/gemini/api_key"
+            mkdir -p "${HOME}/.config/gemini"
+            echo "$api_key" > "${HOME}/.config/gemini/api_key"
+            chmod 600 "${HOME}/.config/gemini/api_key"
 
             # Add to bashrc
-            if ! grep -q "GEMINI_API_KEY" "/home/${USER_NAME}/.bashrc"; then
-                echo "" >> "/home/${USER_NAME}/.bashrc"
-                echo "# Gemini API Configuration" >> "/home/${USER_NAME}/.bashrc"
-                echo "export GEMINI_API_KEY='$api_key'" >> "/home/${USER_NAME}/.bashrc"
+            if ! grep -q "GEMINI_API_KEY" "${HOME}/.bashrc"; then
+                echo "" >> "${HOME}/.bashrc"
+                echo "# Gemini API Configuration" >> "${HOME}/.bashrc"
+                echo "export GEMINI_API_KEY='$api_key'" >> "${HOME}/.bashrc"
             fi
 
             export GEMINI_API_KEY="$api_key"
@@ -333,9 +337,9 @@ show_status() {
     for tool_info in "${tools[@]}"; do
         IFS=':' read -r tool name <<< "$tool_info"
         if is_configured "$tool"; then
-            echo -e "${GREEN}✓${NC} $name - Configured"
+            echo -e "${GREEN}âœ“${NC} $name - Configured"
         else
-            echo -e "${RED}✗${NC} $name - Not configured"
+            echo -e "${RED}âœ—${NC} $name - Not configured"
         fi
     done
 

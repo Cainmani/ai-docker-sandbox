@@ -51,7 +51,7 @@ Double-click `AI_Docker_Manager.exe` and select:
 [1. FIRST TIME SETUP]
 ```
 
-**IMPORTANT**: Only run first-time setup once! After initial setup, always use "Launch Claude CLI" instead.
+**IMPORTANT**: Only run first-time setup once! After initial setup, always use "Launch AI Workspace" instead.
 
 ### Step 2: Follow Wizard Pages
 
@@ -100,18 +100,18 @@ The wizard will guide you through 7 pages:
 - Click **Finish**
 
 ### Setup Complete!
-You've successfully created your secure AI environment. Now you can launch Claude CLI.
+You've successfully created your secure AI environment. Now you can launch the AI Workspace.
 
 ---
 
 ## Daily Usage
 
-### How to Start Claude CLI
+### How to Start the AI Workspace
 
 1. Double-click `AI_Docker_Manager.exe`
 2. Select:
    ```
-   [2. LAUNCH CLAUDE CLI]
+   [2. LAUNCH AI WORKSPACE]
    ```
 3. A terminal window opens automatically
 4. You're now inside the container at `/workspace` directory
@@ -196,7 +196,7 @@ exit
 
 ### Task 4: Restart Claude
 
-Just launch AI_Docker_Manager.exe again and select "Launch Claude CLI"!
+Just launch AI_Docker_Manager.exe again and select "Launch AI Workspace"!
 
 ---
 
@@ -271,7 +271,7 @@ Once setup is complete, **DO NOT** move or rename your AI_Work folder. The Docke
 ### ⚠️ First Time Setup vs Launch
 
 - **First Time Setup**: Run ONCE to create your environment
-- **Launch Claude CLI**: Run EVERY TIME you want to use Claude
+- **Launch AI Workspace**: Run EVERY TIME you want to use the AI tools
 
 If you accidentally run "First Time Setup" again, it will warn you that you'll lose your authentication and settings. Choose "No" to keep your existing setup.
 

@@ -177,7 +177,7 @@ Write-Host "Users can:" -ForegroundColor Cyan
 Write-Host "  1. Download AI_Docker_Manager.exe" -ForegroundColor Yellow
 Write-Host "  2. Run it (extracts files on first run)" -ForegroundColor Yellow
 Write-Host "  3. Click First Time Setup to install" -ForegroundColor Yellow
-Write-Host "  4. Click Launch Claude CLI for daily use" -ForegroundColor Yellow
+Write-Host "  4. Click Launch AI Workspace for daily use" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green
 Write-Host ""

@@ -165,9 +165,9 @@
 
 ## Phase 3: First Launch
 
-### 3.1 Launch Claude CLI
+### 3.1 Launch AI Workspace
 - [ ] Double-click AI_Docker_Manager.exe again
-- [ ] Click "**2. LAUNCH CLAUDE CLI**"
+- [ ] Click "**2. LAUNCH AI WORKSPACE**"
 - [ ] Launcher GUI opens
 - [ ] Click "**Launch Workspace Shell**"
 - [ ] Terminal window opens (Windows Terminal or cmd)
@@ -274,7 +274,7 @@ echo "Hello from Docker" > /workspace/test.txt
 - [ ] Type `exit` to exit terminal
 - [ ] Terminal closes
 - [ ] Double-click AI_Docker_Manager.exe
-- [ ] Click "**2. LAUNCH CLAUDE CLI**"
+- [ ] Click "**2. LAUNCH AI WORKSPACE**"
 - [ ] Terminal opens again
 - [ ] Type `claude`
 - [ ] **CRITICAL**: Claude starts WITHOUT asking for authentication again!
@@ -303,7 +303,7 @@ docker start ai-cli
 
 - [ ] Container stops successfully
 - [ ] Container starts successfully
-- [ ] Launch Claude CLI again
+- [ ] Launch AI Workspace again
 - [ ] Everything still works
 - [ ] Authentication still persisted
 
@@ -315,7 +315,7 @@ docker start ai-cli
 
 ### 5.1 Docker Not Running Scenario
 - [ ] Stop Docker Desktop
-- [ ] Try to launch Claude CLI
+- [ ] Try to launch AI Workspace
 - [ ] Error message appears: "Docker is not running"
 - [ ] Message is clear and helpful
 - [ ] Start Docker Desktop
@@ -417,7 +417,7 @@ Review all error messages encountered:
 4. [ ] Walk through wizard (5 minutes)
 5. [ ] Show completion message
 6. [ ] Double-click exe again
-7. [ ] Click "Launch Claude CLI"
+7. [ ] Click "Launch AI Workspace"
 8. [ ] Terminal opens
 9. [ ] Type `claude`
 10. [ ] Authenticate (first time)

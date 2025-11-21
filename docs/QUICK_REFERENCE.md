@@ -16,11 +16,11 @@
 
 ## 💻 Daily Usage
 
-### Launch Claude
+### Launch AI Workspace
 ```
 1. Double-click AI_Docker_Manager.exe
-2. Select "2. LAUNCH CLAUDE CLI"
-3. Terminal opens → type: claude
+2. Select "2. LAUNCH AI WORKSPACE"
+3. Terminal opens → type: claude (or any AI tool)
 4. Start working!
 ```
 
@@ -60,7 +60,7 @@ Files sync automatically both ways! Edit from Windows or from Claude - changes a
 ## ⚠️ Important Rules
 
 ✅ **DO**: Create project subdirectories in AI_Work
-✅ **DO**: Use "Launch Claude CLI" for daily access
+✅ **DO**: Use "Launch AI Workspace" for daily access
 ✅ **DO**: Access files from Windows File Explorer anytime
 
 ❌ **DON'T**: Move or rename AI_Work folder after setup
@@ -72,7 +72,7 @@ Files sync automatically both ways! Edit from Windows or from Claude - changes a
 ## 📋 Workflow Example
 
 ```bash
-# 1. Launch AI_Docker_Manager.exe → "2. LAUNCH CLAUDE CLI"
+# 1. Launch AI_Docker_Manager.exe → "2. LAUNCH AI WORKSPACE"
 
 # 2. Inside terminal:
 cd /workspace

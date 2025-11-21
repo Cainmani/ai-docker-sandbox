@@ -65,25 +65,22 @@ alias config-status='/usr/local/bin/configure_tools.sh --status'
 # Show available CLI tools on login
 if [ -f /home/$USER/.cli_tools_installed ]; then
   echo ""
-  echo "╔════════════════════════════════════════════════════════════╗"
+  echo "╔══════════════════════════════════════════════════════════════╗"
   echo "║          AI CLI Tools Environment Ready!                    ║"
-  echo "╠════════════════════════════════════════════════════════════╣"
+  echo "╠══════════════════════════════════════════════════════════════╣"
   echo "║ Available AI Tools:                                         ║"
   echo "║   • claude       - Claude Code CLI                          ║"
   echo "║   • gh           - GitHub CLI                               ║"
-  echo "║   • sgpt         - Shell GPT (OpenAI)                       ║"
-  echo "║   • aider        - AI pair programming                      ║"
-  echo "║   • codeium      - Codeium AI assistant                     ║"
-  echo "║   • aws          - AWS CLI (for AI services)                ║"
-  echo "║   • az           - Azure CLI (for AI services)              ║"
-  echo "║   • gcloud       - Google Cloud CLI                         ║"
+  echo "║   • gemini       - Google Gemini CLI                        ║"
+  echo "║   • codex        - OpenAI Codex CLI                         ║"
+  echo "║   • python3      - OpenAI Python SDK (import openai)        ║"
   echo "║                                                              ║"
   echo "║ Management Commands:                                        ║"
   echo "║   • configure-tools  - Set up API keys and authentication   ║"
   echo "║   • config-status    - Check configuration status           ║"
   echo "║   • update-tools     - Update all CLI tools                 ║"
   echo "║   • check-updates    - Check for available updates          ║"
-  echo "╚════════════════════════════════════════════════════════════╝"
+  echo "╚══════════════════════════════════════════════════════════════╝"
   echo ""
   echo "First time? Run 'configure-tools' to set up your API keys!"
   echo ""
@@ -128,12 +125,12 @@ fi
 
 # Install CLI tools on first run (runs as the user)
 echo "Checking CLI tools installation..."
-su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh"
+su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh" || true
 
 # Setup auto-update cron job (weekly on Sunday at 2 AM)
 if ! crontab -u "$USER_NAME" -l 2>/dev/null | grep -q "auto_update.sh"; then
   echo "Setting up auto-update schedule..."
-  (crontab -u "$USER_NAME" -l 2>/dev/null; echo "0 2 * * 0 /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -u "$USER_NAME" -
+  (crontab -u "$USER_NAME" -l 2>/dev/null; echo "0 2 * * 0 /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -u "$USER_NAME" - || true
 fi
 
 # Keep container running

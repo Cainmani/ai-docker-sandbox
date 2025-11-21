@@ -69,7 +69,7 @@ This project provides a complete AI development environment with multiple AI CLI
 ### Daily Use
 
 1. **Run `AI_Docker_Manager.exe`**
-2. **Select "Launch Claude CLI"**
+2. **Select "Launch AI Workspace"**
 3. **Terminal opens** → All AI tools ready!
 
 ### First Time Configuration
@@ -245,7 +245,7 @@ Your AI_Work folder is accessible from Windows File Explorer:
 
 ### Daily Workflow
 
-1. **Morning:** Run AI_Docker_Manager.exe → Select "Launch Claude CLI"
+1. **Morning:** Run AI_Docker_Manager.exe → Select "Launch AI Workspace"
 2. **Work:** Navigate to project, run `claude`
 3. **Evening:** Exit terminal (files persist)
 4. **Next day:** Run launcher again → Resume work
@@ -274,6 +274,30 @@ docker logs ai-cli
 **Solution:** The entrypoint script should handle permissions automatically. If issues persist, rebuild the container.
 
 ## Advanced
+
+### DEV Mode (UI Testing)
+
+DEV mode allows developers to walk through the entire setup wizard UI without performing any destructive operations. This is useful for UI testing and aesthetic fixes.
+
+**How to Activate:**
+- **From Launcher:** Hold `Shift` while clicking "First Time Setup"
+- **Direct script:** `powershell -ExecutionPolicy Bypass -File "setup_wizard.ps1" -DevMode`
+
+**Visual Indicators:**
+- Form title changes to `>>> AI CLI DOCKER SETUP :: [DEV MODE] <<<`
+- Orange banner at top: "DEV MODE - No destructive operations will be performed"
+- Console shows magenta `[DEV MODE]` messages for all simulated operations
+
+**What Gets Simulated (not executed):**
+| Operation | DEV Mode Behavior |
+|-----------|-------------------|
+| Container stop/remove | Logged & skipped |
+| Image removal | Logged & skipped |
+| `docker compose build` | Progress animation only |
+| `docker compose up -d` | Progress animation only |
+| Container status checks | Returns simulated "Up" |
+| CLI tools installation | Quick simulated progress |
+| Tool verification | Simulated as found |
 
 ### Manual Container Management
 

@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies in one layer with cleanup
+# Install dependencies FIRST (without nodejs yet)
 RUN apt-get update && apt-get install -y \
     sudo \
     curl \
@@ -25,29 +25,20 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     python3-dev \
-    nodejs \
-    npm \
-    jq \
-    httpie \
-    bat \
-    ripgrep \
-    fd-find \
-    fzf \
-    tmux \
-    htop \
     tree \
-    ncdu \
     cron \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create symlinks for renamed packages
-RUN ln -sf /usr/bin/batcat /usr/local/bin/bat && \
-    ln -sf /usr/bin/fdfind /usr/local/bin/fd
+# Install Node.js 20.x from NodeSource (required for Gemini CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install pipx for isolated tool installations
-RUN python3 -m pip install --upgrade pip setuptools wheel pipx && \
-    python3 -m pipx ensurepath
+RUN python3 -m pip install --no-cache-dir --break-system-packages pipx
+
 
 # Create working directory
 WORKDIR /workspace
@@ -60,6 +51,13 @@ COPY claude_wrapper.sh /usr/local/bin/claude
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Fix line endings for all scripts (Windows CRLF -> Unix LF)
+RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
+    /usr/local/bin/auto_update.sh \
+    /usr/local/bin/configure_tools.sh \
+    /usr/local/bin/claude \
+    /usr/local/bin/entrypoint.sh
 
 # Make all scripts executable
 RUN chmod +x /usr/local/bin/install_cli_tools.sh \

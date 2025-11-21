@@ -7,6 +7,11 @@
 # Note: We do NOT use "set -e" here because we want to continue installing other tools
 # even if one tool fails. The marker file will be created regardless to prevent infinite loops.
 
+# Ensure npm is configured to use user-local directory (fixes permission issues)
+mkdir -p "${HOME}/.npm-global"
+npm config set prefix "${HOME}/.npm-global"
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
