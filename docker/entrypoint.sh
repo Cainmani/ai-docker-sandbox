@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Required: USER_NAME and USER_PASSWORD come from environment (.env or compose)
+# Required: USER_NAME from environment (.env or compose)
+# Password can be provided as hash (USER_PASSWORD_HASH) or plain text (USER_PASSWORD_PLAIN)
 : "${USER_NAME:?Set USER_NAME env}"
-: "${USER_PASSWORD:?Set USER_PASSWORD env}"
+
+# Validate that at least one password form is provided
+if [ -z "${USER_PASSWORD_HASH:-}" ] && [ -z "${USER_PASSWORD_PLAIN:-}" ]; then
+  echo "ERROR: Set either USER_PASSWORD_HASH or USER_PASSWORD_PLAIN env"
+  exit 1
+fi
 
 # Create user if missing
 if ! id -u "$USER_NAME" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$USER_NAME"
-  echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+
+  # Set password: prefer hash, fallback to plain text
+  if [ -n "${USER_PASSWORD_HASH:-}" ]; then
+    # Use pre-hashed password (SHA-512 format: $6$salt$hash)
+    echo "$USER_NAME:$USER_PASSWORD_HASH" | chpasswd -e
+  else
+    # Hash the plain text password
+    echo "$USER_NAME:$USER_PASSWORD_PLAIN" | chpasswd
+  fi
+
   usermod -aG sudo "$USER_NAME"
 
   # Allow passwordless sudo for this user
@@ -63,7 +78,8 @@ alias configure-tools='/usr/local/bin/configure_tools.sh'
 alias config-status='/usr/local/bin/configure_tools.sh --status'
 
 # Show available CLI tools on login
-if [ -f /home/$USER/.cli_tools_installed ]; then
+# Note: $USER is set by bash at login time to the current username
+if [ -f "$HOME/.cli_tools_installed" ]; then
   echo ""
   echo "╔══════════════════════════════════════════════════════════════╗"
   echo "║          AI CLI Tools Environment Ready!                    ║"

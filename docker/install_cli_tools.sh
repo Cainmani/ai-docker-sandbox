@@ -163,6 +163,9 @@ install_cli_tools() {
     print_status "Installing OpenAI CLI tools..."
 
     # Install openai SDK with --break-system-packages
+    # Note: --break-system-packages is safe here because this is an isolated Docker container
+    # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
+    # which uses PEP 668 to prevent accidental system package modifications on host systems.
     if ! pip3 show openai >/dev/null 2>&1; then
         if pip3 install --break-system-packages openai --quiet; then
             print_success "OpenAI Python SDK installed"

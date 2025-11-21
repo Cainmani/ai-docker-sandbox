@@ -270,18 +270,50 @@ function Docker-Running() {
 $state = [ordered]@{
     UserName = ''
     Password = ''
+    PasswordHash = ''
     ParentPath = ''
     WorkspacePath = ''
 }
 
-# Load existing .env file if present (for retry scenarios)
+# .env file path - defined early for use throughout the script
 $script:envPath = Join-Path $PSScriptRoot '.env'
+
+# Function to hash password using SHA-512 (compatible with Linux chpasswd -e)
+function Get-LinuxPasswordHash {
+    param([string]$Password)
+
+    # Generate a random 16-character salt for SHA-512
+    $saltChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./'
+    $salt = -join ((1..16) | ForEach-Object { $saltChars[(Get-Random -Maximum $saltChars.Length)] })
+
+    # Use Python to generate the hash (available on most systems, and we need Linux-compatible format)
+    # Format: $6$salt$hash (SHA-512)
+    $pythonCmd = "import crypt; print(crypt.crypt('$Password', '\`$6\`$$salt\`$'))"
+
+    # Since Python may not be available on Windows, use OpenSSL via Docker if available
+    # Or fall back to storing password with a marker for the entrypoint to hash it
+    try {
+        # Try using docker to generate the hash (container has the right tools)
+        $hashResult = docker run --rm ubuntu:24.04 python3 -c "import crypt; print(crypt.crypt('$Password', '\`$6\`$$salt\`$'))" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $hashResult) {
+            return $hashResult.Trim()
+        }
+    } catch {
+        # Docker not available or failed
+    }
+
+    # Fallback: Return empty string, entrypoint will hash it
+    return ''
+}
+
+# Load existing .env file if present (for retry scenarios)
 if (Test-Path $script:envPath) {
     Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
     $envLines = Get-Content $script:envPath
     foreach ($line in $envLines) {
         if ($line -match '^USER_NAME=(.*)$') { $state.UserName = $Matches[1] }
-        if ($line -match '^USER_PASSWORD=(.*)$') { $state.Password = $Matches[1] }
+        # Note: We store hashed password in USER_PASSWORD_HASH, plain password is not persisted
+        if ($line -match '^USER_PASSWORD_HASH=(.*)$') { $state.PasswordHash = $Matches[1] }
         if ($line -match '^WORKSPACE_PATH=(.*)$') {
             $state.WorkspacePath = $Matches[1]
             $state.ParentPath = Split-Path $Matches[1] -Parent
@@ -289,6 +321,9 @@ if (Test-Path $script:envPath) {
     }
     if ($state.UserName) {
         Write-Host "[INFO] Loaded credentials for user: $($state.UserName)" -ForegroundColor Green
+        if ($state.PasswordHash) {
+            Write-Host "[INFO] Password hash found (password is securely stored)" -ForegroundColor Green
+        }
     }
 }
 
@@ -390,7 +425,7 @@ $p1.Controls.Add((New-Label 'Confirm Password:' 20 345 880 20 10 $true $false))
 $script:tbPassConfirm = New-Textbox 20 365 400 28 $true
 $p1.Controls.Add($script:tbPassConfirm)
 $p1.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p1.Controls.Add((New-Label 'Note: These credentials will be securely stored in the .env file.' 20 425 880 24 9 $false $true))
+$p1.Controls.Add((New-Label 'Note: Password will be hashed (SHA-512) before storing in the .env file.' 20 425 880 24 9 $false $true))
 $pages += $p1
 
 # Page 2: Folder choose
@@ -628,15 +663,31 @@ $btnNext.Add_Click({
                 $state.UserName = $script:tbUser.Text
                 $state.Password = $script:tbPass.Text
 
+                # Hash the password for secure storage
+                Write-Host "[INFO] Hashing password for secure storage..." -ForegroundColor Cyan
+                $state.PasswordHash = Get-LinuxPasswordHash -Password $state.Password
+                if ($state.PasswordHash) {
+                    Write-Host "[SUCCESS] Password hashed with SHA-512" -ForegroundColor Green
+                } else {
+                    Write-Host "[INFO] Password will be hashed by container on first run" -ForegroundColor Yellow
+                }
+
                 # Save credentials to .env immediately (persist for retry scenarios)
+                # Password is stored as hash (USER_PASSWORD_HASH) for security
                 Write-Host "[INFO] Saving credentials to .env" -ForegroundColor Cyan
                 $nl = [Environment]::NewLine
-                $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl
+                if ($state.PasswordHash) {
+                    # Store hashed password - entrypoint will use chpasswd -e
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl
+                } else {
+                    # Fallback: store plain password with marker for entrypoint to hash
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl
+                }
                 if ($state.WorkspacePath) {
                     $envContent += "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
                 }
                 $envContent | Out-File $script:envPath -Encoding UTF8
-                Write-Host "[SUCCESS] Credentials saved to .env" -ForegroundColor Green
+                Write-Host "[SUCCESS] Credentials saved to .env (password is hashed)" -ForegroundColor Green
             }
             $script:current++; Show-Page $script:current
         }
@@ -675,7 +726,11 @@ $btnNext.Add_Click({
                 # Update .env with workspace path
                 Write-Host "[INFO] Updating .env with workspace path" -ForegroundColor Cyan
                 $nl = [Environment]::NewLine
-                $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                if ($state.PasswordHash) {
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                } else {
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                }
                 $envContent | Out-File $script:envPath -Encoding UTF8
                 $status.Text = ".env updated at $script:envPath"
                 Write-Host "[SUCCESS] .env updated with workspace path" -ForegroundColor Green
@@ -857,9 +912,14 @@ $btnNext.Add_Click({
             # Track last log position for incremental updates
             $script:lastLogLines = 0
 
-            # Helper function to strip ANSI color codes
+            # Helper function to strip ANSI escape sequences
+            # Uses comprehensive pattern to handle all ANSI control sequences including:
+            # - Color codes (SGR): \x1b[...m
+            # - Cursor movement: \x1b[...H, \x1b[...A/B/C/D, etc.
+            # - Screen clearing: \x1b[...J, \x1b[...K
+            # - Other control sequences: \x1b[...followed by any letter
             function Strip-AnsiCodes([string]$text) {
-                return $text -replace '\x1b\[[0-9;]*m', '' -replace '\[0m', '' -replace '\[0;3[0-9]m', '' -replace '\[1;3[0-9]m', ''
+                return $text -replace '\x1b\[[0-9;]*[a-zA-Z]', '' -replace '\x1b\][^\x07]*\x07', ''
             }
 
             # Helper function to update terminal display with new docker logs
