@@ -24,11 +24,15 @@ $filesToEmbed = @(
    "..\..\docker\Dockerfile",
    "..\..\docker\entrypoint.sh",
    "..\..\docker\claude_wrapper.sh",
+   "..\..\docker\install_cli_tools.sh",
+   "..\..\docker\auto_update.sh",
+   "..\..\docker\configure_tools.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",
    "..\..\README.md",
    "..\..\docs\USER_MANUAL.md",
    "..\..\docs\QUICK_REFERENCE.md",
+   "..\..\docs\CLI_TOOLS_GUIDE.md",
    "..\..\tests\TESTING_CHECKLIST.md"
 )
 
@@ -173,7 +177,7 @@ Write-Host "Users can:" -ForegroundColor Cyan
 Write-Host "  1. Download AI_Docker_Manager.exe" -ForegroundColor Yellow
 Write-Host "  2. Run it (extracts files on first run)" -ForegroundColor Yellow
 Write-Host "  3. Click First Time Setup to install" -ForegroundColor Yellow
-Write-Host "  4. Click Launch Claude CLI for daily use" -ForegroundColor Yellow
+Write-Host "  4. Click Launch AI Workspace for daily use" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green
 Write-Host ""

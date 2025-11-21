@@ -165,7 +165,7 @@ Workspace (/workspace → AI_Work)
 9. Copies and installs wrapper script at `/usr/local/bin/claude`
 
 ### Daily Launch Flow
-1. User runs launcher (or clicks "Launch Claude CLI" in .exe)
+1. User runs launcher (or clicks "Launch AI Workspace" in .exe)
 2. Checks Docker is running (auto-start with 60-second wait)
 3. Verifies `ai-cli` container exists (guides to setup if not)
 4. Starts container if stopped: `docker start ai-cli`
@@ -206,7 +206,7 @@ $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}"
 if ($existingContainer -eq "ai-cli") {
     # Show warning dialog
     # - Explains container contains authentication and settings
-    # - Recommends using "Launch Claude" instead
+    # - Recommends using "Launch AI Workspace" instead
     # - Default button is "No" (safe option)
     # - If "Yes": Deletes container and continues (exit code 0)
     # - If "No": Shows info dialog, exits with code 1
@@ -357,7 +357,7 @@ powershell -ExecutionPolicy Bypass -File fix_line_endings.ps1
 
 # Test launcher
 ./AI_Docker_Manager.exe
-# Click "2. LAUNCH CLAUDE CLI"
+# Click "2. LAUNCH AI WORKSPACE"
 ```
 
 ## File Structure
@@ -826,7 +826,7 @@ powershell -ExecutionPolicy Bypass -File build_complete_exe.ps1
 4. ✅ Click "1. FIRST TIME SETUP"
 5. ✅ Complete wizard (watch console for "docker compose build" without quotes)
 6. ✅ See success message
-7. ✅ Click "2. LAUNCH CLAUDE CLI"
+7. ✅ Click "2. LAUNCH AI WORKSPACE"
 8. ✅ Terminal opens at /workspace
 9. ✅ Type `claude`
 10. ✅ **CRITICAL**: Claude starts without errors
@@ -959,7 +959,7 @@ Set-Location $originalDir
 1. Show exe on desktop
 2. Run first-time setup (5 minutes)
 3. Show completion message
-4. Launch Claude CLI
+4. Launch AI Workspace
 5. Type `claude` - authenticate
 6. Ask Claude to create a simple project
 7. Show files in Windows File Explorer

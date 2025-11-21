@@ -1,7 +1,7 @@
 # fix_line_endings.ps1 - Convert shell scripts to Unix LF line endings
 
 $scriptPath = $PSScriptRoot
-$files = @('entrypoint.sh', 'setup.sh', 'claude_wrapper.sh')
+$files = @('entrypoint.sh', 'setup.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh')
 
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "         FIXING LINE ENDINGS FOR LINUX SCRIPTS                  " -ForegroundColor Green

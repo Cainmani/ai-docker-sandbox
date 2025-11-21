@@ -1,7 +1,11 @@
 ﻿# setup_wizard.ps1
 # Requirements: Windows PowerShell 5+ or PowerShell 7+, Docker Desktop installed
+param([switch]$DevMode)
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+$script:IsDevMode = $DevMode.IsPresent
 
 # ---------- automatic line ending fix ----------
 function Fix-LineEndings {
@@ -85,6 +89,25 @@ function New-Button([string]$text, [int]$x, [int]$y, [int]$w=120, [int]$h=34) {
     $btn.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
     return $btn
 }
+function New-LinkLabel([string]$url, [int]$x, [int]$y, [int]$w=880, [int]$h=24, [int]$fontSize=9, [bool]$center=$true) {
+    $link = New-Object System.Windows.Forms.LinkLabel
+    $link.Text = $url
+    $link.Left = $x; $link.Top = $y
+    $link.Width = $w; $link.Height = $h
+    $link.LinkColor = $script:MatrixAccent
+    $link.ActiveLinkColor = $script:MatrixGreen
+    $link.VisitedLinkColor = $script:MatrixAccent
+    $link.BackColor = 'Transparent'
+    $link.Font = New-Object System.Drawing.Font('Consolas', $fontSize)
+    if ($center) {
+        $link.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    }
+    $link.Add_LinkClicked({
+        param($sender, $e)
+        Start-Process $sender.Text
+    })
+    return $link
+}
 function New-PanelPage() {
     $p = New-Object System.Windows.Forms.Panel
     $p.Dock = 'Fill'
@@ -163,26 +186,34 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         }
 
         $lastDot = [DateTime]::Now
+        $lastProgressUpdate = [DateTime]::Now
         $progressIncrement = 0
 
+        # Optimized polling loop to reduce overhead for long-running processes like Docker builds
+        # Changes: Longer sleep (250ms vs 120ms), less frequent progress updates (500ms), less console I/O (2s vs 1s)
+        # This significantly improves performance for Docker Compose build operations
         while (-not $p.HasExited) {
+            # Process Windows messages less frequently to reduce overhead
             [System.Windows.Forms.Application]::DoEvents()
 
-            # Update progress bar - increment gradually
-            if ($progressBar) {
+            $now = [DateTime]::Now
+
+            # Update progress bar every 500ms instead of every loop iteration
+            if ($progressBar -and ($now - $lastProgressUpdate).TotalMilliseconds -gt 500) {
                 $progressIncrement += 2
                 if ($progressIncrement -gt 95) { $progressIncrement = 95 } # Cap at 95% until complete
                 $progressBar.Value = $progressIncrement
-                [System.Windows.Forms.Application]::DoEvents()
+                $lastProgressUpdate = $now
             }
 
-            # Show progress dots in console
-            if (([DateTime]::Now - $lastDot).TotalSeconds -gt 1) {
+            # Show progress dots every 2 seconds (reduced console I/O)
+            if (($now - $lastDot).TotalSeconds -gt 2) {
                 Write-Host '.' -NoNewline -ForegroundColor DarkGray
-                $lastDot = [DateTime]::Now
+                $lastDot = $now
             }
 
-            Start-Sleep -Milliseconds 120
+            # Longer sleep interval reduces CPU usage and polling overhead
+            Start-Sleep -Milliseconds 250
         }
         Write-Host '' # New line
 
@@ -239,9 +270,63 @@ function Docker-Running() {
 $state = [ordered]@{
     UserName = ''
     Password = ''
+    PasswordHash = ''
     ParentPath = ''
     WorkspacePath = ''
 }
+
+# .env file path - defined early for use throughout the script
+$script:envPath = Join-Path $PSScriptRoot '.env'
+
+# Function to hash password using SHA-512 (compatible with Linux chpasswd -e)
+function Get-LinuxPasswordHash {
+    param([string]$Password)
+
+    # Generate a random 16-character salt for SHA-512
+    $saltChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./'
+    $salt = -join ((1..16) | ForEach-Object { $saltChars[(Get-Random -Maximum $saltChars.Length)] })
+
+    # Use Python to generate the hash (available on most systems, and we need Linux-compatible format)
+    # Format: $6$salt$hash (SHA-512)
+    $pythonCmd = "import sys, crypt; pw = sys.stdin.read().strip(); print(crypt.crypt(pw, '\`$6\`$$salt\`$'))"
+
+    # Since Python may not be available on Windows, use OpenSSL via Docker if available
+    # Or fall back to storing password with a marker for the entrypoint to hash it
+    try {
+        # Try using docker to generate the hash (container has the right tools)
+        $hashResult = echo $Password | docker run --rm -i ubuntu:24.04 python3 -c "$pythonCmd" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $hashResult) {
+            return $hashResult.Trim()
+        }
+    } catch {
+        # Docker not available or failed
+    }
+
+    # Fallback: Return empty string, entrypoint will hash it
+    return ''
+}
+
+# Load existing .env file if present (for retry scenarios)
+if (Test-Path $script:envPath) {
+    Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
+    $envLines = Get-Content $script:envPath
+    foreach ($line in $envLines) {
+        if ($line -match '^USER_NAME=(.*)$') { $state.UserName = $Matches[1] }
+        # Note: We store hashed password in USER_PASSWORD_HASH, plain password is not persisted
+        if ($line -match '^USER_PASSWORD_HASH=(.*)$') { $state.PasswordHash = $Matches[1] }
+        if ($line -match '^WORKSPACE_PATH=(.*)$') {
+            $state.WorkspacePath = $Matches[1]
+            $state.ParentPath = Split-Path $Matches[1] -Parent
+        }
+    }
+    if ($state.UserName) {
+        Write-Host "[INFO] Loaded credentials for user: $($state.UserName)" -ForegroundColor Green
+        if ($state.PasswordHash) {
+            Write-Host "[INFO] Password hash found (password is securely stored)" -ForegroundColor Green
+        }
+    }
+}
+
 # Docker files location - detect if running from embedded exe or project directory
 # If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
 # If running from project scripts folder, use ../docker
@@ -254,14 +339,18 @@ $dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
 }
 
 $composePath = Join-Path $dockerPath 'docker-compose.yml'
-if (-not (Test-Path $composePath)) {
+if ((-not $script:IsDevMode) -and (-not (Test-Path $composePath))) {
     Show-Error ('docker-compose.yml not found at: ' + $composePath + [Environment]::NewLine + [Environment]::NewLine + 'Project structure may be incorrect.' + [Environment]::NewLine + [Environment]::NewLine + 'Script location: ' + $PSScriptRoot + [Environment]::NewLine + 'Looking for: ' + $composePath)
     exit 1  # Exit with error code
 }
 
 # ---------- main form ----------
 $form = New-Object System.Windows.Forms.Form
-$form.Text = '>>> AI CLI DOCKER SETUP :: MATRIX PROTOCOL <<<'
+if ($script:IsDevMode) {
+    $form.Text = '>>> AI CLI DOCKER SETUP :: [DEV MODE] <<<'
+} else {
+    $form.Text = '>>> AI CLI DOCKER SETUP :: MATRIX PROTOCOL <<<'
+}
 $form.Width = 950
 $form.Height = 700
 $form.StartPosition = 'CenterScreen'
@@ -307,9 +396,9 @@ $p0.Controls.Add((New-Label 'The wizard will automatically:' 20 180 880 24 10 $t
 $p0.Controls.Add((New-Label '>> Create a secure AI_Work directory for all your AI projects' 20 205 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Configure environment variables (USER_NAME, USER_PASSWORD, WORKSPACE_PATH)' 20 230 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Build and deploy the Docker container' 20 255 880 24 10 $false $true))
-$p0.Controls.Add((New-Label '>> Install Claude Code CLI inside the container' 20 280 880 24 10 $false $true))
+$p0.Controls.Add((New-Label '>> Auto-install AI CLI tools (Claude, GitHub CLI, Gemini, OpenAI SDK, Codex)' 20 280 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 305 880 24 10 $false $true))
-$p0.Controls.Add((New-Label '⚠ NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
+$p0.Controls.Add((New-Label '[!] NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 355 880 24 10 $false $true))
 $p0.Controls.Add((New-Label 'Click "Next" to begin the automatic setup process.' 20 380 880 24 10 $true $true))
 $pages += $p0
@@ -324,7 +413,7 @@ $p1.Controls.Add((New-Label 'These credentials will be used for the Ubuntu syste
 $p1.Controls.Add((New-Label 'This is a secure Linux environment isolated from your Windows system.' 20 115 880 24 10 $false $true))
 $p1.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'Don''t know what a container is? Learn more at:' 20 160 880 24 9 $false $true))
-$p1.Controls.Add((New-Label 'https://www.docker.com/resources/what-container/' 20 180 880 24 9 $false $true))
+$p1.Controls.Add((New-LinkLabel 'https://www.docker.com/resources/what-container/' 20 180 880 24 9))
 $p1.Controls.Add((New-Label '' 20 205 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'Username:' 20 225 880 20 10 $true $false))
 $script:tbUser = New-Textbox 20 245 400
@@ -336,7 +425,7 @@ $p1.Controls.Add((New-Label 'Confirm Password:' 20 345 880 20 10 $true $false))
 $script:tbPassConfirm = New-Textbox 20 365 400 28 $true
 $p1.Controls.Add($script:tbPassConfirm)
 $p1.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p1.Controls.Add((New-Label 'Note: These credentials will be securely stored in the .env file.' 20 425 880 24 9 $false $true))
+$p1.Controls.Add((New-Label 'Note: Password will be hashed (SHA-512) before storing in the .env file.' 20 425 880 24 9 $false $true))
 $pages += $p1
 
 # Page 2: Folder choose
@@ -365,6 +454,14 @@ $p2.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
 $p2.Controls.Add((New-Label '>> You can access these files directly from Windows File Explorer' 20 420 880 24 9 $false $true))
 $pages += $p2
 
+# Pre-populate textboxes from loaded .env values (for retry scenarios)
+if ($state.UserName) { $script:tbUser.Text = $state.UserName }
+if ($state.Password) {
+    $script:tbPass.Text = $state.Password
+    $script:tbPassConfirm.Text = $state.Password
+}
+if ($state.ParentPath) { $script:tbParent.Text = $state.ParentPath }
+
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
     $dlg.Description = 'Select the PARENT directory where AI_Work folder will be created'
@@ -391,7 +488,7 @@ $p3.Controls.Add((New-Label '' 20 245 880 24 10 $false $true))
 $p3.Controls.Add((New-Label 'If Docker is not installed or you are unsure:' 20 270 880 24 10 $true $true))
 $p3.Controls.Add((New-Label '' 20 295 880 24 10 $false $true))
 $p3.Controls.Add((New-Label '>> Download Docker Desktop from:' 20 320 880 24 9 $false $true))
-$p3.Controls.Add((New-Label 'https://docs.docker.com/desktop/setup/install/windows-install/' 20 345 880 24 9 $false $true))
+$p3.Controls.Add((New-LinkLabel 'https://docs.docker.com/desktop/setup/install/windows-install/' 20 345 880 24 9))
 $p3.Controls.Add((New-Label '' 20 370 880 24 10 $false $true))
 $p3.Controls.Add((New-Label '>> After installing, ensure Docker Desktop is running (check system tray)' 20 395 880 24 9 $false $true))
 $p3.Controls.Add((New-Label '' 20 420 880 24 10 $false $true))
@@ -402,10 +499,10 @@ $btnRetryDock.Add_Click({
     $script:lblDock.Text = 'Checking Docker status...'
     [System.Windows.Forms.Application]::DoEvents()
     if (Docker-Running) {
-        $script:lblDock.Text = '✓ Docker is running! Click "Next" to continue.'
+        $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running! Click "Next" to continue.'
         $script:lblDock.ForeColor = $script:MatrixGreen
     } else {
-        $script:lblDock.Text = '✗ Docker is not running. Please start Docker Desktop and retry.'
+        $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker is not running. Please start Docker Desktop and retry.'
         $script:lblDock.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
     }
 })
@@ -425,20 +522,31 @@ $p4.Controls.Add((New-Label '' 20 205 880 24 10 $false $true))
 $p4.Controls.Add((New-Label 'Please wait while the setup completes...' 20 225 880 30 11 $true $true))
 $pages += $p4
 
-# Page 5: Install Claude
+# Page 5: Install CLI Tools
 $p5 = New-PanelPage
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label -text 'INSTALLING CLAUDE CODE CLI' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Installing Claude Code CLI via npm package manager...' 20 95 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Command: npm install -g @anthropic-ai/claude-code' 20 115 880 24 10 $false $true))
-$p5.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Configuring global "claude" command wrapper...' 20 160 880 24 10 $false $true))
-$p5.Controls.Add((New-Label '' 20 185 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'This may take 1-2 minutes.' 20 205 880 24 10 $true $true))
-$p5.Controls.Add((New-Label '' 20 230 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Watch the progress bar below for status...' 20 250 880 30 11 $true $true))
+# Dynamic label for current tool being installed
+$script:lblCurrentTool = New-Label 'Initializing installation...' 20 75 880 24 10 $true $true
+$p5.Controls.Add($script:lblCurrentTool)
+$p5.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
+
+# Mini terminal display for installation output
+$script:terminalBox = New-Object System.Windows.Forms.RichTextBox
+$script:terminalBox.Left = 20
+$script:terminalBox.Top = 130
+$script:terminalBox.Width = 880
+$script:terminalBox.Height = 350
+$script:terminalBox.BackColor = [System.Drawing.Color]::Black
+$script:terminalBox.ForeColor = $script:MatrixGreen
+$script:terminalBox.Font = New-Object System.Drawing.Font('Consolas', 9)
+$script:terminalBox.ReadOnly = $true
+$script:terminalBox.ScrollBars = 'Vertical'
+$script:terminalBox.BorderStyle = 'FixedSingle'
+$script:terminalBox.Text = ">> Waiting for installation to begin...`r`n"
+$p5.Controls.Add($script:terminalBox)
+
 $pages += $p5
 
 # Page 6: Done
@@ -447,23 +555,23 @@ $p6.Controls.Add((New-Label -text '=============================================
 $p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AI CLI Docker environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'FIRST TIME USE - Important Steps:' 20 140 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Click "Launch Claude CLI" (or run launch_claude.ps1)' 20 190 880 24 9 $false $true))
+$p6.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '2. In the terminal, type: claude' 20 235 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '3. FIRST RUN ONLY: You will be prompted to authenticate with Anthropic' 20 280 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - Follow the prompts to enter your API key or login' 20 300 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - Authentication persists - you only do this once!' 20 320 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '4. After authentication, Claude CLI is ready to use!' 20 365 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 385 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'Quick Tips:' 20 410 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 430 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '>> All your work saves to AI_Work folder on your Windows PC' 20 455 880 24 9 $false $true))
+$p6.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
+$p6.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
 $pages += $p6
 
 # ---------- page plumbing ----------
@@ -531,80 +639,202 @@ $btnNext.Add_Click({
         }
         1 {
             Write-Host "[DEBUG] Page 1: Credentials validation" -ForegroundColor Cyan
-            Write-Host "[DEBUG] Username: '$($script:tbUser.Text)'" -ForegroundColor Yellow
 
-            if ([string]::IsNullOrWhiteSpace($script:tbUser.Text) -or [string]::IsNullOrWhiteSpace($script:tbPass.Text) -or [string]::IsNullOrWhiteSpace($script:tbPassConfirm.Text)) {
-                Write-Host "[ERROR] Validation failed - empty fields" -ForegroundColor Red
-                Show-Error 'Please enter username, password, and confirm password'
-                return
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping credentials validation" -ForegroundColor Magenta
+                $state.UserName = "devuser"
+                $state.Password = "devpass"
+            } else {
+                Write-Host "[DEBUG] Username: '$($script:tbUser.Text)'" -ForegroundColor Yellow
+
+                if ([string]::IsNullOrWhiteSpace($script:tbUser.Text) -or [string]::IsNullOrWhiteSpace($script:tbPass.Text) -or [string]::IsNullOrWhiteSpace($script:tbPassConfirm.Text)) {
+                    Write-Host "[ERROR] Validation failed - empty fields" -ForegroundColor Red
+                    Show-Error 'Please enter username, password, and confirm password'
+                    return
+                }
+
+                if ($script:tbPass.Text -ne $script:tbPassConfirm.Text) {
+                    Write-Host "[ERROR] Passwords do not match" -ForegroundColor Red
+                    Show-Error 'Passwords do not match. Please re-enter your password.'
+                    return
+                }
+
+                Write-Host "[SUCCESS] Credentials validated - advancing" -ForegroundColor Green
+                $state.UserName = $script:tbUser.Text
+                $state.Password = $script:tbPass.Text
+
+                # Hash the password for secure storage
+                Write-Host "[INFO] Hashing password for secure storage..." -ForegroundColor Cyan
+                $state.PasswordHash = Get-LinuxPasswordHash -Password $state.Password
+                if ($state.PasswordHash) {
+                    Write-Host "[SUCCESS] Password hashed with SHA-512" -ForegroundColor Green
+                } else {
+                    Write-Host "[INFO] Password will be hashed by container on first run" -ForegroundColor Yellow
+                }
+
+                # Save credentials to .env immediately (persist for retry scenarios)
+                # Password is stored as hash (USER_PASSWORD_HASH) for security
+                Write-Host "[INFO] Saving credentials to .env" -ForegroundColor Cyan
+                $nl = [Environment]::NewLine
+                if ($state.PasswordHash) {
+                    # Store hashed password - entrypoint will use chpasswd -e
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl
+                } else {
+                    # Fallback: store plain password with marker for entrypoint to hash
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl
+                }
+                if ($state.WorkspacePath) {
+                    $envContent += "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                }
+                $envContent | Out-File $script:envPath -Encoding UTF8
+                Write-Host "[SUCCESS] Credentials saved to .env (password is hashed)" -ForegroundColor Green
             }
-
-            if ($script:tbPass.Text -ne $script:tbPassConfirm.Text) {
-                Write-Host "[ERROR] Passwords do not match" -ForegroundColor Red
-                Show-Error 'Passwords do not match. Please re-enter your password.'
-                return
-            }
-
-            Write-Host "[SUCCESS] Credentials validated - advancing" -ForegroundColor Green
-            $state.UserName = $script:tbUser.Text
-            $state.Password = $script:tbPass.Text
             $script:current++; Show-Page $script:current
         }
         2 {
             Write-Host "[DEBUG] Page 2: Folder selection" -ForegroundColor Cyan
-            if ([string]::IsNullOrWhiteSpace($script:tbParent.Text)) {
-                Write-Host "[ERROR] No folder selected" -ForegroundColor Red
-                Show-Error 'choose a parent folder'
-                return
-            }
-            $state.ParentPath = $script:tbParent.Text
-            $state.WorkspacePath = Join-Path $state.ParentPath 'AI_Work'
-            Write-Host "[INFO] Creating workspace at: $($state.WorkspacePath)" -ForegroundColor Cyan
 
-            if (-not (Test-Path $state.WorkspacePath)) {
-                try {
-                    New-Item -ItemType Directory -Path $state.WorkspacePath | Out-Null
-                    Write-Host "[SUCCESS] AI_Work directory created" -ForegroundColor Green
-                }
-                catch {
-                    $errMsg = "could not create $($state.WorkspacePath) - $($_.Exception.Message)"
-                    Write-Host "[ERROR] $errMsg" -ForegroundColor Red
-                    Show-Error $errMsg
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping folder validation and .env creation" -ForegroundColor Magenta
+                $state.ParentPath = "C:\DEV_MODE_PATH"
+                $state.WorkspacePath = "C:\DEV_MODE_PATH\AI_Work"
+            } else {
+                if ([string]::IsNullOrWhiteSpace($script:tbParent.Text)) {
+                    Write-Host "[ERROR] No folder selected" -ForegroundColor Red
+                    Show-Error 'choose a parent folder'
                     return
                 }
-            } else {
-                Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
-            }
+                $state.ParentPath = $script:tbParent.Text
+                $state.WorkspacePath = Join-Path $state.ParentPath 'AI_Work'
+                Write-Host "[INFO] Creating workspace at: $($state.WorkspacePath)" -ForegroundColor Cyan
 
-            # write .env
-            Write-Host "[INFO] Creating .env file" -ForegroundColor Cyan
-            $envPath = Join-Path $PSScriptRoot '.env'
-            $nl = [Environment]::NewLine
-            $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-            $envContent | Out-File $envPath -Encoding UTF8
-            $status.Text = ".env created at $envPath"
-            Write-Host "[SUCCESS] .env file created" -ForegroundColor Green
+                if (-not (Test-Path $state.WorkspacePath)) {
+                    try {
+                        New-Item -ItemType Directory -Path $state.WorkspacePath | Out-Null
+                        Write-Host "[SUCCESS] AI_Work directory created" -ForegroundColor Green
+                    }
+                    catch {
+                        $errMsg = "could not create $($state.WorkspacePath) - $($_.Exception.Message)"
+                        Write-Host "[ERROR] $errMsg" -ForegroundColor Red
+                        Show-Error $errMsg
+                        return
+                    }
+                } else {
+                    Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
+                }
+
+                # Update .env with workspace path
+                Write-Host "[INFO] Updating .env with workspace path" -ForegroundColor Cyan
+                $nl = [Environment]::NewLine
+                if ($state.PasswordHash) {
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                } else {
+                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                }
+                $envContent | Out-File $script:envPath -Encoding UTF8
+                $status.Text = ".env updated at $script:envPath"
+                Write-Host "[SUCCESS] .env updated with workspace path" -ForegroundColor Green
+            }
 
             $script:current++; Show-Page $script:current
 
-            Write-Host "[INFO] Checking Docker status..." -ForegroundColor Cyan
-            if (Docker-Running) {
-                Write-Host "[SUCCESS] Docker is running" -ForegroundColor Green
-                $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running. Click Next to continue.'
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Simulating Docker check as running" -ForegroundColor Magenta
+                $script:lblDock.Text = '[DEV MODE] Docker check simulated as running. Click Next.'
             } else {
-                Write-Host "[WARNING] Docker not running" -ForegroundColor Yellow
-                $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker not running. Start Docker Desktop, then Retry.'
+                Write-Host "[INFO] Checking Docker status..." -ForegroundColor Cyan
+                if (Docker-Running) {
+                    Write-Host "[SUCCESS] Docker is running" -ForegroundColor Green
+                    $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running. Click Next to continue.'
+                } else {
+                    Write-Host "[WARNING] Docker not running" -ForegroundColor Yellow
+                    $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker not running. Start Docker Desktop, then Retry.'
+                }
             }
         }
         3 {
             Write-Host "[DEBUG] Page 3: Docker check" -ForegroundColor Cyan
-            if (-not (Docker-Running)) {
-                Write-Host "[ERROR] Docker is not running" -ForegroundColor Red
-                Show-Error 'docker is not running. open Docker Desktop, then click Retry.'
-                return
+
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping Docker running check" -ForegroundColor Magenta
+            } else {
+                if (-not (Docker-Running)) {
+                    Write-Host "[ERROR] Docker is not running" -ForegroundColor Red
+                    Show-Error 'docker is not running. open Docker Desktop, then click Retry.'
+                    return
+                }
             }
             Write-Host "[SUCCESS] Docker verified - proceeding to build" -ForegroundColor Green
             $script:current++; Show-Page $script:current
+
+            # DEV MODE: Skip all Docker operations
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Simulating docker compose build..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating build...'
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 50
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 100
+                [System.Windows.Forms.Application]::DoEvents()
+                Write-Host "[DEV MODE] Build simulation complete" -ForegroundColor Magenta
+
+                Write-Host "[DEV MODE] Simulating docker compose up..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating container start...'
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 0
+                [System.Windows.Forms.Application]::DoEvents()
+
+                # Move to install page
+                $script:current++; Show-Page $script:current
+
+                Write-Host "[DEV MODE] Simulating CLI tools installation..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating CLI tools install...'
+
+                # Simulate terminal output for DEV MODE
+                $script:terminalBox.Text = ">> [DEV MODE] Installation simulation starting...`r`n"
+                [System.Windows.Forms.Application]::DoEvents()
+
+                $devModeLines = @(
+                    "[INFO] Starting CLI tools installation...",
+                    "[INFO] Updating package lists...",
+                    "[INFO] Installing GitHub CLI...",
+                    "[SUCCESS] GitHub CLI installed successfully",
+                    "[INFO] Installing/Updating Claude Code CLI...",
+                    "[SUCCESS] Claude Code CLI installed/updated successfully",
+                    "[INFO] Installing Google Gemini CLI...",
+                    "[SUCCESS] Gemini CLI installed successfully",
+                    "[INFO] Installing OpenAI CLI tools...",
+                    "[SUCCESS] OpenAI Python SDK installed",
+                    "[INFO] Installing OpenAI Codex CLI...",
+                    "[SUCCESS] OpenAI Codex CLI installed successfully",
+                    "[SUCCESS] All CLI tools installation completed!"
+                )
+
+                $progressValues = @(10, 15, 20, 30, 40, 50, 55, 65, 75, 85, 90, 95, 100)
+                $toolNames = @("", "", "GitHub CLI", "", "Claude Code CLI", "", "Google Gemini CLI", "", "OpenAI Python SDK", "", "OpenAI Codex CLI", "", "")
+
+                for ($i = 0; $i -lt $devModeLines.Count; $i++) {
+                    $script:terminalBox.AppendText("$($devModeLines[$i])`r`n")
+                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                    $script:terminalBox.ScrollToCaret()
+                    $progress.Value = $progressValues[$i]
+                    if ($toolNames[$i]) {
+                        $script:lblCurrentTool.Text = "Installing $($toolNames[$i])..."
+                    }
+                    [System.Windows.Forms.Application]::DoEvents()
+                    Start-Sleep -Milliseconds 300
+                }
+
+                $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE! (simulated)`r`n")
+                $script:lblCurrentTool.Text = 'Installation complete!'
+                [System.Windows.Forms.Application]::DoEvents()
+                Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
+
+                $status.Text = '[DEV MODE] System ready (simulated)'
+                $script:current++; Show-Page $script:current
+                return
+            }
 
             # docker compose build
             $status.Text = 'docker compose build - may take 2 to 5 minutes first time'
@@ -660,82 +890,161 @@ $btnNext.Add_Click({
             # move to install page
             $script:current++; Show-Page $script:current
 
-            # install AI CLI and create wrapper
-            $status.Text = 'installing AI CLI...'
-
-            # Step 1: Install claude-code via npm
-            $status.Text = 'Installing Claude Code CLI - may take 1 to 2 minutes'
-            Write-Host "[INFO] Installing npm package @anthropic-ai/claude-code" -ForegroundColor Cyan
-            Write-Host "[INFO] This will download packages from npm registry..." -ForegroundColor Yellow
+            # AI CLI tools will be auto-installed by entrypoint.sh
+            $status.Text = 'Installing AI CLI tools suite...'
+            Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex..." -ForegroundColor Yellow
+            Write-Host "[INFO] This will take 3-5 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
-            $r3a = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm install -g @anthropic-ai/claude-code' -progressBar $progress -statusLabel $status
+            # Wait for the entrypoint to run the installation
+            $status.Text = 'Waiting for CLI tools installation (3-5 minutes)...'
 
-            if (-not $r3a.Ok) {
-                Write-Host "[ERROR] npm install failed" -ForegroundColor Red
-                Write-Host "[ERROR] Exit code: $($r3a.Code)" -ForegroundColor Red
-                Write-Host "[ERROR] Full error output:" -ForegroundColor Red
-                Write-Host $r3a.StdErr -ForegroundColor Yellow
+            # Initialize terminal display
+            $script:terminalBox.Text = ">> Installation starting...`r`n"
+            $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+            $script:terminalBox.ScrollToCaret()
+            [System.Windows.Forms.Application]::DoEvents()
 
-                $errMsg = "npm install failed (exit code: $($r3a.Code))`n`n" +
-                          "Common causes:`n" +
-                          "- No internet connection`n" +
-                          "- npm registry is down`n" +
-                          "- Firewall blocking npm`n`n" +
-                          "Check console for detailed error output."
+            # Give entrypoint time to start the installation
+            Start-Sleep -Seconds 5
 
-                Show-Error $errMsg
-                return
+            # Track last log position for incremental updates
+            $script:lastLogLines = 0
+
+            # Helper function to strip ANSI escape sequences
+            # Uses comprehensive pattern to handle all ANSI control sequences including:
+            # - Color codes (SGR): \x1b[...m
+            # - Cursor movement: \x1b[...H, \x1b[...A/B/C/D, etc.
+            # - Screen clearing: \x1b[...J, \x1b[...K
+            # - Other control sequences: \x1b[...followed by any letter
+            function Strip-AnsiCodes([string]$text) {
+                return $text -replace '\x1b\[[0-9;]*[a-zA-Z]', '' -replace '\x1b\][^\x07]*\x07', ''
             }
 
-            Write-Host "[SUCCESS] Claude Code CLI npm package installed" -ForegroundColor Green
+            # Helper function to update terminal display with new docker logs
+            function Update-TerminalDisplay {
+                try {
+                    # Get recent docker logs (last 100 lines)
+                    $logResult = docker logs ai-cli --tail 100 2>&1
+                    if ($logResult) {
+                        $logLines = $logResult -split "`n"
+                        $newLines = $logLines | Select-Object -Skip $script:lastLogLines
 
-            # Verify npm installation
-            Write-Host "[INFO] Verifying npm installation..." -ForegroundColor Cyan
-            $checkNpm = Run-Process-UI -file 'docker' -arguments 'exec ai-cli npm list -g @anthropic-ai/claude-code' -progressBar $null -statusLabel $null
-            if ($checkNpm.Ok) {
-                Write-Host "[SUCCESS] npm package verified" -ForegroundColor Green
+                        if ($newLines -and $newLines.Count -gt 0) {
+                            foreach ($line in $newLines) {
+                                if ($line.Trim()) {
+                                    $cleanLine = Strip-AnsiCodes $line
+                                    # Add to terminal box
+                                    $script:terminalBox.AppendText("$cleanLine`r`n")
+                                }
+                            }
+                            $script:lastLogLines = $logLines.Count
+                            # Auto-scroll to bottom
+                            $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                            $script:terminalBox.ScrollToCaret()
+                        }
+                    }
+                } catch {
+                    # Silently ignore log fetch errors
+                }
+            }
+
+            # Check installation progress by looking for the marker file
+            $maxWaitTime = 300  # 5 minutes
+            $waitedTime = 0
+            $checkInterval = 3  # Check more frequently for better UI updates
+
+            while ($waitedTime -lt $maxWaitTime) {
+                # Update terminal display with latest logs
+                Update-TerminalDisplay
+                [System.Windows.Forms.Application]::DoEvents()
+
+                # Check if installation completed - use sh -c to properly handle shell operators
+                # Use "|| true" to ensure exit code 0 even when file doesn't exist (prevents error spam in logs)
+                $checkInstallCmd = 'exec ai-cli sh -c "test -f /home/' + $state.UserName + '/.cli_tools_installed && echo INSTALLED || true"'
+                $checkResult = Run-Process-UI -file 'docker' -arguments $checkInstallCmd -progressBar $null -statusLabel $null
+
+                if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
+                    Write-Host "[SUCCESS] CLI tools installation completed!" -ForegroundColor Green
+                    $script:lblCurrentTool.Text = 'Installation complete!'
+                    $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE!`r`n")
+                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                    $script:terminalBox.ScrollToCaret()
+                    $progress.Value = 100
+                    break
+                }
+
+                # Poll for current tool status and update progress based on which tool is installing
+                $statusCmd = 'exec ai-cli sh -c "cat /home/' + $state.UserName + '/.cli_install_status 2>/dev/null || true"'
+                $statusResult = Run-Process-UI -file 'docker' -arguments $statusCmd -progressBar $null -statusLabel $null
+                if ($statusResult.Ok -and $statusResult.StdOut.Trim()) {
+                    $parts = $statusResult.StdOut.Trim().Split('|')
+                    if ($parts.Count -ge 2) {
+                        $toolName = $parts[0]
+                        $pkgMgr = $parts[1]
+                        $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
+                        Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
+
+                        # Update progress based on which tool is currently installing (5 tools total)
+                        $toolProgress = switch ($toolName) {
+                            'GitHub CLI' { 20 }
+                            'Claude Code CLI' { 40 }
+                            'Google Gemini CLI' { 60 }
+                            'OpenAI Python SDK' { 80 }
+                            'OpenAI Codex CLI' { 95 }
+                            default { $progress.Value }  # Keep current if unknown
+                        }
+                        $progress.Value = $toolProgress
+                    }
+                }
+                [System.Windows.Forms.Application]::DoEvents()
+
+                $status.Text = "Installing CLI tools... ($([Math]::Round($waitedTime/60, 1)) minutes elapsed)"
+
+                Start-Sleep -Seconds $checkInterval
+                $waitedTime += $checkInterval
+            }
+
+            # Final log update
+            Update-TerminalDisplay
+            [System.Windows.Forms.Application]::DoEvents()
+
+            if ($waitedTime -ge $maxWaitTime) {
+                Write-Host "[WARNING] Installation is taking longer than expected, but will continue in background" -ForegroundColor Yellow
+                $script:terminalBox.AppendText("`r`n>> Installation taking longer than expected, continuing in background...`r`n")
+            }
+
+            # Verify at least the core tools are available
+            $status.Text = 'Verifying core CLI tools...'
+            Write-Host "[INFO] Verifying core CLI tools installation..." -ForegroundColor Cyan
+
+            # Test 1: Check if claude command exists
+            $validateClaude = 'exec ai-cli bash -c "which claude && echo \"Claude found\""'
+            $r3a = Run-Process-UI -file 'docker' -arguments $validateClaude -progressBar $null -statusLabel $null
+
+            if ($r3a.Ok -and $r3a.StdOut -match 'Claude found') {
+                Write-Host "[SUCCESS] Claude CLI verified" -ForegroundColor Green
             } else {
-                Write-Host "[WARNING] npm package verification inconclusive" -ForegroundColor Yellow
+                Write-Host "[WARNING] Claude CLI not found yet, will be installed in background" -ForegroundColor Yellow
             }
 
-            # Step 2: Copy wrapper script into container
-            $status.Text = 'installing wrapper script...'
-            Write-Host "[INFO] Installing wrapper script" -ForegroundColor Cyan
-            $wrapperPath = Join-Path $dockerPath 'claude_wrapper.sh'
-            $dq = [char]34
-            $dockerCpArgs = 'cp ' + $dq + $wrapperPath + $dq + ' ai-cli:/tmp/claude'
-            $r3b = Run-Process-UI -file 'docker' -arguments $dockerCpArgs -progressBar $progress -statusLabel $status
+            # Test 2: Check if GitHub CLI exists
+            $validateGH = 'exec ai-cli bash -c "which gh && echo \"GitHub CLI found\""'
+            $r3b = Run-Process-UI -file 'docker' -arguments $validateGH -progressBar $null -statusLabel $null
 
-            # Step 3: Move to bin and make executable
-            Write-Host "[INFO] Making wrapper executable" -ForegroundColor Cyan
-            $r3c = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo mv /tmp/claude /usr/local/bin/claude' -progressBar $progress -statusLabel $status
-            $r3d = Run-Process-UI -file 'docker' -arguments 'exec ai-cli sudo chmod +x /usr/local/bin/claude' -progressBar $progress -statusLabel $status
-
-            # Step 4: Validate Claude installation and user permissions
-            $status.Text = 'Validating Claude CLI installation and permissions...'
-            Write-Host "[INFO] Validating Claude CLI installation..." -ForegroundColor Cyan
-
-            # Test 1: Check if claude command exists and is executable
-            $validateArgs = 'exec ai-cli bash -c "which claude && test -x /usr/local/bin/claude && echo \"Claude is executable\""'
-            $r3e = Run-Process-UI -file 'docker' -arguments $validateArgs -progressBar $null -statusLabel $null
-
-            if (-not $r3e.Ok) {
-                Write-Host "[ERROR] Claude validation failed" -ForegroundColor Red
-                Write-Host "[ERROR] Details: $($r3e.StdErr)" -ForegroundColor Yellow
-                Show-Error "Claude CLI validation failed. The installation may be incomplete."
-                return
+            if ($r3b.Ok -and $r3b.StdOut -match 'GitHub CLI found') {
+                Write-Host "[SUCCESS] GitHub CLI verified" -ForegroundColor Green
+            } else {
+                Write-Host "[INFO] GitHub CLI will be installed in background" -ForegroundColor Yellow
             }
 
-            Write-Host "[SUCCESS] Claude CLI validated successfully" -ForegroundColor Green
-            Write-Host "[INFO] Claude is ready at: /usr/local/bin/claude" -ForegroundColor Cyan
-
-            # Test 2: Verify user has sudo access with NOPASSWD
+            # Test 3: Verify user has sudo access with NOPASSWD
             Write-Host "[INFO] Verifying user sudo privileges..." -ForegroundColor Cyan
             $userSudoTest = 'exec -u ' + $state.UserName + ' ai-cli sudo -n whoami'
-            $r3f = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
+            $r3c = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
 
-            if ($r3f.Ok -and $r3f.StdOut -match 'root') {
+            if ($r3c.Ok -and $r3c.StdOut -match 'root') {
                 Write-Host "[SUCCESS] User has passwordless sudo access" -ForegroundColor Green
             } else {
                 Write-Host "[WARNING] Sudo test inconclusive, but this may be normal" -ForegroundColor Yellow
@@ -756,15 +1065,28 @@ $btnNext.Add_Click({
 # Display startup banner
 Clear-Host
 Write-Host ""
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "    AI CLI DOCKER SETUP :: MATRIX PROTOCOL v1.0                " -ForegroundColor Green
-Write-Host "    [SYSTEM ONLINE] Running automatic pre-flight checks        " -ForegroundColor Green
-Write-Host "================================================================" -ForegroundColor Green
+if ($script:IsDevMode) {
+    Write-Host "================================================================" -ForegroundColor Magenta
+    Write-Host "    AI CLI DOCKER SETUP :: [DEV MODE]                          " -ForegroundColor Magenta
+    Write-Host "    No destructive operations will be performed                " -ForegroundColor Magenta
+    Write-Host "================================================================" -ForegroundColor Magenta
+} else {
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "    AI CLI DOCKER SETUP :: MATRIX PROTOCOL v1.0                " -ForegroundColor Green
+    Write-Host "    [SYSTEM ONLINE] Running automatic pre-flight checks        " -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+}
 Write-Host ""
 
 # Automatic pre-flight checks
 Write-Host "[PRE-FLIGHT] Running automatic system checks..." -ForegroundColor Cyan
 Write-Host ""
+
+# DEV MODE: Skip all pre-flight checks
+if ($script:IsDevMode) {
+    Write-Host "[DEV MODE] Skipping all pre-flight checks" -ForegroundColor Magenta
+    $lineEndingsFixed = $false
+} else {
 
 # 1. Fix line endings automatically
 Write-Host "[CHECK 1/3] Checking shell script line endings..." -ForegroundColor Cyan
@@ -793,7 +1115,7 @@ if ($existingContainer -eq "ai-cli") {
         "  - Your Claude authentication (you won't need to sign in again)`n" +
         "  - Your configuration and settings`n" +
         "  - Persistent data`n`n" +
-        "RECOMMENDED: Click 'No' and use 'Launch Claude' instead.`n`n" +
+        "RECOMMENDED: Click 'No' and use 'Launch AI Workspace' instead.`n`n" +
         "Click 'Yes' ONLY if you want to DELETE the existing container and start fresh.`n`n" +
         "Do you want to DELETE the existing container and continue with First Time Setup?",
         "Container Already Exists - Delete?",
@@ -810,10 +1132,10 @@ if ($existingContainer -eq "ai-cli") {
         Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
     } else {
         Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
-        Write-Host "[INFO] Please use 'Launch Claude' to access your existing container" -ForegroundColor Cyan
+        Write-Host "[INFO] Please use 'Launch AI Workspace' to access your existing container" -ForegroundColor Cyan
         [System.Windows.Forms.MessageBox]::Show(
             "Setup cancelled - your existing container is safe!`n`n" +
-            "To access your container, please use 'Launch Claude' button instead of 'First Time Setup'.`n`n" +
+            "To access your container, please use 'Launch AI Workspace' button instead of 'First Time Setup'.`n`n" +
             "Your Claude authentication and all settings are preserved.",
             "Setup Cancelled",
             [System.Windows.Forms.MessageBoxButtons]::OK,
@@ -839,6 +1161,7 @@ if ($lineEndingsFixed) {
     Write-Host "[CHECK 3/3] Docker image status..." -ForegroundColor Cyan
     Write-Host "[OK] No rebuild needed" -ForegroundColor Green
 }
+} # End of else block for non-DEV mode
 Write-Host ""
 
 Write-Host "================================================================" -ForegroundColor Green

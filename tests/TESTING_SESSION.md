@@ -53,7 +53,7 @@ Remove-Item "$env:LOCALAPPDATA\AI_Docker_Manager" -Recurse -Force
 
 # 3. After setup, launch
 .\AI_Docker_Manager.exe
-# Click "2. LAUNCH CLAUDE CLI"
+# Click "2. LAUNCH AI WORKSPACE"
 
 # 4. In terminal, check permissions
 ls -la ~ | grep .claude
@@ -235,7 +235,7 @@ $errMsg = "npm install failed (exit code: $($r3a.Code))`n`n" +
 - Check if `ai-cli` container exists
 - Show warning dialog before deletion
 - Default button is "No" (safe)
-- Recommend using "Launch Claude" instead
+- Recommend using "Launch AI Workspace" instead
 
 ### How to Test:
 ```powershell
@@ -251,7 +251,7 @@ $errMsg = "npm install failed (exit code: $($r3a.Code))`n`n" +
 # Default button: "No"
 
 # 4. Click "No" - setup exits, container safe
-# 5. Verify container still works: Launch Claude CLI
+# 5. Verify container still works: Launch AI Workspace
 ```
 
 ### Test Result:

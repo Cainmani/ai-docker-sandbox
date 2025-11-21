@@ -6,7 +6,9 @@ services:
     container_name: ai-cli
     environment:
       USER_NAME: ${USER_NAME}
-      USER_PASSWORD: ${USER_PASSWORD}
+      # Password can be provided as hash (preferred) or plain text (fallback)
+      USER_PASSWORD_HASH: ${USER_PASSWORD_HASH:-}
+      USER_PASSWORD_PLAIN: ${USER_PASSWORD_PLAIN:-}
     volumes:
       - ${WORKSPACE_PATH}:/workspace
       - claude-config:/home/${USER_NAME}/.claude

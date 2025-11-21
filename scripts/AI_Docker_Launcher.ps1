@@ -63,7 +63,7 @@ $form.Controls.Add($lblFooter)
 $lblDesc = New-Object System.Windows.Forms.Label
 $lblDesc.Left = 20; $lblDesc.Top = 120
 $lblDesc.Width = 560; $lblDesc.Height = 60
-$lblDesc.Text = "Select an option below to manage your AI Docker environment:`n`nFirst time? Run 'First Time Setup' to install everything.`nAlready setup? Use 'Launch Claude CLI' for daily access."
+$lblDesc.Text = "Select an option below to manage your AI Docker environment:`n`nFirst time? Run 'First Time Setup' to install everything.`nAlready setup? Use 'Launch AI Workspace' for daily access."
 $lblDesc.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblDesc.ForeColor = $script:MatrixGreen
 $lblDesc.BackColor = 'Transparent'
@@ -86,15 +86,15 @@ $form.Controls.Add($btnSetup)
 $lblSetupInfo = New-Object System.Windows.Forms.Label
 $lblSetupInfo.Left = 70; $lblSetupInfo.Top = 265
 $lblSetupInfo.Width = 460; $lblSetupInfo.Height = 20
-$lblSetupInfo.Text = "Installs Docker image and Claude CLI (5-10 minutes)"
+$lblSetupInfo.Text = "Installs Docker image and AI CLI tools (5-10 minutes)"
 $lblSetupInfo.ForeColor = $script:MatrixGreen
 $lblSetupInfo.BackColor = 'Transparent'
 $lblSetupInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblSetupInfo)
 
-# Button 2: Launch Claude
+# Button 2: Launch AI Workspace
 $btnLaunch = New-Object System.Windows.Forms.Button
-$btnLaunch.Text = "2. LAUNCH CLAUDE CLI"
+$btnLaunch.Text = "2. LAUNCH AI WORKSPACE"
 $btnLaunch.Left = 50; $btnLaunch.Top = 295
 $btnLaunch.Width = 500; $btnLaunch.Height = 60
 $btnLaunch.FlatStyle = 'Flat'
@@ -114,6 +114,17 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Separator line above Exit button
+$lblSeparator = New-Object System.Windows.Forms.Label
+$lblSeparator.Left = 20; $lblSeparator.Top = 405
+$lblSeparator.Width = 560; $lblSeparator.Height = 20
+$lblSeparator.Text = "============================================================"
+$lblSeparator.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblSeparator.ForeColor = $script:MatrixGreen
+$lblSeparator.BackColor = 'Transparent'
+$lblSeparator.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($lblSeparator)
+
 # Button 3: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
@@ -132,10 +143,18 @@ $btnSetup.Add_Click({
     $setupScript = Join-Path $scriptPath "setup_wizard.ps1"
     if (Test-Path $setupScript) {
         $form.Hide()
-        $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"" -Wait -PassThru
+
+        # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
+        $devModeArg = ""
+        if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+            $devModeArg = " -DevMode"
+            Write-Host "[DEV MODE] Shift key detected - launching setup wizard in DEV mode" -ForegroundColor Magenta
+        }
+
+        $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"$devModeArg" -Wait -PassThru
         $form.Show()
         if ($process.ExitCode -eq 0) {
-            [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch Claude CLI' to access your workspace.", "Setup Complete", 'OK', 'Information')
+            [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.", "Setup Complete", 'OK', 'Information')
         }
         # If exit code is non-zero (e.g., 1 = cancelled), don't show success message
     } else {
@@ -144,6 +163,12 @@ $btnSetup.Add_Click({
 })
 
 $btnLaunch.Add_Click({
+    # Check if SHIFT is held - warn user this is not supported for Launch
+    if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+        [System.Windows.Forms.MessageBox]::Show("Shift+Click is only supported on 'First Time Setup' button for DEV MODE.`n`nTo launch your workspace normally, just click without holding Shift.", "Shift Key Detected", 'OK', 'Information')
+        return
+    }
+
     $launchScript = Join-Path $scriptPath "launch_claude.ps1"
     if (Test-Path $launchScript) {
         # Check if .env exists (indicates setup was run)
@@ -172,4 +197,3 @@ $btnExit.Add_Click({
 
 # Show form
 [void]$form.ShowDialog()
-

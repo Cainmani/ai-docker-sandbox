@@ -60,13 +60,15 @@ $form.MaximizeBox = $false
 $lblHeader = New-Object System.Windows.Forms.Label
 $lblHeader.Left=20; $lblHeader.Top=20; $lblHeader.Width=520; $lblHeader.Height=24
 $lblHeader.Text = "============================================================"
+$lblHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblHeader.ForeColor=$script:MatrixGreen; $lblHeader.BackColor='Transparent'
 $lblHeader.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($lblHeader)
 
 $lblTitle = New-Object System.Windows.Forms.Label
 $lblTitle.Left=20; $lblTitle.Top=42; $lblTitle.Width=520; $lblTitle.Height=24
-$lblTitle.Text = "      WORKSPACE SHELL ACCESS - DOCKER CONTAINER"
+$lblTitle.Text = "WORKSPACE SHELL ACCESS - DOCKER CONTAINER"
+$lblTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblTitle.ForeColor=$script:MatrixGreen; $lblTitle.BackColor='Transparent'
 $lblTitle.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($lblTitle)
@@ -74,13 +76,14 @@ $form.Controls.Add($lblTitle)
 $lblFooter = New-Object System.Windows.Forms.Label
 $lblFooter.Left=20; $lblFooter.Top=64; $lblFooter.Width=520; $lblFooter.Height=24
 $lblFooter.Text = "============================================================"
+$lblFooter.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $lblFooter.ForeColor=$script:MatrixGreen; $lblFooter.BackColor='Transparent'
 $lblFooter.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($lblFooter)
 
 $lbl = New-Object System.Windows.Forms.Label
 $lbl.Left=20; $lbl.Top=100; $lbl.Width=520; $lbl.Height=80
-$workflowText = $script:Arrow + " Opens Ubuntu bash terminal at /workspace directory`n`n" + $script:Arrow + " Next steps: Create or navigate to project directory`n" + $script:Arrow + " Then run: claude (to start AI CLI)"
+$workflowText = $script:Arrow + " Opens Ubuntu bash terminal at /workspace directory`n`n" + $script:Arrow + " Available AI tools: claude, gh, gemini, codex`n" + $script:Arrow + " Run 'configure-tools' to set up API keys"
 $lbl.Text = $workflowText
 $lbl.ForeColor=$script:MatrixGreen; $lbl.BackColor='Transparent'
 $lbl.Font = New-Object System.Drawing.Font('Consolas', 9)

@@ -1,11 +1,12 @@
-# AI Docker Setup - Secure Claude Code CLI Environment
+# AI Docker CLI Manager - Complete AI Tools Environment
 
-A production-ready system for running AI Command Line Interface tools (Claude Code) in a secure Docker container, designed for non-technical users and ease of setup.
+A production-ready system for running multiple AI Command Line Interface tools (Claude, GitHub CLI, OpenAI/GPT, Gemini, AWS, Azure) in a secure Docker container with automatic installation and updates.
 
 ## 📚 Documentation
 
 **For End Users:**
 - **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)** - Complete user guide for non-technical users (👈 START HERE)
+- **[docs/CLI_TOOLS_GUIDE.md](docs/CLI_TOOLS_GUIDE.md)** - Complete guide to all AI CLI tools
 - **[docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - One-page cheatsheet for quick reference
 
 **For Developers:**
@@ -19,11 +20,20 @@ A production-ready system for running AI Command Line Interface tools (Claude Co
 
 ## Overview
 
-This project provides a complete, automated setup wizard and launcher for deploying Claude Code CLI in an isolated Docker environment. The AI runs in a secure Ubuntu container with controlled access to your project files, preventing unauthorized access to your Windows system.
+This project provides a complete AI development environment with multiple AI CLI tools automatically installed and managed in a secure Docker container. All major AI services (Claude, OpenAI/GPT, Google Gemini, GitHub Copilot, AWS Bedrock, Azure AI) are pre-installed and ready to use with a simple configuration wizard.
 
-## Features
+## 🚀 New Features (v2.0)
+
+- 🤖 **Multiple AI Tools** - Claude, GitHub CLI, OpenAI/GPT, Gemini, AWS, Azure, and more
+- 🔄 **Auto-Installation** - All tools install automatically on first run
+- 🔐 **Easy Configuration** - Interactive wizard for API keys and authentication
+- 📦 **Auto-Updates** - Weekly automatic updates for all CLI tools
+- 🛠️ **Development Tools** - Includes jq, httpie, bat, ripgrep, fd, fzf, and more
+
+## Core Features
 
 - ✅ **One-Click Setup Wizard** - Automated installation with GUI
+- ✅ **Complete AI Suite** - All major AI CLI tools pre-installed
 - ✅ **Self-Contained Application** - All config stored in AppData, .exe can be anywhere
 - ✅ **Secure Isolation** - AI runs in Docker container, can't access system files
 - ✅ **User-Friendly Launcher** - Quick daily access to workspace
@@ -51,21 +61,43 @@ This project provides a complete, automated setup wizard and launcher for deploy
    - Enter username/password for container
    - Select location for AI_Work directory
    - Wait for Docker build (2-5 minutes)
-   - Wait for Claude CLI installation (1-2 minutes)
+   - Wait for CLI tools installation (3-5 minutes)
    - Complete!
 
-**Total time:** 5-10 minutes
+**Total time:** 8-15 minutes (first run includes all tools installation)
 
 ### Daily Use
 
 1. **Run `AI_Docker_Manager.exe`**
-2. **Select "Launch Claude CLI"**
-3. **Terminal opens** → You're ready to work!
+2. **Select "Launch AI Workspace"**
+3. **Terminal opens** → All AI tools ready!
 
-Inside the container:
+### First Time Configuration
+
+After setup, configure your AI tools:
 ```bash
-cd /workspace/your-project
-claude
+# Run the configuration wizard
+configure-tools
+
+# Or configure individual tools
+configure-tools --claude   # Configure Claude
+configure-tools --github   # Configure GitHub CLI
+configure-tools --openai   # Configure OpenAI/GPT
+```
+
+### Available Commands
+
+```bash
+# AI Tools
+claude          # Claude Code CLI
+gh              # GitHub CLI
+sgpt            # Shell GPT (OpenAI)
+aider           # AI pair programming
+codeium         # Codeium AI assistant
+
+# Management
+update-tools    # Update all CLI tools
+config-status   # Check configuration status
 ```
 
 ## Project Structure
@@ -140,22 +172,29 @@ C:\Users\<YourName>\AppData\Local\AI_Docker_Manager\  # App configuration (auto-
 - ~172KB compiled executable
 
 **Container (ai-cli)**
-- Ubuntu 24.04 base
-- Node.js 20.x, npm, Python 3, Git
-- Claude Code CLI installed globally via npm
+- Ubuntu 24.04 base with comprehensive development tools
+- **AI CLI Tools**: Claude, GitHub CLI, OpenAI/GPT, Gemini, Codeium, Aider
+- **Cloud CLIs**: AWS, Azure, Google Cloud
+- **Dev Tools**: Node.js, Python 3, Git, jq, httpie, bat, ripgrep, fd, fzf
+- Auto-installation of all tools on first run
+- Weekly auto-updates for all CLI tools
 - User account with passwordless sudo access
 - /workspace mounted from Windows AI_Work folder
-- Named volume for persistent .claude configuration
+- Named volumes for persistent configurations
 
 ### Container Lifecycle
 
 **First Time Setup:**
 1. User provides credentials and workspace location
 2. Creates `.env` file with configuration
-3. Builds Docker image with multi-stage build
+3. Builds Docker image with all dependencies
 4. Creates container with volume mounts
-5. Installs Claude CLI inside container
-6. Validates installation
+5. Auto-installs all AI CLI tools (3-5 minutes)
+   - Claude, GitHub CLI, OpenAI tools, Gemini
+   - AWS CLI, Azure CLI, Google Cloud CLI
+   - Development tools and utilities
+6. Sets up auto-update cron job
+7. Validates installation
 
 **Daily Launch:**
 1. Checks Docker Desktop is running (auto-starts if needed)
@@ -206,7 +245,7 @@ Your AI_Work folder is accessible from Windows File Explorer:
 
 ### Daily Workflow
 
-1. **Morning:** Run AI_Docker_Manager.exe → Select "Launch Claude CLI"
+1. **Morning:** Run AI_Docker_Manager.exe → Select "Launch AI Workspace"
 2. **Work:** Navigate to project, run `claude`
 3. **Evening:** Exit terminal (files persist)
 4. **Next day:** Run launcher again → Resume work
@@ -235,6 +274,30 @@ docker logs ai-cli
 **Solution:** The entrypoint script should handle permissions automatically. If issues persist, rebuild the container.
 
 ## Advanced
+
+### DEV Mode (UI Testing)
+
+DEV mode allows developers to walk through the entire setup wizard UI without performing any destructive operations. This is useful for UI testing and aesthetic fixes.
+
+**How to Activate:**
+- **From Launcher:** Hold `Shift` while clicking "First Time Setup"
+- **Direct script:** `powershell -ExecutionPolicy Bypass -File "setup_wizard.ps1" -DevMode`
+
+**Visual Indicators:**
+- Form title changes to `>>> AI CLI DOCKER SETUP :: [DEV MODE] <<<`
+- Orange banner at top: "DEV MODE - No destructive operations will be performed"
+- Console shows magenta `[DEV MODE]` messages for all simulated operations
+
+**What Gets Simulated (not executed):**
+| Operation | DEV Mode Behavior |
+|-----------|-------------------|
+| Container stop/remove | Logged & skipped |
+| Image removal | Logged & skipped |
+| `docker compose build` | Progress animation only |
+| `docker compose up -d` | Progress animation only |
+| Container status checks | Returns simulated "Up" |
+| CLI tools installation | Quick simulated progress |
+| Tool verification | Simulated as found |
 
 ### Manual Container Management
 
