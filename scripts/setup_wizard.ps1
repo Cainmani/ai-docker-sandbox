@@ -487,20 +487,21 @@ $p4.Controls.Add((New-Label '' 20 205 880 24 10 $false $true))
 $p4.Controls.Add((New-Label 'Please wait while the setup completes...' 20 225 880 30 11 $true $true))
 $pages += $p4
 
-# Page 5: Install Claude
+# Page 5: Install CLI Tools
 $p5 = New-PanelPage
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Installing AI CLI tools via npm and pip package managers...' 20 95 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Command: npm install -g @anthropic-ai/claude-code' 20 115 880 24 10 $false $true))
-$p5.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Configuring global "claude" command wrapper...' 20 160 880 24 10 $false $true))
-$p5.Controls.Add((New-Label '' 20 185 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'This may take 1-2 minutes.' 20 205 880 24 10 $true $true))
-$p5.Controls.Add((New-Label '' 20 230 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Watch the progress bar below for status...' 20 250 880 30 11 $true $true))
+# Dynamic label for current tool being installed
+$script:lblCurrentTool = New-Label 'Initializing installation...' 20 95 880 24 10 $false $true
+$p5.Controls.Add($script:lblCurrentTool)
+$p5.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
+$p5.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 145 880 24 9 $false $true))
+$p5.Controls.Add((New-Label '' 20 170 880 24 10 $false $true))
+$p5.Controls.Add((New-Label 'This may take 3-5 minutes on first install.' 20 195 880 24 10 $true $true))
+$p5.Controls.Add((New-Label '' 20 220 880 24 10 $false $true))
+$p5.Controls.Add((New-Label 'Watch the progress bar below for status...' 20 245 880 30 11 $true $true))
 $pages += $p5
 
 # Page 6: Done
@@ -817,8 +818,23 @@ $btnNext.Add_Click({
 
                 if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
                     Write-Host "[SUCCESS] CLI tools installation completed!" -ForegroundColor Green
+                    $script:lblCurrentTool.Text = 'Installation complete!'
                     break
                 }
+
+                # Poll for current tool status
+                $statusCmd = 'exec ai-cli sh -c "cat /home/' + $state.UserName + '/.cli_install_status 2>/dev/null || true"'
+                $statusResult = Run-Process-UI -file 'docker' -arguments $statusCmd -progressBar $null -statusLabel $null
+                if ($statusResult.Ok -and $statusResult.StdOut.Trim()) {
+                    $parts = $statusResult.StdOut.Trim().Split('|')
+                    if ($parts.Count -ge 2) {
+                        $toolName = $parts[0]
+                        $pkgMgr = $parts[1]
+                        $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
+                        Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
+                    }
+                }
+                [System.Windows.Forms.Application]::DoEvents()
 
                 # Update progress
                 $progress.Value = [Math]::Min(95, 20 + ($waitedTime * 75 / $maxWaitTime))

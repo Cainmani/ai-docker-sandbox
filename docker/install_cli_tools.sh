@@ -18,6 +18,14 @@ NC='\033[0m' # No Color
 # Use $HOME instead of $USER_NAME since $HOME is set by 'su -' but $USER_NAME is not passed
 INSTALL_MARKER="${HOME}/.cli_tools_installed"
 TOOLS_VERSION_FILE="${HOME}/.cli_tools_versions"
+INSTALL_STATUS_FILE="${HOME}/.cli_install_status"
+
+# Function to update installation status (for UI feedback)
+update_install_status() {
+    local tool=$1
+    local pkg_manager=$2
+    echo "${tool}|${pkg_manager}" > "$INSTALL_STATUS_FILE"
+}
 
 # Function to print colored output
 print_status() {
@@ -89,6 +97,7 @@ install_cli_tools() {
     sudo apt-get update -qq
 
     # 1. Install GitHub CLI
+    update_install_status "GitHub CLI" "apt"
     if ! command_exists gh; then
         print_status "Installing GitHub CLI..."
         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -101,6 +110,7 @@ install_cli_tools() {
     fi
 
     # 2. Install/Update Claude Code CLI
+    update_install_status "Claude Code CLI" "npm"
     print_status "Installing/Updating Claude Code CLI..."
     if npm install -g @anthropic-ai/claude-code@latest 2>&1 | tee /tmp/claude_install.log; then
         print_success "Claude Code CLI installed/updated successfully"
@@ -111,6 +121,7 @@ install_cli_tools() {
     fi
 
     # 3. Install Google Gemini CLI (official)
+    update_install_status "Google Gemini CLI" "npm"
     print_status "Installing Google Gemini CLI..."
     if npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Found @google/gemini-cli in npm registry"
@@ -142,12 +153,13 @@ install_cli_tools() {
         fi
     fi
 
-    # 4. Install OpenAI Codex/GPT CLI tools
+    # 4. Install OpenAI Codex/GPT CLI tools (SIMPLIFIED - only OpenAI SDK and Codex)
+    update_install_status "OpenAI Python SDK" "pip"
     print_status "Installing OpenAI CLI tools..."
 
-    # Install openai CLI
+    # Install openai SDK with --break-system-packages
     if ! pip3 show openai >/dev/null 2>&1; then
-        if pip3 install --user openai --quiet; then
+        if pip3 install --break-system-packages openai --quiet; then
             print_success "OpenAI Python SDK installed"
         else
             print_warning "Failed to install OpenAI Python SDK"
@@ -157,7 +169,7 @@ install_cli_tools() {
     fi
 
     # Install OpenAI Codex CLI (official package)
-    # https://developers.openai.com/codex/cli/
+    update_install_status "OpenAI Codex CLI" "npm"
     print_status "Installing OpenAI Codex CLI..."
     if npm view @openai/codex version >/dev/null 2>&1; then
         if npm install -g @openai/codex@latest 2>&1 | tee /tmp/codex_install.log; then
@@ -168,136 +180,11 @@ install_cli_tools() {
         fi
     else
         print_warning "OpenAI Codex CLI (@openai/codex) not available in npm registry"
-        print_status "Note: OpenAI API access available via 'openai' Python package and 'sgpt' CLI"
+        print_status "Note: OpenAI API access available via openai Python package"
     fi
 
-    # Install shell-gpt (sgpt) - a popular GPT CLI tool
-    if ! command_exists sgpt; then
-        print_status "Installing Shell-GPT..."
-        if pip3 install --user shell-gpt --quiet; then
-            print_success "Shell-GPT installed successfully"
-        else
-            print_warning "Failed to install Shell-GPT"
-        fi
-    else
-        print_status "Shell-GPT already installed"
-    fi
-
-    # 5. Install Aider (AI pair programming tool)
-    if ! command_exists aider; then
-        print_status "Installing Aider (AI pair programming tool)..."
-        pip3 install --user aider-chat --quiet
-        print_success "Aider installed successfully"
-    else
-        print_status "Aider already installed"
-    fi
-
-    # 6. Install Continue (AI code assistant)
-    print_status "Checking for Continue CLI..."
-    if npm view continue >/dev/null 2>&1; then
-        npm install -g continue@latest --silent
-        print_success "Continue CLI installed"
-    else
-        print_warning "Continue CLI not available in npm registry"
-    fi
-
-    # 7. Install Codeium CLI
-    if ! command_exists codeium; then
-        print_status "Installing Codeium CLI..."
-        curl -Ls https://github.com/Exafunction/codeium/releases/latest/download/codeium_linux_x64.tar.gz | sudo tar -xz -C /usr/local/bin/
-        sudo chmod +x /usr/local/bin/codeium
-        print_success "Codeium CLI installed successfully"
-    else
-        print_status "Codeium already installed"
-    fi
-
-    # 8. Install TabNine CLI (if available)
-    print_status "Checking for TabNine CLI..."
-    if npm view tabnine-cli >/dev/null 2>&1; then
-        npm install -g tabnine-cli@latest --silent
-        print_success "TabNine CLI installed"
-    else
-        print_warning "TabNine CLI not available in npm registry"
-    fi
-
-    # 9. Install AWS CLI (useful for AWS AI services)
-    if ! command_exists aws; then
-        print_status "Installing AWS CLI..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" --silent
-        unzip -q awscliv2.zip
-        sudo ./aws/install --update
-        rm -rf awscliv2.zip aws/
-        print_success "AWS CLI installed successfully"
-    else
-        print_status "AWS CLI already installed"
-    fi
-
-    # 10. Install Azure CLI (for Azure AI services)
-    if ! command_exists az; then
-        print_status "Installing Azure CLI..."
-        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-        print_success "Azure CLI installed successfully"
-    else
-        print_status "Azure CLI already installed"
-    fi
-
-    # 11. Install gcloud CLI (for Google Cloud AI services)
-    if ! command_exists gcloud; then
-        print_status "Installing Google Cloud CLI..."
-        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
-        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
-        sudo apt-get update -qq && sudo apt-get install google-cloud-cli -y -qq
-        print_success "Google Cloud CLI installed successfully"
-    else
-        print_status "Google Cloud CLI already installed"
-    fi
-
-    # 12. Install useful development tools
-    print_status "Installing additional development tools..."
-
-    # jq for JSON processing
-    if ! command_exists jq; then
-        sudo apt-get install jq -y -qq
-        print_success "jq installed"
-    fi
-
-    # httpie for API testing
-    if ! command_exists http; then
-        sudo apt-get install httpie -y -qq
-        print_success "HTTPie installed"
-    fi
-
-    # bat - better cat with syntax highlighting
-    if ! command_exists bat; then
-        sudo apt-get install bat -y -qq
-        sudo ln -sf /usr/bin/batcat /usr/local/bin/bat
-        print_success "bat installed"
-    fi
-
-    # fzf - fuzzy finder
-    if ! command_exists fzf; then
-        sudo apt-get install fzf -y -qq
-        print_success "fzf installed"
-    fi
-
-    # ripgrep - faster grep
-    if ! command_exists rg; then
-        sudo apt-get install ripgrep -y -qq
-        print_success "ripgrep installed"
-    fi
-
-    # fd - better find
-    if ! command_exists fd; then
-        sudo apt-get install fd-find -y -qq
-        sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
-        print_success "fd installed"
-    fi
-
-    # tldr - simplified man pages
-    if ! command_exists tldr; then
-        npm install -g tldr --silent
-        print_success "tldr installed"
-    fi
+    # NOTE: Removed Shell-GPT, Aider, Continue, Codeium, TabNine, AWS, Azure, Google Cloud, and extra dev tools
+    # User requested only: GitHub CLI, Claude Code, Gemini, OpenAI SDK, and Codex
 
     # Save versions to file
     save_versions
