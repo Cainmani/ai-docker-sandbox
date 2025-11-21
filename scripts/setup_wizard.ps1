@@ -288,13 +288,13 @@ function Get-LinuxPasswordHash {
 
     # Use Python to generate the hash (available on most systems, and we need Linux-compatible format)
     # Format: $6$salt$hash (SHA-512)
-    $pythonCmd = "import crypt; print(crypt.crypt('$Password', '\`$6\`$$salt\`$'))"
+    $pythonCmd = "import sys, crypt; pw = sys.stdin.read().strip(); print(crypt.crypt(pw, '\`$6\`$$salt\`$'))"
 
     # Since Python may not be available on Windows, use OpenSSL via Docker if available
     # Or fall back to storing password with a marker for the entrypoint to hash it
     try {
         # Try using docker to generate the hash (container has the right tools)
-        $hashResult = docker run --rm ubuntu:24.04 python3 -c "import crypt; print(crypt.crypt('$Password', '\`$6\`$$salt\`$'))" 2>$null
+        $hashResult = echo $Password | docker run --rm -i ubuntu:24.04 python3 -c "$pythonCmd" 2>$null
         if ($LASTEXITCODE -eq 0 -and $hashResult) {
             return $hashResult.Trim()
         }
