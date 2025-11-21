@@ -1,7 +1,11 @@
 ﻿# setup_wizard.ps1
 # Requirements: Windows PowerShell 5+ or PowerShell 7+, Docker Desktop installed
+param([switch]$DevMode)
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+$script:IsDevMode = $DevMode.IsPresent
 
 # ---------- automatic line ending fix ----------
 function Fix-LineEndings {
@@ -262,14 +266,18 @@ $dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
 }
 
 $composePath = Join-Path $dockerPath 'docker-compose.yml'
-if (-not (Test-Path $composePath)) {
+if ((-not $script:IsDevMode) -and (-not (Test-Path $composePath))) {
     Show-Error ('docker-compose.yml not found at: ' + $composePath + [Environment]::NewLine + [Environment]::NewLine + 'Project structure may be incorrect.' + [Environment]::NewLine + [Environment]::NewLine + 'Script location: ' + $PSScriptRoot + [Environment]::NewLine + 'Looking for: ' + $composePath)
     exit 1  # Exit with error code
 }
 
 # ---------- main form ----------
 $form = New-Object System.Windows.Forms.Form
-$form.Text = '>>> AI CLI DOCKER SETUP :: MATRIX PROTOCOL <<<'
+if ($script:IsDevMode) {
+    $form.Text = '>>> AI CLI DOCKER SETUP :: [DEV MODE] <<<'
+} else {
+    $form.Text = '>>> AI CLI DOCKER SETUP :: MATRIX PROTOCOL <<<'
+}
 $form.Width = 950
 $form.Height = 700
 $form.StartPosition = 'CenterScreen'
@@ -539,80 +547,140 @@ $btnNext.Add_Click({
         }
         1 {
             Write-Host "[DEBUG] Page 1: Credentials validation" -ForegroundColor Cyan
-            Write-Host "[DEBUG] Username: '$($script:tbUser.Text)'" -ForegroundColor Yellow
 
-            if ([string]::IsNullOrWhiteSpace($script:tbUser.Text) -or [string]::IsNullOrWhiteSpace($script:tbPass.Text) -or [string]::IsNullOrWhiteSpace($script:tbPassConfirm.Text)) {
-                Write-Host "[ERROR] Validation failed - empty fields" -ForegroundColor Red
-                Show-Error 'Please enter username, password, and confirm password'
-                return
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping credentials validation" -ForegroundColor Magenta
+                $state.UserName = "devuser"
+                $state.Password = "devpass"
+            } else {
+                Write-Host "[DEBUG] Username: '$($script:tbUser.Text)'" -ForegroundColor Yellow
+
+                if ([string]::IsNullOrWhiteSpace($script:tbUser.Text) -or [string]::IsNullOrWhiteSpace($script:tbPass.Text) -or [string]::IsNullOrWhiteSpace($script:tbPassConfirm.Text)) {
+                    Write-Host "[ERROR] Validation failed - empty fields" -ForegroundColor Red
+                    Show-Error 'Please enter username, password, and confirm password'
+                    return
+                }
+
+                if ($script:tbPass.Text -ne $script:tbPassConfirm.Text) {
+                    Write-Host "[ERROR] Passwords do not match" -ForegroundColor Red
+                    Show-Error 'Passwords do not match. Please re-enter your password.'
+                    return
+                }
+
+                Write-Host "[SUCCESS] Credentials validated - advancing" -ForegroundColor Green
+                $state.UserName = $script:tbUser.Text
+                $state.Password = $script:tbPass.Text
             }
-
-            if ($script:tbPass.Text -ne $script:tbPassConfirm.Text) {
-                Write-Host "[ERROR] Passwords do not match" -ForegroundColor Red
-                Show-Error 'Passwords do not match. Please re-enter your password.'
-                return
-            }
-
-            Write-Host "[SUCCESS] Credentials validated - advancing" -ForegroundColor Green
-            $state.UserName = $script:tbUser.Text
-            $state.Password = $script:tbPass.Text
             $script:current++; Show-Page $script:current
         }
         2 {
             Write-Host "[DEBUG] Page 2: Folder selection" -ForegroundColor Cyan
-            if ([string]::IsNullOrWhiteSpace($script:tbParent.Text)) {
-                Write-Host "[ERROR] No folder selected" -ForegroundColor Red
-                Show-Error 'choose a parent folder'
-                return
-            }
-            $state.ParentPath = $script:tbParent.Text
-            $state.WorkspacePath = Join-Path $state.ParentPath 'AI_Work'
-            Write-Host "[INFO] Creating workspace at: $($state.WorkspacePath)" -ForegroundColor Cyan
 
-            if (-not (Test-Path $state.WorkspacePath)) {
-                try {
-                    New-Item -ItemType Directory -Path $state.WorkspacePath | Out-Null
-                    Write-Host "[SUCCESS] AI_Work directory created" -ForegroundColor Green
-                }
-                catch {
-                    $errMsg = "could not create $($state.WorkspacePath) - $($_.Exception.Message)"
-                    Write-Host "[ERROR] $errMsg" -ForegroundColor Red
-                    Show-Error $errMsg
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping folder validation and .env creation" -ForegroundColor Magenta
+                $state.ParentPath = "C:\DEV_MODE_PATH"
+                $state.WorkspacePath = "C:\DEV_MODE_PATH\AI_Work"
+            } else {
+                if ([string]::IsNullOrWhiteSpace($script:tbParent.Text)) {
+                    Write-Host "[ERROR] No folder selected" -ForegroundColor Red
+                    Show-Error 'choose a parent folder'
                     return
                 }
-            } else {
-                Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
-            }
+                $state.ParentPath = $script:tbParent.Text
+                $state.WorkspacePath = Join-Path $state.ParentPath 'AI_Work'
+                Write-Host "[INFO] Creating workspace at: $($state.WorkspacePath)" -ForegroundColor Cyan
 
-            # write .env
-            Write-Host "[INFO] Creating .env file" -ForegroundColor Cyan
-            $envPath = Join-Path $PSScriptRoot '.env'
-            $nl = [Environment]::NewLine
-            $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-            $envContent | Out-File $envPath -Encoding UTF8
-            $status.Text = ".env created at $envPath"
-            Write-Host "[SUCCESS] .env file created" -ForegroundColor Green
+                if (-not (Test-Path $state.WorkspacePath)) {
+                    try {
+                        New-Item -ItemType Directory -Path $state.WorkspacePath | Out-Null
+                        Write-Host "[SUCCESS] AI_Work directory created" -ForegroundColor Green
+                    }
+                    catch {
+                        $errMsg = "could not create $($state.WorkspacePath) - $($_.Exception.Message)"
+                        Write-Host "[ERROR] $errMsg" -ForegroundColor Red
+                        Show-Error $errMsg
+                        return
+                    }
+                } else {
+                    Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
+                }
+
+                # write .env
+                Write-Host "[INFO] Creating .env file" -ForegroundColor Cyan
+                $envPath = Join-Path $PSScriptRoot '.env'
+                $nl = [Environment]::NewLine
+                $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                $envContent | Out-File $envPath -Encoding UTF8
+                $status.Text = ".env created at $envPath"
+                Write-Host "[SUCCESS] .env file created" -ForegroundColor Green
+            }
 
             $script:current++; Show-Page $script:current
 
-            Write-Host "[INFO] Checking Docker status..." -ForegroundColor Cyan
-            if (Docker-Running) {
-                Write-Host "[SUCCESS] Docker is running" -ForegroundColor Green
-                $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running. Click Next to continue.'
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Simulating Docker check as running" -ForegroundColor Magenta
+                $script:lblDock.Text = '[DEV MODE] Docker check simulated as running. Click Next.'
             } else {
-                Write-Host "[WARNING] Docker not running" -ForegroundColor Yellow
-                $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker not running. Start Docker Desktop, then Retry.'
+                Write-Host "[INFO] Checking Docker status..." -ForegroundColor Cyan
+                if (Docker-Running) {
+                    Write-Host "[SUCCESS] Docker is running" -ForegroundColor Green
+                    $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running. Click Next to continue.'
+                } else {
+                    Write-Host "[WARNING] Docker not running" -ForegroundColor Yellow
+                    $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker not running. Start Docker Desktop, then Retry.'
+                }
             }
         }
         3 {
             Write-Host "[DEBUG] Page 3: Docker check" -ForegroundColor Cyan
-            if (-not (Docker-Running)) {
-                Write-Host "[ERROR] Docker is not running" -ForegroundColor Red
-                Show-Error 'docker is not running. open Docker Desktop, then click Retry.'
-                return
+
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Skipping Docker running check" -ForegroundColor Magenta
+            } else {
+                if (-not (Docker-Running)) {
+                    Write-Host "[ERROR] Docker is not running" -ForegroundColor Red
+                    Show-Error 'docker is not running. open Docker Desktop, then click Retry.'
+                    return
+                }
             }
             Write-Host "[SUCCESS] Docker verified - proceeding to build" -ForegroundColor Green
             $script:current++; Show-Page $script:current
+
+            # DEV MODE: Skip all Docker operations
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Simulating docker compose build..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating build...'
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 50
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 100
+                [System.Windows.Forms.Application]::DoEvents()
+                Write-Host "[DEV MODE] Build simulation complete" -ForegroundColor Magenta
+
+                Write-Host "[DEV MODE] Simulating docker compose up..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating container start...'
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 0
+                [System.Windows.Forms.Application]::DoEvents()
+
+                # Move to install page
+                $script:current++; Show-Page $script:current
+
+                Write-Host "[DEV MODE] Simulating CLI tools installation..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating CLI tools install...'
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 50
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 500
+                $progress.Value = 100
+                [System.Windows.Forms.Application]::DoEvents()
+                Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
+
+                $status.Text = '[DEV MODE] System ready (simulated)'
+                $script:current++; Show-Page $script:current
+                return
+            }
 
             # docker compose build
             $status.Text = 'docker compose build - may take 2 to 5 minutes first time'
@@ -759,15 +827,28 @@ $btnNext.Add_Click({
 # Display startup banner
 Clear-Host
 Write-Host ""
-Write-Host "================================================================" -ForegroundColor Green
-Write-Host "    AI CLI DOCKER SETUP :: MATRIX PROTOCOL v1.0                " -ForegroundColor Green
-Write-Host "    [SYSTEM ONLINE] Running automatic pre-flight checks        " -ForegroundColor Green
-Write-Host "================================================================" -ForegroundColor Green
+if ($script:IsDevMode) {
+    Write-Host "================================================================" -ForegroundColor Magenta
+    Write-Host "    AI CLI DOCKER SETUP :: [DEV MODE]                          " -ForegroundColor Magenta
+    Write-Host "    No destructive operations will be performed                " -ForegroundColor Magenta
+    Write-Host "================================================================" -ForegroundColor Magenta
+} else {
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "    AI CLI DOCKER SETUP :: MATRIX PROTOCOL v1.0                " -ForegroundColor Green
+    Write-Host "    [SYSTEM ONLINE] Running automatic pre-flight checks        " -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+}
 Write-Host ""
 
 # Automatic pre-flight checks
 Write-Host "[PRE-FLIGHT] Running automatic system checks..." -ForegroundColor Cyan
 Write-Host ""
+
+# DEV MODE: Skip all pre-flight checks
+if ($script:IsDevMode) {
+    Write-Host "[DEV MODE] Skipping all pre-flight checks" -ForegroundColor Magenta
+    $lineEndingsFixed = $false
+} else {
 
 # 1. Fix line endings automatically
 Write-Host "[CHECK 1/3] Checking shell script line endings..." -ForegroundColor Cyan
@@ -842,6 +923,7 @@ if ($lineEndingsFixed) {
     Write-Host "[CHECK 3/3] Docker image status..." -ForegroundColor Cyan
     Write-Host "[OK] No rebuild needed" -ForegroundColor Green
 }
+} # End of else block for non-DEV mode
 Write-Host ""
 
 Write-Host "================================================================" -ForegroundColor Green
