@@ -89,6 +89,25 @@ function New-Button([string]$text, [int]$x, [int]$y, [int]$w=120, [int]$h=34) {
     $btn.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
     return $btn
 }
+function New-LinkLabel([string]$url, [int]$x, [int]$y, [int]$w=880, [int]$h=24, [int]$fontSize=9, [bool]$center=$true) {
+    $link = New-Object System.Windows.Forms.LinkLabel
+    $link.Text = $url
+    $link.Left = $x; $link.Top = $y
+    $link.Width = $w; $link.Height = $h
+    $link.LinkColor = $script:MatrixAccent
+    $link.ActiveLinkColor = $script:MatrixGreen
+    $link.VisitedLinkColor = $script:MatrixAccent
+    $link.BackColor = 'Transparent'
+    $link.Font = New-Object System.Drawing.Font('Consolas', $fontSize)
+    if ($center) {
+        $link.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    }
+    $link.Add_LinkClicked({
+        param($sender, $e)
+        Start-Process $sender.Text
+    })
+    return $link
+}
 function New-PanelPage() {
     $p = New-Object System.Windows.Forms.Panel
     $p.Dock = 'Fill'
@@ -340,7 +359,7 @@ $p1.Controls.Add((New-Label 'These credentials will be used for the Ubuntu syste
 $p1.Controls.Add((New-Label 'This is a secure Linux environment isolated from your Windows system.' 20 115 880 24 10 $false $true))
 $p1.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'Don''t know what a container is? Learn more at:' 20 160 880 24 9 $false $true))
-$p1.Controls.Add((New-Label 'https://www.docker.com/resources/what-container/' 20 180 880 24 9 $false $true))
+$p1.Controls.Add((New-LinkLabel 'https://www.docker.com/resources/what-container/' 20 180 880 24 9))
 $p1.Controls.Add((New-Label '' 20 205 880 24 10 $false $true))
 $p1.Controls.Add((New-Label 'Username:' 20 225 880 20 10 $true $false))
 $script:tbUser = New-Textbox 20 245 400
@@ -407,7 +426,7 @@ $p3.Controls.Add((New-Label '' 20 245 880 24 10 $false $true))
 $p3.Controls.Add((New-Label 'If Docker is not installed or you are unsure:' 20 270 880 24 10 $true $true))
 $p3.Controls.Add((New-Label '' 20 295 880 24 10 $false $true))
 $p3.Controls.Add((New-Label '>> Download Docker Desktop from:' 20 320 880 24 9 $false $true))
-$p3.Controls.Add((New-Label 'https://docs.docker.com/desktop/setup/install/windows-install/' 20 345 880 24 9 $false $true))
+$p3.Controls.Add((New-LinkLabel 'https://docs.docker.com/desktop/setup/install/windows-install/' 20 345 880 24 9))
 $p3.Controls.Add((New-Label '' 20 370 880 24 10 $false $true))
 $p3.Controls.Add((New-Label '>> After installing, ensure Docker Desktop is running (check system tray)' 20 395 880 24 9 $false $true))
 $p3.Controls.Add((New-Label '' 20 420 880 24 10 $false $true))
