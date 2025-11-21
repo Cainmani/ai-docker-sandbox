@@ -361,7 +361,7 @@ $p0.Controls.Add((New-Label 'The wizard will automatically:' 20 180 880 24 10 $t
 $p0.Controls.Add((New-Label '>> Create a secure AI_Work directory for all your AI projects' 20 205 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Configure environment variables (USER_NAME, USER_PASSWORD, WORKSPACE_PATH)' 20 230 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Build and deploy the Docker container' 20 255 880 24 10 $false $true))
-$p0.Controls.Add((New-Label '>> Auto-install ALL AI CLI tools (Claude, GitHub, OpenAI, Gemini, AWS, Azure, etc.)' 20 280 880 24 10 $false $true))
+$p0.Controls.Add((New-Label '>> Auto-install AI CLI tools (Claude, GitHub CLI, Gemini, OpenAI SDK, Codex)' 20 280 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 305 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '[!] NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 355 880 24 10 $false $true))
@@ -464,10 +464,10 @@ $btnRetryDock.Add_Click({
     $script:lblDock.Text = 'Checking Docker status...'
     [System.Windows.Forms.Application]::DoEvents()
     if (Docker-Running) {
-        $script:lblDock.Text = '✓ Docker is running! Click "Next" to continue.'
+        $script:lblDock.Text = '[OK] ' + $script:Arrow + ' Docker is running! Click "Next" to continue.'
         $script:lblDock.ForeColor = $script:MatrixGreen
     } else {
-        $script:lblDock.Text = '✗ Docker is not running. Please start Docker Desktop and retry.'
+        $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker is not running. Please start Docker Desktop and retry.'
         $script:lblDock.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
     }
 })
@@ -492,16 +492,26 @@ $p5 = New-PanelPage
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 # Dynamic label for current tool being installed
-$script:lblCurrentTool = New-Label 'Initializing installation...' 20 95 880 24 10 $false $true
+$script:lblCurrentTool = New-Label 'Initializing installation...' 20 75 880 24 10 $true $true
 $p5.Controls.Add($script:lblCurrentTool)
-$p5.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 145 880 24 9 $false $true))
-$p5.Controls.Add((New-Label '' 20 170 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'This may take 3-5 minutes on first install.' 20 195 880 24 10 $true $true))
-$p5.Controls.Add((New-Label '' 20 220 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Watch the progress bar below for status...' 20 245 880 30 11 $true $true))
+$p5.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
+
+# Mini terminal display for installation output
+$script:terminalBox = New-Object System.Windows.Forms.RichTextBox
+$script:terminalBox.Left = 20
+$script:terminalBox.Top = 130
+$script:terminalBox.Width = 880
+$script:terminalBox.Height = 350
+$script:terminalBox.BackColor = [System.Drawing.Color]::Black
+$script:terminalBox.ForeColor = $script:MatrixGreen
+$script:terminalBox.Font = New-Object System.Drawing.Font('Consolas', 9)
+$script:terminalBox.ReadOnly = $true
+$script:terminalBox.ScrollBars = 'Vertical'
+$script:terminalBox.BorderStyle = 'FixedSingle'
+$script:terminalBox.Text = ">> Waiting for installation to begin...`r`n"
+$p5.Controls.Add($script:terminalBox)
+
 $pages += $p5
 
 # Page 6: Done
@@ -512,18 +522,18 @@ $p6.Controls.Add((New-Label -text '=============================================
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
 $p6.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude, GitHub CLI, OpenAI/GPT, Gemini, AWS CLI, Azure CLI, & more!' 20 140 880 24 10 $true $true))
+$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
 $p6.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Click "Launch Claude CLI" (or run launch_claude.ps1)' 20 235 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
 $p6.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
 $p6.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '   claude, gh, sgpt, aider, codeium, aws, az, gcloud' 20 385 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
 $p6.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
 $p6.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
 $p6.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
@@ -725,11 +735,44 @@ $btnNext.Add_Click({
 
                 Write-Host "[DEV MODE] Simulating CLI tools installation..." -ForegroundColor Magenta
                 $status.Text = '[DEV MODE] Simulating CLI tools install...'
-                Start-Sleep -Milliseconds 500
-                $progress.Value = 50
+
+                # Simulate terminal output for DEV MODE
+                $script:terminalBox.Text = ">> [DEV MODE] Installation simulation starting...`r`n"
                 [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 500
-                $progress.Value = 100
+
+                $devModeLines = @(
+                    "[INFO] Starting CLI tools installation...",
+                    "[INFO] Updating package lists...",
+                    "[INFO] Installing GitHub CLI...",
+                    "[SUCCESS] GitHub CLI installed successfully",
+                    "[INFO] Installing/Updating Claude Code CLI...",
+                    "[SUCCESS] Claude Code CLI installed/updated successfully",
+                    "[INFO] Installing Google Gemini CLI...",
+                    "[SUCCESS] Gemini CLI installed successfully",
+                    "[INFO] Installing OpenAI CLI tools...",
+                    "[SUCCESS] OpenAI Python SDK installed",
+                    "[INFO] Installing OpenAI Codex CLI...",
+                    "[SUCCESS] OpenAI Codex CLI installed successfully",
+                    "[SUCCESS] All CLI tools installation completed!"
+                )
+
+                $progressValues = @(10, 15, 20, 30, 40, 50, 55, 65, 75, 85, 90, 95, 100)
+                $toolNames = @("", "", "GitHub CLI", "", "Claude Code CLI", "", "Google Gemini CLI", "", "OpenAI Python SDK", "", "OpenAI Codex CLI", "", "")
+
+                for ($i = 0; $i -lt $devModeLines.Count; $i++) {
+                    $script:terminalBox.AppendText("$($devModeLines[$i])`r`n")
+                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                    $script:terminalBox.ScrollToCaret()
+                    $progress.Value = $progressValues[$i]
+                    if ($toolNames[$i]) {
+                        $script:lblCurrentTool.Text = "Installing $($toolNames[$i])..."
+                    }
+                    [System.Windows.Forms.Application]::DoEvents()
+                    Start-Sleep -Milliseconds 300
+                }
+
+                $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE! (simulated)`r`n")
+                $script:lblCurrentTool.Text = 'Installation complete!'
                 [System.Windows.Forms.Application]::DoEvents()
                 Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
 
@@ -795,22 +838,68 @@ $btnNext.Add_Click({
             # AI CLI tools will be auto-installed by entrypoint.sh
             $status.Text = 'Installing AI CLI tools suite...'
             Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
-            Write-Host "[INFO] Installing: Claude, GitHub CLI, OpenAI tools, Gemini, AWS CLI, Azure CLI, and more..." -ForegroundColor Yellow
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex..." -ForegroundColor Yellow
             Write-Host "[INFO] This will take 3-5 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
             # Wait for the entrypoint to run the installation
             $status.Text = 'Waiting for CLI tools installation (3-5 minutes)...'
 
+            # Initialize terminal display
+            $script:terminalBox.Text = ">> Installation starting...`r`n"
+            $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+            $script:terminalBox.ScrollToCaret()
+            [System.Windows.Forms.Application]::DoEvents()
+
             # Give entrypoint time to start the installation
-            Start-Sleep -Seconds 10
+            Start-Sleep -Seconds 5
+
+            # Track last log position for incremental updates
+            $script:lastLogLines = 0
+
+            # Helper function to strip ANSI color codes
+            function Strip-AnsiCodes([string]$text) {
+                return $text -replace '\x1b\[[0-9;]*m', '' -replace '\[0m', '' -replace '\[0;3[0-9]m', '' -replace '\[1;3[0-9]m', ''
+            }
+
+            # Helper function to update terminal display with new docker logs
+            function Update-TerminalDisplay {
+                try {
+                    # Get recent docker logs (last 100 lines)
+                    $logResult = docker logs ai-cli --tail 100 2>&1
+                    if ($logResult) {
+                        $logLines = $logResult -split "`n"
+                        $newLines = $logLines | Select-Object -Skip $script:lastLogLines
+
+                        if ($newLines -and $newLines.Count -gt 0) {
+                            foreach ($line in $newLines) {
+                                if ($line.Trim()) {
+                                    $cleanLine = Strip-AnsiCodes $line
+                                    # Add to terminal box
+                                    $script:terminalBox.AppendText("$cleanLine`r`n")
+                                }
+                            }
+                            $script:lastLogLines = $logLines.Count
+                            # Auto-scroll to bottom
+                            $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                            $script:terminalBox.ScrollToCaret()
+                        }
+                    }
+                } catch {
+                    # Silently ignore log fetch errors
+                }
+            }
 
             # Check installation progress by looking for the marker file
             $maxWaitTime = 300  # 5 minutes
             $waitedTime = 0
-            $checkInterval = 5
+            $checkInterval = 3  # Check more frequently for better UI updates
 
             while ($waitedTime -lt $maxWaitTime) {
+                # Update terminal display with latest logs
+                Update-TerminalDisplay
+                [System.Windows.Forms.Application]::DoEvents()
+
                 # Check if installation completed - use sh -c to properly handle shell operators
                 # Use "|| true" to ensure exit code 0 even when file doesn't exist (prevents error spam in logs)
                 $checkInstallCmd = 'exec ai-cli sh -c "test -f /home/' + $state.UserName + '/.cli_tools_installed && echo INSTALLED || true"'
@@ -819,10 +908,14 @@ $btnNext.Add_Click({
                 if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
                     Write-Host "[SUCCESS] CLI tools installation completed!" -ForegroundColor Green
                     $script:lblCurrentTool.Text = 'Installation complete!'
+                    $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE!`r`n")
+                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                    $script:terminalBox.ScrollToCaret()
+                    $progress.Value = 100
                     break
                 }
 
-                # Poll for current tool status
+                # Poll for current tool status and update progress based on which tool is installing
                 $statusCmd = 'exec ai-cli sh -c "cat /home/' + $state.UserName + '/.cli_install_status 2>/dev/null || true"'
                 $statusResult = Run-Process-UI -file 'docker' -arguments $statusCmd -progressBar $null -statusLabel $null
                 if ($statusResult.Ok -and $statusResult.StdOut.Trim()) {
@@ -832,20 +925,34 @@ $btnNext.Add_Click({
                         $pkgMgr = $parts[1]
                         $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
                         Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
+
+                        # Update progress based on which tool is currently installing (5 tools total)
+                        $toolProgress = switch ($toolName) {
+                            'GitHub CLI' { 20 }
+                            'Claude Code CLI' { 40 }
+                            'Google Gemini CLI' { 60 }
+                            'OpenAI Python SDK' { 80 }
+                            'OpenAI Codex CLI' { 95 }
+                            default { $progress.Value }  # Keep current if unknown
+                        }
+                        $progress.Value = $toolProgress
                     }
                 }
                 [System.Windows.Forms.Application]::DoEvents()
 
-                # Update progress
-                $progress.Value = [Math]::Min(95, 20 + ($waitedTime * 75 / $maxWaitTime))
                 $status.Text = "Installing CLI tools... ($([Math]::Round($waitedTime/60, 1)) minutes elapsed)"
 
                 Start-Sleep -Seconds $checkInterval
                 $waitedTime += $checkInterval
             }
 
+            # Final log update
+            Update-TerminalDisplay
+            [System.Windows.Forms.Application]::DoEvents()
+
             if ($waitedTime -ge $maxWaitTime) {
                 Write-Host "[WARNING] Installation is taking longer than expected, but will continue in background" -ForegroundColor Yellow
+                $script:terminalBox.AppendText("`r`n>> Installation taking longer than expected, continuing in background...`r`n")
             }
 
             # Verify at least the core tools are available
@@ -948,7 +1055,7 @@ if ($existingContainer -eq "ai-cli") {
         "  - Your Claude authentication (you won't need to sign in again)`n" +
         "  - Your configuration and settings`n" +
         "  - Persistent data`n`n" +
-        "RECOMMENDED: Click 'No' and use 'Launch Claude' instead.`n`n" +
+        "RECOMMENDED: Click 'No' and use 'Launch AI Workspace' instead.`n`n" +
         "Click 'Yes' ONLY if you want to DELETE the existing container and start fresh.`n`n" +
         "Do you want to DELETE the existing container and continue with First Time Setup?",
         "Container Already Exists - Delete?",
@@ -965,10 +1072,10 @@ if ($existingContainer -eq "ai-cli") {
         Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
     } else {
         Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
-        Write-Host "[INFO] Please use 'Launch Claude' to access your existing container" -ForegroundColor Cyan
+        Write-Host "[INFO] Please use 'Launch AI Workspace' to access your existing container" -ForegroundColor Cyan
         [System.Windows.Forms.MessageBox]::Show(
             "Setup cancelled - your existing container is safe!`n`n" +
-            "To access your container, please use 'Launch Claude' button instead of 'First Time Setup'.`n`n" +
+            "To access your container, please use 'Launch AI Workspace' button instead of 'First Time Setup'.`n`n" +
             "Your Claude authentication and all settings are preserved.",
             "Setup Cancelled",
             [System.Windows.Forms.MessageBoxButtons]::OK,
