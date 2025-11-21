@@ -34,7 +34,7 @@ print_status() {
 }
 
 print_success() {
-    echo -e "${GREEN}[âœ“]${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
 }
 
 print_warning() {
