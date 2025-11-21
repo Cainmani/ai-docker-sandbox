@@ -337,9 +337,9 @@ show_status() {
     for tool_info in "${tools[@]}"; do
         IFS=':' read -r tool name <<< "$tool_info"
         if is_configured "$tool"; then
-            echo -e "${GREEN}âœ“${NC} $name - Configured"
+            echo -e "${GREEN}[OK]${NC} $name - Configured"
         else
-            echo -e "${RED}âœ—${NC} $name - Not configured"
+            echo -e "${RED}[ERROR]${NC} $name - Not configured"
         fi
     done
 
