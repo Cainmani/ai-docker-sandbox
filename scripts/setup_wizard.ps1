@@ -325,7 +325,7 @@ $p0.Controls.Add((New-Label '>> Configure environment variables (USER_NAME, USER
 $p0.Controls.Add((New-Label '>> Build and deploy the Docker container' 20 255 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '>> Auto-install ALL AI CLI tools (Claude, GitHub, OpenAI, Gemini, AWS, Azure, etc.)' 20 280 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 305 880 24 10 $false $true))
-$p0.Controls.Add((New-Label '⚠ NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
+$p0.Controls.Add((New-Label '[!] NOTE: Do not move the AI_Work folder after setup - it will break the configuration' 20 330 880 24 10 $false $true))
 $p0.Controls.Add((New-Label '' 20 355 880 24 10 $false $true))
 $p0.Controls.Add((New-Label 'Click "Next" to begin the automatic setup process.' 20 380 880 24 10 $true $true))
 $pages += $p0
@@ -444,10 +444,10 @@ $pages += $p4
 # Page 5: Install Claude
 $p5 = New-PanelPage
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label -text 'INSTALLING CLAUDE CODE CLI' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p5.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p5.Controls.Add((New-Label 'Installing Claude Code CLI via npm package manager...' 20 95 880 24 10 $false $true))
+$p5.Controls.Add((New-Label 'Installing AI CLI tools via npm and pip package managers...' 20 95 880 24 10 $false $true))
 $p5.Controls.Add((New-Label 'Command: npm install -g @anthropic-ai/claude-code' 20 115 880 24 10 $false $true))
 $p5.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
 $p5.Controls.Add((New-Label 'Configuring global "claude" command wrapper...' 20 160 880 24 10 $false $true))
