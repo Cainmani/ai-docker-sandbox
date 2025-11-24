@@ -4,18 +4,80 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# ============================================================
+# CENTRALIZED LOGGING SYSTEM
+# Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+# ============================================================
+$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+$script:LogFile = Join-Path $script:LogDir "ai-docker.log"
+
+# Ensure log directory exists
+if (-not (Test-Path $script:LogDir)) {
+    New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
+}
+
+function Write-AppLog {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
+    )
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $logEntry = "[$timestamp] [$Level] [LAUNCHER] $Message"
+        Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
+    } catch {
+        # Silently fail if logging doesn't work - don't break the app
+    }
+}
+
+Write-AppLog "========================================" "INFO"
+Write-AppLog "AI Docker Launcher Started" "INFO"
+Write-AppLog "Log file: $script:LogFile" "INFO"
+Write-AppLog "========================================" "INFO"
+
 # Matrix Green Theme Colors
 $script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)
 $script:MatrixDarkGreen = [System.Drawing.Color]::FromArgb(0, 20, 0)
 $script:MatrixMidGreen = [System.Drawing.Color]::FromArgb(0, 40, 10)
 $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)
 
-# Get script directory (works for both .ps1 and .exe)
+# Get script directory (works for both .ps1 and .exe) - robust method
+Write-AppLog "Detecting script path..." "DEBUG"
+Write-AppLog "PSScriptRoot: [$PSScriptRoot]" "DEBUG"
+Write-AppLog "MyInvocation.MyCommand.Path: [$($MyInvocation.MyCommand.Path)]" "DEBUG"
+Write-AppLog "Get-Location: [$(Get-Location)]" "DEBUG"
+
 if ($PSScriptRoot) {
     $scriptPath = $PSScriptRoot
-} else {
+    Write-AppLog "Using PSScriptRoot: [$scriptPath]" "DEBUG"
+} elseif ($MyInvocation.MyCommand.Path) {
     $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+    Write-AppLog "Using MyInvocation.MyCommand.Path: [$scriptPath]" "DEBUG"
+} else {
+    # Fallback: use current directory (convert to string)
+    $scriptPath = (Get-Location).Path
+    Write-AppLog "Using Get-Location fallback: [$scriptPath]" "DEBUG"
 }
+
+# Final safety - ensure it's ALWAYS a valid string path (never null, never PathInfo)
+if (-not $scriptPath) {
+    $scriptPath = [System.IO.Directory]::GetCurrentDirectory()
+    Write-AppLog "scriptPath was null, using CurrentDirectory: [$scriptPath]" "WARN"
+}
+if ($scriptPath -is [System.Management.Automation.PathInfo]) {
+    Write-AppLog "scriptPath is PathInfo object, converting to string" "DEBUG"
+    $scriptPath = $scriptPath.Path
+}
+# Force conversion to string to prevent Join-Path parameter binding errors
+$scriptPath = [string]$scriptPath
+Write-AppLog "scriptPath after string conversion: [$scriptPath]" "DEBUG"
+if (-not $scriptPath) {
+    # Ultimate fallback
+    $scriptPath = $env:TEMP
+    Write-AppLog "scriptPath still null, using TEMP fallback: [$scriptPath]" "ERROR"
+}
+
+Write-AppLog "Final scriptPath: [$scriptPath]" "INFO"
 
 # Create main form
 $form = New-Object System.Windows.Forms.Form
@@ -140,53 +202,149 @@ $form.Controls.Add($btnExit)
 
 # Event Handlers
 $btnSetup.Add_Click({
+    Write-AppLog "First Time Setup button clicked" "INFO"
+
     $setupScript = Join-Path $scriptPath "setup_wizard.ps1"
+    Write-AppLog "Setup script path: [$setupScript]" "DEBUG"
+
     if (Test-Path $setupScript) {
+        Write-AppLog "Setup script found, launching..." "INFO"
         $form.Hide()
 
         # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
         $devModeArg = ""
         if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
             $devModeArg = " -DevMode"
-            Write-Host "[DEV MODE] Shift key detected - launching setup wizard in DEV mode" -ForegroundColor Magenta
+            Write-AppLog "DEV MODE: Shift key detected - launching setup wizard in DEV mode" "INFO"
         }
 
-        $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$setupScript`"$devModeArg" -Wait -PassThru
+        # Build argument list - ensure -DevMode is properly passed as separate argument
+        $argList = "-ExecutionPolicy Bypass -File `"$setupScript`""
+        if ($devModeArg) {
+            $argList = "$argList -DevMode"
+            Write-AppLog "Launch arguments: $argList" "DEBUG"
+        }
+
+        # In DEV MODE, show console for debug output. In normal mode, hide it.
+        Write-AppLog "Starting setup wizard process..." "INFO"
+        if ($devModeArg) {
+            # DEV MODE: Show console window so user can see debug messages
+            Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
+            $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
+        } else {
+            # NORMAL MODE: Hide console for clean UX
+            Write-AppLog "Normal mode: Launching with hidden console" "DEBUG"
+            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
+        }
+        Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
+
         $form.Show()
         if ($process.ExitCode -eq 0) {
+            Write-AppLog "Setup completed successfully" "INFO"
             [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.", "Setup Complete", 'OK', 'Information')
+        } else {
+            Write-AppLog "Setup exited with non-zero code (cancelled or failed)" "WARN"
         }
         # If exit code is non-zero (e.g., 1 = cancelled), don't show success message
     } else {
+        Write-AppLog "ERROR: Setup script not found at: $setupScript" "ERROR"
         [System.Windows.Forms.MessageBox]::Show("Error: setup_wizard.ps1 not found in the same directory as this launcher.`n`nPath: $setupScript", "File Not Found", 'OK', 'Error')
     }
 })
 
 $btnLaunch.Add_Click({
+    Write-AppLog "Launch AI Workspace button clicked" "INFO"
+
     # Check if SHIFT is held - warn user this is not supported for Launch
     if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+        Write-AppLog "Shift key detected on Launch button - showing warning" "WARN"
         [System.Windows.Forms.MessageBox]::Show("Shift+Click is only supported on 'First Time Setup' button for DEV MODE.`n`nTo launch your workspace normally, just click without holding Shift.", "Shift Key Detected", 'OK', 'Information')
         return
     }
 
-    $launchScript = Join-Path $scriptPath "launch_claude.ps1"
-    if (Test-Path $launchScript) {
-        # Check if .env exists (indicates setup was run)
-        $envFile = Join-Path $scriptPath ".env"
-        if (-not (Test-Path $envFile)) {
-            $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
-            if ($result -eq 'Yes') {
-                $btnSetup.PerformClick()
-            }
-            return
-        }
+    # Add error handling for path construction
+    Write-AppLog "Constructing launch script path..." "DEBUG"
+    Write-AppLog "scriptPath value: [$scriptPath]" "DEBUG"
+    Write-AppLog "scriptPath type: $($scriptPath.GetType().FullName)" "DEBUG"
 
-        $form.Hide()
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$launchScript`""
-        # Don't wait for launcher - let it run independently
-        Start-Sleep -Seconds 1
-        $form.Close()
+    try {
+        if (-not $scriptPath) {
+            Write-AppLog "ERROR: scriptPath is null!" "ERROR"
+            throw "Script path is null. Please restart the launcher."
+        }
+        $launchScript = Join-Path $scriptPath "launch_claude.ps1"
+        Write-AppLog "Launch script path constructed: [$launchScript]" "DEBUG"
+    } catch {
+        Write-AppLog "ERROR constructing launch script path: $($_.Exception.Message)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show("Error: Failed to locate scripts.`n`nDetails: $($_.Exception.Message)`n`nScript Path: $scriptPath", "Path Error", 'OK', 'Error')
+        return
+    }
+
+    if (Test-Path $launchScript) {
+        Write-AppLog "Launch script found: [$launchScript]" "INFO"
+
+        # CRITICAL FIX: Check for existing container BEFORE checking .env
+        # This prevents offering to delete a container when .env is accidentally missing
+        Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+
+        if ($existingContainer -eq "ai-cli") {
+            Write-AppLog "Container 'ai-cli' found - launching workspace..." "INFO"
+
+            $form.Hide()
+            # Launch workspace with hidden console (no debug output visible to user)
+            # Use -WindowStyle parameter of Start-Process, not in ArgumentList
+            Write-AppLog "Starting launch_claude.ps1 process..." "INFO"
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$launchScript`"" -WindowStyle Hidden
+            Write-AppLog "Workspace launch process started successfully" "INFO"
+
+            # Don't wait for launcher - let it run independently
+            Start-Sleep -Seconds 1
+            $form.Close()
+        } else {
+            Write-AppLog "Container 'ai-cli' not found - checking setup status..." "WARN"
+
+            # No container exists - check if setup was ever run
+            $envFile = Join-Path $scriptPath ".env"
+            Write-AppLog "Checking for .env file at: [$envFile]" "DEBUG"
+
+            if (-not (Test-Path $envFile)) {
+                Write-AppLog ".env file not found - setup has not been completed" "WARN"
+                # Neither container nor .env exists - user needs to run setup
+                $result = [System.Windows.Forms.MessageBox]::Show(
+                    "Setup has not been completed yet.`n`n" +
+                    "No AI Docker container was found on your system.`n`n" +
+                    "Would you like to run the First Time Setup now?",
+                    "Setup Required",
+                    'YesNo',
+                    'Warning'
+                )
+                Write-AppLog "User response to setup prompt: $result" "INFO"
+                if ($result -eq 'Yes') {
+                    $btnSetup.PerformClick()
+                }
+                return
+            } else {
+                Write-AppLog ".env file exists but container is missing" "WARN"
+                # .env exists but container is missing - offer to recreate
+                $result = [System.Windows.Forms.MessageBox]::Show(
+                    "Configuration file exists, but the Docker container is missing.`n`n" +
+                    "The container may have been manually deleted.`n`n" +
+                    "Would you like to run First Time Setup to recreate it?",
+                    "Container Missing",
+                    'YesNo',
+                    'Warning'
+                )
+                Write-AppLog "User response to recreate prompt: $result" "INFO"
+                if ($result -eq 'Yes') {
+                    $btnSetup.PerformClick()
+                }
+                return
+            }
+        }
     } else {
+        Write-AppLog "ERROR: Launch script not found at: [$launchScript]" "ERROR"
         [System.Windows.Forms.MessageBox]::Show("Error: launch_claude.ps1 not found in the same directory as this launcher.`n`nPath: $launchScript", "File Not Found", 'OK', 'Error')
     }
 })

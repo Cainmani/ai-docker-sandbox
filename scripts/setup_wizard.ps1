@@ -7,6 +7,19 @@ Add-Type -AssemblyName System.Drawing
 
 $script:IsDevMode = $DevMode.IsPresent
 
+# Show DEV MODE status at startup
+if ($script:IsDevMode) {
+    Write-Host "" -ForegroundColor Magenta
+    Write-Host "========================================" -ForegroundColor Magenta
+    Write-Host "   DEV MODE ACTIVE - UI TESTING MODE   " -ForegroundColor Magenta
+    Write-Host "========================================" -ForegroundColor Magenta
+    Write-Host "  • Container will NOT be deleted" -ForegroundColor Magenta
+    Write-Host "  • All popups will be skipped" -ForegroundColor Magenta
+    Write-Host "  • Fast UI/UX testing enabled" -ForegroundColor Magenta
+    Write-Host "========================================" -ForegroundColor Magenta
+    Write-Host "" -ForegroundColor Magenta
+}
+
 # ---------- automatic line ending fix ----------
 function Fix-LineEndings {
     param([string]$scriptPath)
@@ -549,30 +562,397 @@ $p5.Controls.Add($script:terminalBox)
 
 $pages += $p5
 
-# Page 6: Done
+# Page 6: Codex Subscription Auth (Optional)
 $p6 = New-PanelPage
 $p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6.Controls.Add((New-Label -text 'CODEX SUBSCRIPTION AUTHENTICATION (OPTIONAL)' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
+$p6.Controls.Add((New-Label 'Codex CLI can use your ChatGPT Plus/Pro subscription (no API credits needed).' 20 95 880 24 10 $false $true))
+$p6.Controls.Add((New-Label '' 20 115 880 24 10 $false $true))
+$p6.Controls.Add((New-Label 'This step will:' 20 135 880 24 10 $true $true))
+$p6.Controls.Add((New-Label '  1. Temporarily install Codex on Windows' 20 155 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '  2. Open your browser to sign in with your OpenAI account' 20 175 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '  3. Copy your authentication to the Docker container' 20 195 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '  4. Ask if you want to keep or remove Codex from Windows' 20 215 880 24 9 $false $true))
+$p6.Controls.Add((New-Label '' 20 240 880 24 10 $false $true))
+
+# Status label for Codex setup
+$script:lblCodexStatus = New-Label 'Click "Setup Codex Auth" to begin, or "Skip" to continue without Codex.' 20 265 880 30 10 $true $true
+$p6.Controls.Add($script:lblCodexStatus)
+
+# Terminal box for Codex setup output (reduced height to fit buttons above progress bar)
+$script:codexTerminalBox = New-Object System.Windows.Forms.RichTextBox
+$script:codexTerminalBox.Left = 20
+$script:codexTerminalBox.Top = 300
+$script:codexTerminalBox.Width = 880
+$script:codexTerminalBox.Height = 150
+$script:codexTerminalBox.BackColor = [System.Drawing.Color]::Black
+$script:codexTerminalBox.ForeColor = $script:MatrixGreen
+$script:codexTerminalBox.Font = New-Object System.Drawing.Font('Consolas', 9)
+$script:codexTerminalBox.ReadOnly = $true
+$script:codexTerminalBox.ScrollBars = 'Vertical'
+$script:codexTerminalBox.BorderStyle = 'FixedSingle'
+$script:codexTerminalBox.Text = ">> Waiting for user action...`r`n"
+$p6.Controls.Add($script:codexTerminalBox)
+
+# Setup Codex button (positioned below terminal, above progress bar)
+$btnSetupCodex = New-Button 'Setup Codex Auth' 300 460 180 35
+$btnSetupCodex.BackColor = [System.Drawing.Color]::FromArgb(0, 60, 20)
+$p6.Controls.Add($btnSetupCodex)
+
+# Skip button
+$btnSkipCodex = New-Button 'Skip' 500 460 100 35
+$p6.Controls.Add($btnSkipCodex)
+
+# Track if Codex setup was completed or skipped
+$script:codexSetupDone = $false
+
+$btnSkipCodex.Add_Click({
+    $script:codexSetupDone = $true
+    $script:lblCodexStatus.Text = 'Codex setup skipped. You can configure it later with: configure-tools --codex'
+    $script:codexTerminalBox.AppendText(">> Skipped Codex authentication setup`r`n")
+    Write-Host "[INFO] User skipped Codex authentication" -ForegroundColor Yellow
+    # Auto-advance to next page
+    $script:current++
+    Show-Page $script:current
+})
+
+$btnSetupCodex.Add_Click({
+    $script:codexTerminalBox.Text = ">> Starting Codex authentication setup...`r`n"
+    $script:lblCodexStatus.Text = 'Checking for Node.js/npm...'
+    $script:lblCodexStatus.ForeColor = $script:MatrixGreen  # Reset color
+    [System.Windows.Forms.Application]::DoEvents()
+
+    # Check if npm is available
+    $npmPath = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmPath) {
+        $script:codexTerminalBox.AppendText("[ERROR] Node.js/npm is not installed on Windows`r`n")
+        Write-Host "[ERROR] npm not found - Node.js not installed" -ForegroundColor Red
+
+        # Offer to auto-install Node.js (skip in DEV MODE)
+        if (-not $script:IsDevMode) {
+            $installResult = [System.Windows.Forms.MessageBox]::Show(
+                "Node.js is required but not installed.`n`n" +
+                "Would you like to install Node.js automatically using winget?`n`n" +
+                "Click 'Yes' to install automatically`n" +
+                "Click 'No' to install manually from nodejs.org",
+                "Install Node.js?",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+        } else {
+            Write-Host "[DEV MODE] Skipping Node.js install popup - assuming Yes" -ForegroundColor Magenta
+            $installResult = [System.Windows.Forms.DialogResult]::Yes
+        }
+
+        if ($installResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+            $script:codexTerminalBox.AppendText("`r`n>> Installing Node.js via winget...`r`n")
+            $script:lblCodexStatus.Text = 'Installing Node.js (this may take a minute)...'
+            [System.Windows.Forms.Application]::DoEvents()
+
+            try {
+                # Try winget first
+                $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
+                if ($wingetCheck) {
+                    $script:codexTerminalBox.AppendText(">> Running: winget install OpenJS.NodeJS.LTS`r`n")
+                    [System.Windows.Forms.Application]::DoEvents()
+
+                    $installProc = Start-Process -FilePath "winget" -ArgumentList "install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements" -Wait -PassThru -WindowStyle Normal
+
+                    if ($installProc.ExitCode -eq 0) {
+                        $script:codexTerminalBox.AppendText("[OK] Node.js installed successfully!`r`n")
+                        $script:codexTerminalBox.AppendText("`r`n>> Please click 'Setup Codex Auth' again to continue.`r`n")
+                        $script:lblCodexStatus.Text = 'Node.js installed! Click "Setup Codex Auth" again to continue.'
+                        $script:lblCodexStatus.ForeColor = $script:MatrixGreen
+
+                        # Refresh PATH for this session
+                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                    } else {
+                        $script:codexTerminalBox.AppendText("[WARNING] winget install may have failed. Try clicking Setup again.`r`n")
+                        $script:lblCodexStatus.Text = 'Installation may have completed. Click "Setup Codex Auth" to retry.'
+                    }
+                } else {
+                    $script:codexTerminalBox.AppendText("[ERROR] winget not available`r`n")
+                    $script:codexTerminalBox.AppendText(">> Opening Node.js download page...`r`n")
+                    Start-Process "https://nodejs.org/"
+                    $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
+                }
+            } catch {
+                $script:codexTerminalBox.AppendText("[ERROR] Auto-install failed: $($_.Exception.Message)`r`n")
+                $script:lblCodexStatus.Text = 'Auto-install failed. Click "Setup Codex Auth" to retry after manual install.'
+            }
+        } else {
+            # User chose manual install - open browser
+            $script:codexTerminalBox.AppendText("`r`n>> Opening Node.js download page...`r`n")
+            Start-Process "https://nodejs.org/"
+            $script:codexTerminalBox.AppendText(">> After installing, click 'Setup Codex Auth' again.`r`n")
+            $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
+        }
+        return
+    }
+
+    $script:codexTerminalBox.AppendText("[OK] Node.js/npm found`r`n")
+    Write-Host "[OK] npm found at: $($npmPath.Source)" -ForegroundColor Green
+
+    # Install Codex globally
+    $script:lblCodexStatus.Text = 'Installing Codex CLI on Windows (temporary)...'
+    $script:codexTerminalBox.AppendText("`r`n>> Installing @openai/codex globally...`r`n")
+    [System.Windows.Forms.Application]::DoEvents()
+
+    try {
+        $installResult = & npm install -g @openai/codex 2>&1
+        $script:codexTerminalBox.AppendText("$installResult`r`n")
+        [System.Windows.Forms.Application]::DoEvents()
+    } catch {
+        $script:codexTerminalBox.AppendText("[ERROR] Failed to install Codex: $($_.Exception.Message)`r`n")
+        $script:lblCodexStatus.Text = 'Failed to install Codex. Check console for details.'
+        return
+    }
+
+    # Find codex executable
+    $codexPath = Get-Command codex -ErrorAction SilentlyContinue
+    if (-not $codexPath) {
+        # Try common npm global paths
+        $npmPrefix = & npm config get prefix 2>$null
+        $possibleCodex = Join-Path $npmPrefix "codex.cmd"
+        if (Test-Path $possibleCodex) {
+            $codexPath = @{ Source = $possibleCodex }
+        } else {
+            $script:codexTerminalBox.AppendText("[ERROR] Codex installed but not found in PATH`r`n")
+            $script:lblCodexStatus.Text = 'Codex not found. Try restarting setup.'
+            return
+        }
+    }
+
+    $script:codexTerminalBox.AppendText("[OK] Codex CLI installed`r`n")
+
+    # Show instructions before launching auth (skip in DEV MODE for faster testing)
+    if (-not $script:IsDevMode) {
+        $authInstructions = [System.Windows.Forms.MessageBox]::Show(
+            "Codex is now ready for authentication.`n`n" +
+            "What will happen next:`n" +
+            "1. A command window will open running 'codex auth login'`n" +
+            "2. Your browser will open to the OpenAI login page`n" +
+            "3. Sign in with your OpenAI account (ChatGPT Plus/Pro)`n" +
+            "4. After signing in, return to this wizard`n`n" +
+            "The OAuth server will run on your Windows machine,`n" +
+            "so the localhost callback will work correctly.`n`n" +
+            "Click OK to begin authentication.",
+            "Codex Authentication Instructions",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information
+        )
+    } else {
+        Write-Host "[DEV MODE] Skipping Codex auth instructions popup" -ForegroundColor Magenta
+    }
+
+    # Launch Codex for authentication
+    $script:lblCodexStatus.Text = 'Opening browser for authentication... Please sign in.'
+    $script:codexTerminalBox.AppendText("`r`n>> Launching Codex authentication...`r`n")
+    $script:codexTerminalBox.AppendText(">> Your browser will open - please sign in with your OpenAI account`r`n")
+    $script:codexTerminalBox.AppendText(">> A local server will start on Windows to handle the OAuth callback`r`n")
+    $script:codexTerminalBox.AppendText(">> Waiting for authentication to complete...`r`n")
+    $script:codexTerminalBox.AppendText("`r`n>> Running: codex auth login`r`n")
+    [System.Windows.Forms.Application]::DoEvents()
+
+    # Run 'codex auth login' properly through cmd.exe in a new window
+    # This will:
+    # 1. Start a local OAuth server on Windows (listening on localhost:1455)
+    # 2. Open browser to OpenAI OAuth page
+    # 3. Handle the redirect to localhost:1455/auth/callback
+    # 4. Save the token to %USERPROFILE%\.codex\auth.json
+    $codexAuthProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "codex", "auth", "login" -PassThru -WindowStyle Normal
+
+    $script:codexTerminalBox.AppendText("[INFO] Codex auth window opened - follow instructions in the new window`r`n")
+    $script:codexTerminalBox.AppendText("[INFO] After signing in, the browser will redirect to localhost:1455`r`n")
+    $script:codexTerminalBox.AppendText("[INFO] The auth window will show success message when complete`r`n")
+    $script:codexTerminalBox.AppendText("[INFO] You can close the cmd window after seeing 'Authentication successful'`r`n")
+
+    # Wait for auth.json to appear (poll every 3 seconds, max 5 minutes for user to complete auth)
+    $authFile = Join-Path $env:USERPROFILE ".codex\auth.json"
+    $maxWait = 300
+    $waited = 0
+
+    while ($waited -lt $maxWait) {
+        if (Test-Path $authFile) {
+            $script:codexTerminalBox.AppendText("`r`n[SUCCESS] Authentication completed!`r`n")
+            $script:codexTerminalBox.AppendText("[SUCCESS] Found auth.json at: $authFile`r`n")
+            Write-Host "[SUCCESS] Codex auth.json found" -ForegroundColor Green
+            break
+        }
+        Start-Sleep -Seconds 3
+        $waited += 3
+        $remainingTime = $maxWait - $waited
+        $script:lblCodexStatus.Text = "Waiting for authentication... ($waited/$maxWait seconds - $remainingTime remaining)"
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+
+    if (-not (Test-Path $authFile)) {
+        $script:codexTerminalBox.AppendText("`r`n[TIMEOUT] Authentication not completed within 5 minutes`r`n")
+        $script:codexTerminalBox.AppendText("[INFO] You can try again by clicking 'Setup Codex Auth' or click 'Skip'`r`n")
+        $script:lblCodexStatus.Text = 'Authentication timed out. Try again or click Skip to continue.'
+        return
+    }
+
+    # Copy auth to container
+    $script:lblCodexStatus.Text = 'Copying authentication to container...'
+    $script:codexTerminalBox.AppendText("`r`n>> Copying auth to Docker container...`r`n")
+    [System.Windows.Forms.Application]::DoEvents()
+
+    # Get username - try from state first, then from .env file
+    $containerUser = $state.UserName
+    if (-not $containerUser) {
+        # Try to read from .env file
+        $envFile = Join-Path $PSScriptRoot ".env"
+        if (Test-Path $envFile) {
+            $envContent = Get-Content $envFile
+            foreach ($line in $envContent) {
+                if ($line -match '^USER_NAME=(.+)$') {
+                    $containerUser = $matches[1]
+                    break
+                }
+            }
+        }
+    }
+
+    if (-not $containerUser) {
+        $containerUser = "user"  # Fallback default
+        $script:codexTerminalBox.AppendText("[WARNING] Could not determine container username, using 'user'`r`n")
+    }
+
+    $script:codexTerminalBox.AppendText(">> Target user: $containerUser`r`n")
+    $script:codexTerminalBox.AppendText(">> Source file: $authFile`r`n")
+    Write-Host "[DEBUG] Copying auth for user: $containerUser" -ForegroundColor Cyan
+
+    try {
+        # Ensure .codex directory exists
+        $script:codexTerminalBox.AppendText(">> Creating .codex directory...`r`n")
+        $mkdirResult = & docker exec ai-cli mkdir -p "/home/$containerUser/.codex" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $script:codexTerminalBox.AppendText("[ERROR] mkdir failed: $mkdirResult`r`n")
+        }
+
+        & docker exec ai-cli chown "${containerUser}:${containerUser}" "/home/$containerUser/.codex" 2>&1 | Out-Null
+
+        # Copy auth file
+        $script:codexTerminalBox.AppendText(">> Copying auth.json...`r`n")
+        $copyResult = & docker cp $authFile "ai-cli:/home/$containerUser/.codex/auth.json" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $script:codexTerminalBox.AppendText("[ERROR] docker cp failed: $copyResult`r`n")
+            throw "Docker cp failed"
+        }
+
+        & docker exec ai-cli chown "${containerUser}:${containerUser}" "/home/$containerUser/.codex/auth.json" 2>&1 | Out-Null
+        & docker exec ai-cli chmod 600 "/home/$containerUser/.codex/auth.json" 2>&1 | Out-Null
+
+        # Verify the file was copied
+        $verifyResult = & docker exec ai-cli test -f "/home/$containerUser/.codex/auth.json" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $script:codexTerminalBox.AppendText("[OK] Auth copied and verified in container`r`n")
+            Write-Host "[SUCCESS] Auth copied to container" -ForegroundColor Green
+        } else {
+            $script:codexTerminalBox.AppendText("[ERROR] Auth file not found in container after copy!`r`n")
+            throw "Verification failed"
+        }
+    } catch {
+        $script:codexTerminalBox.AppendText("[ERROR] Could not copy auth: $($_.Exception.Message)`r`n")
+        Write-Host "[ERROR] Auth copy failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+
+    # Ask user about cleanup (skip popup in DEV MODE but still auto-remove for security)
+    if (-not $script:IsDevMode) {
+        $cleanupResult = [System.Windows.Forms.MessageBox]::Show(
+            "Codex authentication was successful!`n`nWould you like to REMOVE Codex from Windows?`n`n" +
+            "- Click 'Yes' to uninstall Codex from Windows (recommended for security)`n" +
+            "- Click 'No' to keep Codex installed on Windows",
+            "Remove Codex from Windows?",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+    } else {
+        Write-Host "[DEV MODE] Skipping Codex cleanup popup - auto-removing for security" -ForegroundColor Magenta
+        $cleanupResult = [System.Windows.Forms.DialogResult]::Yes  # Auto-remove in DEV MODE
+    }
+
+    if ($cleanupResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+        $script:lblCodexStatus.Text = 'Removing Codex from Windows...'
+        $script:codexTerminalBox.AppendText("`r`n>> Uninstalling Codex from Windows...`r`n")
+        [System.Windows.Forms.Application]::DoEvents()
+
+        try {
+            # Uninstall Codex from npm
+            $script:codexTerminalBox.AppendText(">> Running: npm uninstall -g @openai/codex`r`n")
+            $uninstallResult = & npm uninstall -g @openai/codex 2>&1
+            $script:codexTerminalBox.AppendText("$uninstallResult`r`n")
+
+            # Remove .codex folder from Windows (contains auth.json we already copied)
+            $codexFolder = Join-Path $env:USERPROFILE ".codex"
+            if (Test-Path $codexFolder) {
+                $script:codexTerminalBox.AppendText(">> Removing .codex folder from Windows...`r`n")
+                Remove-Item -Path $codexFolder -Recurse -Force -ErrorAction SilentlyContinue
+                $script:codexTerminalBox.AppendText("[OK] Removed .codex folder from Windows`r`n")
+            }
+
+            # Verify removal
+            $codexCheck = Get-Command codex -ErrorAction SilentlyContinue
+            if ($codexCheck) {
+                $script:codexTerminalBox.AppendText("[WARNING] Codex command still found in PATH`r`n")
+                $script:codexTerminalBox.AppendText("[INFO] You may need to restart your terminal or system`r`n")
+                Write-Host "[WARNING] Codex may still be cached in PATH" -ForegroundColor Yellow
+            } else {
+                $script:codexTerminalBox.AppendText("[VERIFIED] Codex successfully removed from Windows`r`n")
+                Write-Host "[SUCCESS] Codex verified removed from Windows" -ForegroundColor Green
+            }
+
+            $script:codexTerminalBox.AppendText("[OK] Codex cleanup complete`r`n")
+        } catch {
+            $script:codexTerminalBox.AppendText("[WARNING] Could not fully uninstall: $($_.Exception.Message)`r`n")
+        }
+    } else {
+        $script:codexTerminalBox.AppendText("`r`n>> Keeping Codex installed on Windows`r`n")
+        Write-Host "[INFO] User chose to keep Codex on Windows" -ForegroundColor Yellow
+    }
+
+    $script:codexSetupDone = $true
+    $script:lblCodexStatus.Text = 'Codex authentication complete! Advancing to finish...'
+    $script:lblCodexStatus.ForeColor = $script:MatrixGreen
+    $script:codexTerminalBox.AppendText("`r`n>> CODEX SETUP COMPLETE!`r`n")
+    $script:codexTerminalBox.AppendText(">> You can now use 'codex' in your Docker container with your subscription.`r`n")
+    Write-Host "[SUCCESS] Codex setup complete" -ForegroundColor Green
+
+    # Auto-advance to the Done page after successful setup
+    Start-Sleep -Milliseconds 1500  # Brief pause so user can see success message
+    $script:current++
+    Show-Page $script:current
+})
+
 $pages += $p6
+
+# Page 7: Done
+$p7 = New-PanelPage
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
+$p7.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
+$p7.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
+$pages += $p7
 
 # ---------- page plumbing ----------
 $form.Controls.Add($pages[0])
@@ -583,12 +963,21 @@ function Show-Page([int]$i) {
     $form.Controls.Add($pages[$i])
     $btnBack.Enabled = ($i -gt 0)
     if ($i -eq $pages.Count-1) { $btnNext.Text = 'Finish' } else { $btnNext.Text = 'Next' }
+
+    # Hide progress bar on Codex auth page (page 6) to avoid overlap with Setup/Skip buttons
+    if ($i -eq 6) {
+        $progress.Visible = $false
+        $status.Visible = $false
+    } else {
+        $progress.Visible = $true
+        $status.Visible = $true
+    }
 }
 $btnCancel.Add_Click({
     Write-Host '[WARNING] User requested cancellation' -ForegroundColor Yellow
 
-    # Confirm cancellation if on a critical page
-    if ($script:current -eq 4 -or $script:current -eq 5) {
+    # Confirm cancellation if on a critical page (skip in DEV MODE for easy testing)
+    if (($script:current -eq 4 -or $script:current -eq 5) -and -not $script:IsDevMode) {
         $result = [System.Windows.Forms.MessageBox]::Show(
             "Setup is currently in progress.`n`nAre you sure you want to cancel?`n`nThis may leave the system in an incomplete state.",
             "Cancel Setup?",
@@ -601,6 +990,8 @@ $btnCancel.Add_Click({
             Write-Host '[INFO] User chose to continue setup' -ForegroundColor Cyan
             return
         }
+    } elseif ($script:IsDevMode -and ($script:current -eq 4 -or $script:current -eq 5)) {
+        Write-Host "[DEV MODE] Skipping cancel confirmation - allowing immediate exit" -ForegroundColor Magenta
     }
 
     Write-Host '[WARNING] Cancelling setup - cleaning up...' -ForegroundColor Yellow
@@ -831,8 +1222,11 @@ $btnNext.Add_Click({
                 [System.Windows.Forms.Application]::DoEvents()
                 Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
 
-                $status.Text = '[DEV MODE] System ready (simulated)'
-                $script:current++; Show-Page $script:current
+                # Go to Codex auth page in DEV MODE for testing
+                Write-Host "[DEV MODE] Proceeding to Codex auth page for testing" -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Codex auth page (testing)'
+                $script:current++  # Go to page 6 (Codex auth)
+                Show-Page $script:current
                 return
             }
 
@@ -1054,7 +1448,28 @@ $btnNext.Add_Click({
             $status.Text = 'system ready'
             $script:current++; Show-Page $script:current
         }
+        4 {
+            # Build/Deploy page - this page auto-advances via case 3's flow
+            # If user somehow clicks Next directly, just show a message
+            Write-Host "[INFO] Build page - process is handled automatically" -ForegroundColor Yellow
+            $status.Text = 'Build process is automatic - please wait...'
+        }
+        5 {
+            # Install CLI Tools page - this page auto-advances via case 3's flow
+            # If user somehow clicks Next directly, just show a message
+            Write-Host "[INFO] Install page - process is handled automatically" -ForegroundColor Yellow
+            $status.Text = 'Installation is automatic - please wait...'
+        }
         6 {
+            # Codex auth page - only advance if setup was done or skipped
+            if ($script:codexSetupDone) {
+                $script:current++; Show-Page $script:current
+            } else {
+                # User clicked Next without setting up or skipping - remind them
+                Show-Error "Please click 'Setup Codex Auth' to configure Codex, or 'Skip' to continue without it."
+            }
+        }
+        7 {
             Write-Host "[INFO] User clicked Finish - closing wizard" -ForegroundColor Green
             $form.Close()
             $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -1082,86 +1497,94 @@ Write-Host ""
 Write-Host "[PRE-FLIGHT] Running automatic system checks..." -ForegroundColor Cyan
 Write-Host ""
 
-# DEV MODE: Skip all pre-flight checks
+# DEV MODE: Skip line endings and image checks, but NOT container protection
 if ($script:IsDevMode) {
-    Write-Host "[DEV MODE] Skipping all pre-flight checks" -ForegroundColor Magenta
+    Write-Host "[DEV MODE] Skipping line ending and image checks" -ForegroundColor Magenta
     $lineEndingsFixed = $false
 } else {
-
-# 1. Fix line endings automatically
-Write-Host "[CHECK 1/3] Checking shell script line endings..." -ForegroundColor Cyan
-$lineEndingsFixed = Fix-LineEndings -scriptPath $PSScriptRoot
-if ($lineEndingsFixed) {
-    Write-Host "[AUTO-FIX] Shell scripts converted to Unix format" -ForegroundColor Green
-    Write-Host "[INFO] Docker image will be rebuilt automatically" -ForegroundColor Yellow
-} else {
-    Write-Host "[OK] Shell scripts already have correct line endings" -ForegroundColor Green
+    # 1. Fix line endings automatically
+    Write-Host "[CHECK 1/3] Checking shell script line endings..." -ForegroundColor Cyan
+    $lineEndingsFixed = Fix-LineEndings -scriptPath $PSScriptRoot
+    if ($lineEndingsFixed) {
+        Write-Host "[AUTO-FIX] Shell scripts converted to Unix format" -ForegroundColor Green
+        Write-Host "[INFO] Docker image will be rebuilt automatically" -ForegroundColor Yellow
+    } else {
+        Write-Host "[OK] Shell scripts already have correct line endings" -ForegroundColor Green
+    }
+    Write-Host ""
 }
-Write-Host ""
 
 # 2. Check if old container exists - PROTECT IT!
 Write-Host "[CHECK 2/3] Checking for existing containers..." -ForegroundColor Cyan
 $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
 if ($existingContainer -eq "ai-cli") {
-    Write-Host "[WARNING] Found existing ai-cli container with your data!" -ForegroundColor Yellow
-    Write-Host "[PROTECTION] Container contains your Claude authentication and settings" -ForegroundColor Yellow
-    Write-Host ""
-
-    # Show warning dialog with options
-    $result = [System.Windows.Forms.MessageBox]::Show(
-        "*** EXISTING CONTAINER DETECTED ***`n`n" +
-        "An ai-cli container already exists on your system.`n`n" +
-        "This container contains:`n" +
-        "  - Your Claude authentication (you won't need to sign in again)`n" +
-        "  - Your configuration and settings`n" +
-        "  - Persistent data`n`n" +
-        "RECOMMENDED: Click 'No' and use 'Launch AI Workspace' instead.`n`n" +
-        "Click 'Yes' ONLY if you want to DELETE the existing container and start fresh.`n`n" +
-        "Do you want to DELETE the existing container and continue with First Time Setup?",
-        "Container Already Exists - Delete?",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Warning,
-        [System.Windows.Forms.MessageBoxDefaultButton]::Button2
-    )
-
-    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
-        Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
-        Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
-        docker stop ai-cli 2>$null | Out-Null
-        docker rm ai-cli 2>$null | Out-Null
-        Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
+    if ($script:IsDevMode) {
+        # DEV MODE: Skip the warning entirely - we never delete in DEV MODE
+        Write-Host "[DEV MODE] Existing container found - preserving it (no warning needed)" -ForegroundColor Magenta
+        Write-Host "[DEV MODE] Container will be reused for testing" -ForegroundColor Magenta
     } else {
-        Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
-        Write-Host "[INFO] Please use 'Launch AI Workspace' to access your existing container" -ForegroundColor Cyan
-        [System.Windows.Forms.MessageBox]::Show(
-            "Setup cancelled - your existing container is safe!`n`n" +
-            "To access your container, please use 'Launch AI Workspace' button instead of 'First Time Setup'.`n`n" +
-            "Your Claude authentication and all settings are preserved.",
-            "Setup Cancelled",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        ) | Out-Null
-        exit 2  # Exit code 2 = user cancelled (not an error)
+        # Normal mode: Show warning and ask user
+        Write-Host "[WARNING] Found existing ai-cli container with your data!" -ForegroundColor Yellow
+        Write-Host "[PROTECTION] Container contains your Claude authentication and settings" -ForegroundColor Yellow
+        Write-Host ""
+
+        # Show warning dialog with options
+        $result = [System.Windows.Forms.MessageBox]::Show(
+            "*** EXISTING CONTAINER DETECTED ***`n`n" +
+            "An ai-cli container already exists on your system.`n`n" +
+            "This container contains:`n" +
+            "  - Your Claude authentication (you won't need to sign in again)`n" +
+            "  - Your configuration and settings`n" +
+            "  - Persistent data`n`n" +
+            "RECOMMENDED: Click 'No' and use 'Launch AI Workspace' instead.`n`n" +
+            "Click 'Yes' ONLY if you want to DELETE the existing container and start fresh.`n`n" +
+            "Do you want to DELETE the existing container and continue with First Time Setup?",
+            "Container Already Exists - Delete?",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+        )
+
+        if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+            Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
+            Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
+            docker stop ai-cli 2>$null | Out-Null
+            docker rm ai-cli 2>$null | Out-Null
+            Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
+        } else {
+            Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
+            Write-Host "[INFO] Please use 'Launch AI Workspace' to access your existing container" -ForegroundColor Cyan
+            [System.Windows.Forms.MessageBox]::Show(
+                "Setup cancelled - your existing container is safe!`n`n" +
+                "To access your container, please use 'Launch AI Workspace' button instead of 'First Time Setup'.`n`n" +
+                "Your Claude authentication and all settings are preserved.",
+                "Setup Cancelled",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            ) | Out-Null
+            exit 2  # Exit code 2 = user cancelled (not an error)
+        }
     }
 } else {
     Write-Host "[OK] No existing container found" -ForegroundColor Green
 }
 Write-Host ""
 
-# 3. If line endings were fixed, remove old image to force rebuild
-if ($lineEndingsFixed) {
-    Write-Host "[CHECK 3/3] Removing old Docker image..." -ForegroundColor Cyan
-    $existingImage = docker images -q ai-docker-ai 2>$null
-    if ($existingImage) {
-        Write-Host "[AUTO-FIX] Removing old image to ensure fresh build..." -ForegroundColor Yellow
-        docker rmi ai-docker-ai 2>$null | Out-Null
-        Write-Host "[SUCCESS] Old image removed - will rebuild with fixed scripts" -ForegroundColor Green
+# 3. If line endings were fixed, remove old image to force rebuild (skip in DEV mode)
+if (-not $script:IsDevMode) {
+    if ($lineEndingsFixed) {
+        Write-Host "[CHECK 3/3] Removing old Docker image..." -ForegroundColor Cyan
+        $existingImage = docker images -q ai-docker-ai 2>$null
+        if ($existingImage) {
+            Write-Host "[AUTO-FIX] Removing old image to ensure fresh build..." -ForegroundColor Yellow
+            docker rmi ai-docker-ai 2>$null | Out-Null
+            Write-Host "[SUCCESS] Old image removed - will rebuild with fixed scripts" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "[CHECK 3/3] Docker image status..." -ForegroundColor Cyan
+        Write-Host "[OK] No rebuild needed" -ForegroundColor Green
     }
-} else {
-    Write-Host "[CHECK 3/3] Docker image status..." -ForegroundColor Cyan
-    Write-Host "[OK] No rebuild needed" -ForegroundColor Green
 }
-} # End of else block for non-DEV mode
 Write-Host ""
 
 Write-Host "================================================================" -ForegroundColor Green

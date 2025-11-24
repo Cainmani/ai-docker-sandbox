@@ -1,23 +1,90 @@
-# launch_claude.ps1
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+# launch_claude.ps1 - Direct Workspace Launcher (No GUI)
+# This script directly launches the Docker workspace terminal without any intermediate dialogs
 
-# Matrix Green Theme Colors
-$script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)      # Bright Matrix Green
-$script:MatrixDarkGreen = [System.Drawing.Color]::FromArgb(0, 20, 0)    # Very Dark Green Background
-$script:MatrixMidGreen = [System.Drawing.Color]::FromArgb(0, 40, 10)    # Mid Dark Green
-$script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)     # Accent Green
-$script:MatrixRed = [System.Drawing.Color]::FromArgb(220, 20, 60)       # Matrix Red Pill Color (Crimson)
-$script:Arrow = [char]62 + [char]62                                      # >> symbol to avoid parser issues
+Add-Type -AssemblyName System.Windows.Forms  # Only needed for error dialogs
+
+# ============================================================
+# CENTRALIZED LOGGING SYSTEM
+# Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+# ============================================================
+$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+$script:LogFile = Join-Path $script:LogDir "ai-docker.log"
+
+# Ensure log directory exists
+if (-not (Test-Path $script:LogDir)) {
+    New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
+}
+
+function Write-AppLog {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
+    )
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $logEntry = "[$timestamp] [$Level] [LAUNCH_CLAUDE] $Message"
+        Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
+    } catch {
+        # Silently fail if logging doesn't work - don't break the app
+    }
+}
+
+Write-AppLog "========================================" "INFO"
+Write-AppLog "Launch Claude Script Started (Direct Launch Mode)" "INFO"
+Write-AppLog "Log file: $script:LogFile" "INFO"
+Write-AppLog "========================================" "INFO"
+
+Write-AppLog "Initial environment check:" "DEBUG"
+Write-AppLog "PSScriptRoot: [$PSScriptRoot]" "DEBUG"
+Write-AppLog "MyInvocation.MyCommand.Path: [$($MyInvocation.MyCommand.Path)]" "DEBUG"
+Write-AppLog "Get-Location: [$(Get-Location)]" "DEBUG"
+
+# Ensure script directory is set correctly (robust method for all launch scenarios)
+Write-AppLog "Detecting script path..." "DEBUG"
+$scriptPath = if ($PSScriptRoot) {
+    Write-AppLog "Using PSScriptRoot: [$PSScriptRoot]" "DEBUG"
+    $PSScriptRoot
+} elseif ($MyInvocation.MyCommand.Path) {
+    $path = Split-Path -Parent $MyInvocation.MyCommand.Path
+    Write-AppLog "Using MyInvocation.MyCommand.Path: [$path]" "DEBUG"
+    $path
+} else {
+    # Fallback: use current directory (convert to string)
+    $path = (Get-Location).Path
+    Write-AppLog "Using Get-Location fallback: [$path]" "DEBUG"
+    $path
+}
+
+# Final safety - ensure it's ALWAYS a valid string path (never null, never PathInfo)
+if (-not $scriptPath) {
+    $scriptPath = [System.IO.Directory]::GetCurrentDirectory()
+    Write-AppLog "scriptPath was null, set to CurrentDirectory: [$scriptPath]" "WARN"
+}
+if ($scriptPath -is [System.Management.Automation.PathInfo]) {
+    Write-AppLog "scriptPath is PathInfo object, converting to Path property" "DEBUG"
+    $scriptPath = $scriptPath.Path
+}
+# Force conversion to string to prevent Join-Path parameter binding errors
+$scriptPath = [string]$scriptPath
+
+if (-not $scriptPath) {
+    # Ultimate fallback
+    $scriptPath = $env:TEMP
+    Write-AppLog "scriptPath still null after cast, using TEMP: [$scriptPath]" "ERROR"
+}
+
+Write-AppLog "Final scriptPath: [$scriptPath]" "INFO"
 
 function ShowMsg($text, $icon='Information') {
     [System.Windows.Forms.MessageBox]::Show($text, "AI CLI Launcher", 'OK', $icon) | Out-Null
 }
 
 function Find-Docker() {
+    Write-AppLog "Finding Docker executable..." "DEBUG"
     # Check if docker is in PATH
     $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
     if ($dockerCmd) {
+        Write-AppLog "Docker found in PATH: $($dockerCmd.Source)" "DEBUG"
         return $dockerCmd.Source
     }
 
@@ -28,173 +95,197 @@ function Find-Docker() {
         "$env:ProgramW6432\Docker\Docker\resources\bin\docker.exe"
     )
 
+    Write-AppLog "Docker not in PATH, checking common installation paths..." "DEBUG"
     foreach ($path in $possiblePaths) {
         if (Test-Path $path) {
+            Write-AppLog "Docker found at: $path" "DEBUG"
             return $path
         }
     }
 
+    Write-AppLog "Docker executable not found" "WARN"
     return $null
 }
 
 function DockerOk() {
+    Write-AppLog "Checking if Docker is running..." "DEBUG"
     try {
         $dockerPath = Find-Docker
         if (-not $dockerPath) {
+            Write-AppLog "Docker executable not found - Docker is not running" "WARN"
             return $false
         }
         $p = Start-Process -FilePath $dockerPath -ArgumentList "info" -WindowStyle Hidden -PassThru -Wait
-        return ($p.ExitCode -eq 0)
-    } catch { return $false }
+        if ($p.ExitCode -eq 0) {
+            Write-AppLog "Docker is running and responding" "DEBUG"
+            return $true
+        } else {
+            Write-AppLog "Docker executable found but not running (exit code: $($p.ExitCode))" "WARN"
+            return $false
+        }
+    } catch {
+        Write-AppLog "Error checking Docker status: $($_.Exception.Message)" "ERROR"
+        return $false
+    }
 }
 
-$form = New-Object System.Windows.Forms.Form
-$form.Text = ">>> AI CLI LAUNCHER :: MATRIX ACCESS <<<"
-$form.Width = 560; $form.Height = 280
-$form.BackColor = $script:MatrixDarkGreen
-$form.ForeColor = $script:MatrixGreen
-$form.StartPosition = 'CenterScreen'
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox = $false
+# ============================================================
+# MAIN LAUNCH LOGIC (No GUI - Direct Execution)
+# ============================================================
 
-$lblHeader = New-Object System.Windows.Forms.Label
-$lblHeader.Left=20; $lblHeader.Top=20; $lblHeader.Width=520; $lblHeader.Height=24
-$lblHeader.Text = "============================================================"
-$lblHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$lblHeader.ForeColor=$script:MatrixGreen; $lblHeader.BackColor='Transparent'
-$lblHeader.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($lblHeader)
+Write-AppLog "Starting workspace launch sequence..." "INFO"
 
-$lblTitle = New-Object System.Windows.Forms.Label
-$lblTitle.Left=20; $lblTitle.Top=42; $lblTitle.Width=520; $lblTitle.Height=24
-$lblTitle.Text = "WORKSPACE SHELL ACCESS - DOCKER CONTAINER"
-$lblTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$lblTitle.ForeColor=$script:MatrixGreen; $lblTitle.BackColor='Transparent'
-$lblTitle.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($lblTitle)
+# First check if Docker executable exists
+Write-AppLog "Finding Docker executable..." "DEBUG"
+$dockerPath = Find-Docker
+if (-not $dockerPath) {
+    Write-AppLog "ERROR: Docker not found" "ERROR"
+    ShowMsg ("Docker is not installed or cannot be found.`n`nPlease install Docker Desktop from:`nhttps://docs.docker.com/desktop/setup/install/windows-install/") 'Error'
+    exit 1
+}
+Write-AppLog "Docker found at: $dockerPath" "INFO"
 
-$lblFooter = New-Object System.Windows.Forms.Label
-$lblFooter.Left=20; $lblFooter.Top=64; $lblFooter.Width=520; $lblFooter.Height=24
-$lblFooter.Text = "============================================================"
-$lblFooter.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$lblFooter.ForeColor=$script:MatrixGreen; $lblFooter.BackColor='Transparent'
-$lblFooter.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($lblFooter)
+# Check if Docker is running
+Write-AppLog "Checking if Docker is running..." "DEBUG"
+if (-not (DockerOk)) {
+    Write-AppLog "Docker is not running - attempting to start Docker Desktop" "WARN"
 
-$lbl = New-Object System.Windows.Forms.Label
-$lbl.Left=20; $lbl.Top=100; $lbl.Width=520; $lbl.Height=80
-$workflowText = $script:Arrow + " Opens Ubuntu bash terminal at /workspace directory`n`n" + $script:Arrow + " Available AI tools: claude, gh, gemini, codex`n" + $script:Arrow + " Run 'configure-tools' to set up API keys"
-$lbl.Text = $workflowText
-$lbl.ForeColor=$script:MatrixGreen; $lbl.BackColor='Transparent'
-$lbl.Font = New-Object System.Drawing.Font('Consolas', 9)
-$form.Controls.Add($lbl)
+    # Try to start Docker Desktop
+    $dockerDesktop = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
+    Write-AppLog "Checking for Docker Desktop at: $dockerDesktop" "DEBUG"
 
-$btnOpen = New-Object System.Windows.Forms.Button
-$btnOpen.Text = "Launch Workspace Shell"
-$btnOpen.Left=320; $btnOpen.Top=190; $btnOpen.Width=200; $btnOpen.Height=40
-$btnOpen.FlatStyle='Flat'
-$btnOpen.FlatAppearance.BorderColor = $script:MatrixRed
-$btnOpen.FlatAppearance.BorderSize = 2
-$btnOpen.BackColor=[System.Drawing.Color]::FromArgb(40, 0, 0)  # Dark red background
-$btnOpen.ForeColor=$script:MatrixRed
-$btnOpen.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($btnOpen)
+    if (Test-Path $dockerDesktop) {
+        Write-AppLog "Starting Docker Desktop..." "INFO"
+        ShowMsg "Docker Desktop is not running.`n`nStarting Docker Desktop now...`n`nDocker will take 1-2 minutes to fully start.`nPlease wait..." 'Information'
+        Start-Process $dockerDesktop
 
-$btnCancel = New-Object System.Windows.Forms.Button
-$btnCancel.Text = "Close"
-$btnCancel.Left=200; $btnCancel.Top=190; $btnCancel.Width=100; $btnCancel.Height=40
-$btnCancel.FlatStyle='Flat'
-$btnCancel.FlatAppearance.BorderColor = $script:MatrixAccent
-$btnCancel.FlatAppearance.BorderSize = 2
-$btnCancel.BackColor=$script:MatrixMidGreen
-$btnCancel.ForeColor=$script:MatrixGreen
-$btnCancel.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($btnCancel)
-
-$btnCancel.Add_Click({ $form.Close() })
-
-$btnOpen.Add_Click({
-    # First check if Docker executable exists
-    $dockerPath = Find-Docker
-    if (-not $dockerPath) {
-        ShowMsg ("[ERROR] " + $script:Arrow + " Docker is not installed or cannot be found.`n`n" + $script:Arrow + " Please install Docker Desktop from:`nhttps://docs.docker.com/desktop/setup/install/windows-install/") 'Error'
-        return
-    }
-
-    # Check if Docker is running
-    if (-not (DockerOk)) {
-        # Docker exists but not running - try to start Docker Desktop
-        $autoStartMsg = "Docker Desktop is not running.`n`n" + $script:Arrow + " When you click OK, Docker Desktop will start automatically.`n`n" + "What to expect:`n" + $script:Arrow + " Docker Desktop window will open`n" + $script:Arrow + " Docker will take 1-2 minutes to fully start`n" + $script:Arrow + " This launcher will continue automatically once ready`n`n" + "Please wait and do not close any windows."
-        ShowMsg $autoStartMsg 'Information'
-
-        # Try to start Docker Desktop
-        $dockerDesktop = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
-        if (Test-Path $dockerDesktop) {
-            Start-Process $dockerDesktop
-
-            # Wait for Docker to start (max 120 seconds = 2 minutes)
-            $waited = 0
-            while ($waited -lt 120 -and -not (DockerOk)) {
-                Start-Sleep -Seconds 2
-                $waited += 2
-            }
-
-            if (-not (DockerOk)) {
-                $timeoutMsg = "Docker Desktop did not start within 2 minutes.`n`n" + "Possible solutions:`n" + $script:Arrow + " Wait a bit longer and try launching again`n" + $script:Arrow + " Check if Docker Desktop is starting (look for icon in system tray)`n" + $script:Arrow + " Restart your computer if Docker Desktop appears stuck`n" + $script:Arrow + " Verify Docker Desktop is properly installed"
-                ShowMsg $timeoutMsg 'Warning'
-                return
-            }
-        } else {
-            $manualStartMsg = "Docker Desktop is not running.`n`n" + "To fix this:`n" + $script:Arrow + " Click the Start menu`n" + $script:Arrow + " Search for `"Docker Desktop`"`n" + $script:Arrow + " Click to start Docker Desktop`n" + $script:Arrow + " Wait for Docker to fully start (icon appears in system tray)`n" + $script:Arrow + " Then try launching Claude CLI again"
-            ShowMsg $manualStartMsg 'Warning'
-            return
+        # Wait for Docker to start (max 120 seconds = 2 minutes)
+        $waited = 0
+        while ($waited -lt 120 -and -not (DockerOk)) {
+            Start-Sleep -Seconds 2
+            $waited += 2
         }
-    }
 
-    # Check if ai-cli container exists
-    $containerCheck = & $dockerPath ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>&1
-    if ($containerCheck -ne "ai-cli") {
-        ShowMsg ("[ERROR] " + $script:Arrow + " The ai-cli container does not exist.`n`n" + $script:Arrow + " Please run the Setup Wizard first:`n`n    powershell -ExecutionPolicy Bypass -File setup_wizard.ps1`n`nThe wizard will build the Docker image and install Claude Code CLI.") 'Error'
-        return
+        if (-not (DockerOk)) {
+            Write-AppLog "Docker Desktop failed to start within 120 seconds" "ERROR"
+            ShowMsg "Docker Desktop did not start within 2 minutes.`n`nPlease:`n  - Wait a bit longer and try launching again`n  - Check if Docker Desktop is starting (look for icon in system tray)`n  - Restart your computer if Docker Desktop appears stuck" 'Warning'
+            exit 1
+        }
+        Write-AppLog "Docker Desktop started successfully" "INFO"
+    } else {
+        Write-AppLog "Docker Desktop executable not found at expected location" "WARN"
+        ShowMsg "Docker Desktop is not running.`n`nTo fix this:`n  - Click the Start menu`n  - Search for 'Docker Desktop'`n  - Click to start Docker Desktop`n  - Wait for Docker to fully start`n  - Then try launching again" 'Warning'
+        exit 1
     }
+}
 
-    # Check if container is running, start if needed
-    $containerStatus = & $dockerPath ps --filter "name=ai-cli" --format "{{.Names}}" 2>&1
-    if ($containerStatus -ne "ai-cli") {
-        Write-Host "Starting container ai-cli..." -ForegroundColor Green
-        Start-Process -FilePath $dockerPath -ArgumentList "start","ai-cli" -WindowStyle Hidden -Wait | Out-Null
-        Start-Sleep -Seconds 2
-    }
+# Check if ai-cli container exists
+Write-AppLog "Checking for ai-cli container..." "DEBUG"
+$containerCheck = & $dockerPath ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>&1
+Write-AppLog "Container check result: [$containerCheck]" "DEBUG"
 
-    # Read username from .env file
-    $envFile = Join-Path $PSScriptRoot ".env"
-    $userName = "user"  # default
+if ($containerCheck -ne "ai-cli") {
+    Write-AppLog "ERROR: ai-cli container does not exist" "ERROR"
+    ShowMsg "The ai-cli container does not exist.`n`nPlease run the Setup Wizard first to create the container." 'Error'
+    exit 1
+}
+Write-AppLog "Container 'ai-cli' exists" "INFO"
+
+# Check if container is running, start if needed
+Write-AppLog "Checking if container is running..." "DEBUG"
+$containerStatus = & $dockerPath ps --filter "name=ai-cli" --format "{{.Names}}" 2>&1
+Write-AppLog "Container status: [$containerStatus]" "DEBUG"
+
+if ($containerStatus -ne "ai-cli") {
+    Write-AppLog "Container is not running - starting container..." "INFO"
+    Start-Process -FilePath $dockerPath -ArgumentList "start","ai-cli" -WindowStyle Hidden -Wait | Out-Null
+    Start-Sleep -Seconds 2
+    Write-AppLog "Container started" "INFO"
+} else {
+    Write-AppLog "Container is already running" "DEBUG"
+}
+
+# Read username from .env file
+$userName = "user"  # default
+Write-AppLog "Reading username from .env..." "DEBUG"
+
+try {
+    $envFile = Join-Path $scriptPath ".env"
+    Write-AppLog "Attempting to read .env from: [$envFile]" "DEBUG"
+
     if (Test-Path $envFile) {
+        Write-AppLog ".env file found, reading username..." "DEBUG"
         $envContent = Get-Content $envFile
         foreach ($line in $envContent) {
             if ($line -match '^USER_NAME=(.+)$') {
                 $userName = $matches[1]
+                Write-AppLog "Username from .env: [$userName]" "DEBUG"
                 break
             }
         }
-    }
-
-
-    # Build the docker exec command - connect as the user and start at /workspace
-    $dockerCmd = "`"$dockerPath`" exec -it -u $userName -w /workspace ai-cli bash"
-
-    # Open terminal at /workspace directory
-    if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
-        # Use Windows Terminal if available
-        Start-Process wt.exe "cmd.exe /k $dockerCmd"
     } else {
-        # Fallback to cmd - open new window with docker exec
-        Start-Process cmd.exe "/k $dockerCmd"
+        Write-AppLog ".env file not found at [$envFile], using default username" "DEBUG"
     }
+} catch {
+    Write-AppLog "ERROR reading .env file: $($_.Exception.Message)" "ERROR"
+    $userName = "user"
+}
+Write-AppLog "Final username: [$userName]" "INFO"
 
-    # Wait a moment for the terminal to open, then close this launcher window
-    Start-Sleep -Milliseconds 500
-    $form.Close()
-})
+# ============================================================
+# AUTO-SYNC: Copy Codex auth from Windows host to container
+# This allows users to use their ChatGPT subscription in Docker
+# ============================================================
+Write-AppLog "Checking for Codex auth to sync..." "DEBUG"
+try {
+    if ($env:USERPROFILE -and ($env:USERPROFILE -is [string])) {
+        $windowsCodexAuth = Join-Path $env:USERPROFILE ".codex\auth.json"
+        Write-AppLog "Checking for Windows Codex auth at: [$windowsCodexAuth]" "DEBUG"
 
-[void]$form.ShowDialog()
+        if (Test-Path $windowsCodexAuth) {
+            Write-AppLog "Windows Codex auth found - checking container..." "DEBUG"
+            $containerAuthCheck = & $dockerPath exec ai-cli test -f "/home/$userName/.codex/auth.json" 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-AppLog "Codex auth not found in container - syncing..." "INFO"
+
+                # Ensure .codex directory exists in container
+                & $dockerPath exec ai-cli mkdir -p "/home/$userName/.codex" 2>&1 | Out-Null
+                & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex" 2>&1 | Out-Null
+
+                # Copy auth file
+                & $dockerPath cp $windowsCodexAuth "ai-cli:/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                & $dockerPath exec ai-cli chmod 600 "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+
+                Write-AppLog "Codex auth synced to container successfully" "INFO"
+            } else {
+                Write-AppLog "Codex auth already exists in container" "DEBUG"
+            }
+        } else {
+            Write-AppLog "No Windows Codex auth found - skipping sync" "DEBUG"
+        }
+    }
+} catch {
+    Write-AppLog "ERROR during Codex auth sync: $($_.Exception.Message)" "ERROR"
+    # Continue anyway - not critical for workspace launch
+}
+
+# Build the docker exec command - connect as the user and start at /workspace
+$dockerCmd = "`"$dockerPath`" exec -it -u $userName -w /workspace ai-cli bash"
+Write-AppLog "Docker command: $dockerCmd" "DEBUG"
+
+# Open terminal at /workspace directory
+if (Get-Command wt.exe -ErrorAction SilentlyContinue) {
+    # Use Windows Terminal if available
+    Write-AppLog "Launching Windows Terminal..." "INFO"
+    Start-Process wt.exe "cmd.exe /k $dockerCmd"
+} else {
+    # Fallback to cmd - open new window with docker exec
+    Write-AppLog "Launching cmd.exe (Windows Terminal not available)..." "INFO"
+    Start-Process cmd.exe "/k $dockerCmd"
+}
+
+Write-AppLog "Workspace terminal launched successfully" "INFO"
+Write-AppLog "Launch script completed" "INFO"
+exit 0

@@ -6,6 +6,15 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # Use AppData for all persistent files - makes this a true self-contained app
+# Ensure LOCALAPPDATA is set (robust fallback)
+if (-not $env:LOCALAPPDATA) {
+    $env:LOCALAPPDATA = Join-Path $env:USERPROFILE "AppData\Local"
+}
+if (-not $env:LOCALAPPDATA) {
+    # Ultimate fallback
+    $env:LOCALAPPDATA = [System.IO.Path]::GetTempPath()
+}
+
 $appDataDir = Join-Path $env:LOCALAPPDATA "AI_Docker_Manager"
 if (-not (Test-Path $appDataDir)) {
     New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
@@ -16,6 +25,39 @@ $filesDir = Join-Path $appDataDir "docker-files"
 if (-not (Test-Path $filesDir)) {
     New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
 }
+
+# ============================================================
+# CENTRALIZED LOGGING SYSTEM
+# Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+# ============================================================
+$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+$script:LogFile = Join-Path $script:LogDir "ai-docker.log"
+
+# Ensure log directory exists
+if (-not (Test-Path $script:LogDir)) {
+    New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
+}
+
+function Write-AppLog {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
+    )
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $logEntry = "[$timestamp] [$Level] [COMPLETE] $Message"
+        Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
+    } catch {
+        # Silently fail if logging doesn't work - don't break the app
+    }
+}
+
+Write-AppLog "========================================" "INFO"
+Write-AppLog "AI Docker Complete (Standalone) Started" "INFO"
+Write-AppLog "Log file: $script:LogFile" "INFO"
+Write-AppLog "AppData directory: $appDataDir" "INFO"
+Write-AppLog "Files directory: $filesDir" "INFO"
+Write-AppLog "========================================" "INFO"
 
 # Matrix Green Theme Colors
 $script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)
@@ -87,15 +129,31 @@ function Extract-DockerFiles {
         $needsUpdate = $true
     }
 
-    # If docker files changed, clean up old containers/images automatically
+    # If docker files changed, only remove the IMAGE (not the container)
+    # This forces a rebuild with new files while preserving user data in the container
     if ($needsUpdate -and $oldHash -ne "") {
-        try {
-            # Silently clean up old container and image to force rebuild with new files
-            $null = docker stop ai-cli 2>$null
-            $null = docker rm ai-cli 2>$null
-            $null = docker rmi docker-files-ai 2>$null
-        } catch {
-            # Ignore errors - container/image might not exist
+        # Note: Removed Write-Host to prevent console window from appearing during updates
+
+        # Check if container exists
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        if ($existingContainer -eq "ai-cli") {
+            # CRITICAL: Never delete the container automatically - user data is preserved
+            # Only remove the old image to force rebuild
+            try {
+                $existingImage = docker images -q docker-files-ai 2>$null
+                if ($existingImage) {
+                    $null = docker rmi docker-files-ai 2>$null
+                }
+            } catch {
+                # Ignore errors - image might be in use
+            }
+        } else {
+            # No container exists - safe to remove image
+            try {
+                $null = docker rmi docker-files-ai 2>$null
+            } catch {
+                # Ignore errors - image might not exist
+            }
         }
     }
 
@@ -240,15 +298,23 @@ $form.Controls.Add($btnExit)
 
 # Event Handlers
 $btnSetup.Add_Click({
+    Write-AppLog "First Time Setup button clicked" "INFO"
+
     # Extract Docker files silently (needed for setup)
+    Write-AppLog "Extracting Docker files..." "DEBUG"
     Extract-DockerFiles
+    Write-AppLog "Docker files extracted" "DEBUG"
 
     # Get setup wizard content from memory
+    Write-AppLog "Loading setup wizard from embedded resources..." "DEBUG"
     $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
     if ($setupContent) {
+        Write-AppLog "Setup wizard loaded successfully" "DEBUG"
         # Extract setup wizard to subfolder
         $setupScript = Join-Path $filesDir "setup_wizard.ps1"
+        Write-AppLog "Writing setup wizard to: [$setupScript]" "DEBUG"
         [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
+        Write-AppLog "Setup wizard written successfully" "DEBUG"
 
         try {
             $form.Hide()
@@ -257,15 +323,34 @@ $btnSetup.Add_Click({
             $devModeArg = ""
             if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
                 $devModeArg = " -DevMode"
-                Write-Host "[DEV MODE] Shift key detected - launching setup wizard in DEV mode" -ForegroundColor Magenta
+                Write-AppLog "DEV MODE: Shift key detected - launching setup wizard in DEV mode" "INFO"
             }
 
-            # Run the setup wizard from subfolder with minimized window (GUI scripts can't be fully hidden)
-            $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"$devModeArg" -Wait -PassThru
+            # Run the setup wizard from subfolder
+            # Build argument list - ensure -DevMode is properly passed as separate argument
+            $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$setupScript`""
+            if ($devModeArg) {
+                $argList = "$argList -DevMode"
+                Write-AppLog "Launch arguments: $argList" "DEBUG"
+            }
+
+            # In DEV MODE, show console for debug output. In normal mode, hide it.
+            Write-AppLog "Starting setup wizard process..." "INFO"
+            if ($devModeArg) {
+                # DEV MODE: Show console window so user can see debug messages
+                Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
+                $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
+            } else {
+                # NORMAL MODE: Hide console for clean UX
+                Write-AppLog "Normal mode: Launching with hidden console" "DEBUG"
+                $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
+            }
+            Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
             $form.Show()
 
             # Handle different exit codes
             if ($process.ExitCode -eq 0) {
+                Write-AppLog "Setup completed successfully" "INFO"
                 # Success - show completion message
                 # Check if .env was created in docker-files folder, then move it to main app directory
                 $envFileInSubfolder = Join-Path $filesDir ".env"
@@ -303,45 +388,105 @@ $btnSetup.Add_Click({
 })
 
 $btnLaunch.Add_Click({
-    # Check if .env exists in AppData directory
-    $envFileMain = Join-Path $appDataDir ".env"
-    if (-not (Test-Path $envFileMain)) {
-        $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
-        if ($result -eq 'Yes') {
-            $btnSetup.PerformClick()
+    Write-AppLog "Launch AI Workspace button clicked" "INFO"
+
+    # CRITICAL FIX: Check for existing container BEFORE checking .env
+    # This prevents offering to delete a container when .env is accidentally missing
+    Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+    $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+    Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+
+    if ($existingContainer -eq "ai-cli") {
+        Write-AppLog "Container 'ai-cli' found - launching workspace..." "INFO"
+
+        # Ensure docker-files subfolder exists
+        if (-not (Test-Path $filesDir)) {
+            Write-AppLog "Creating docker-files directory: [$filesDir]" "DEBUG"
+            New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
         }
-        return
-    }
 
-    # Ensure docker-files subfolder exists and copy .env there for the launch script to use
-    if (-not (Test-Path $filesDir)) {
-        New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
-    }
+        # Copy .env if it exists, otherwise create a minimal one
+        $envFileInSubfolder = Join-Path $filesDir ".env"
+        $envFileMain = Join-Path $appDataDir ".env"
+        if (Test-Path $envFileMain) {
+            Write-AppLog "Copying .env from [$envFileMain] to [$envFileInSubfolder]" "DEBUG"
+            Copy-Item $envFileMain $envFileInSubfolder -Force
+        } else {
+            Write-AppLog ".env file not found at [$envFileMain]" "DEBUG"
+        }
 
-    # Copy .env from main app directory to docker-files folder for launch script to access
-    $envFileInSubfolder = Join-Path $filesDir ".env"
-    Copy-Item $envFileMain $envFileInSubfolder -Force
+        # Re-extract Docker files if they were deleted
+        Write-AppLog "Re-extracting Docker files..." "DEBUG"
+        Extract-DockerFiles
+        Write-AppLog "Docker files extracted" "DEBUG"
 
-    # Re-extract Docker files if they were deleted
-    Extract-DockerFiles
+        # Get launch script content from memory
+        Write-AppLog "Loading launch script from embedded resources..." "DEBUG"
+        $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
+        if ($launchContent) {
+            Write-AppLog "Launch script loaded successfully" "DEBUG"
+            # Extract launch script to subfolder
+            $launchScript = Join-Path $filesDir "launch_claude.ps1"
+            Write-AppLog "Writing launch script to: [$launchScript]" "DEBUG"
+            [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
+            Write-AppLog "Launch script written successfully" "DEBUG"
 
-    # Get launch script content from memory
-    $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
-    if ($launchContent) {
-        # Extract launch script to subfolder
-        $launchScript = Join-Path $filesDir "launch_claude.ps1"
-        [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
+            $form.Hide()
+            # Run the launch script from subfolder with hidden console (no debug output visible to user)
+            # Use -WindowStyle parameter of Start-Process, not in ArgumentList
+            Write-AppLog "Starting launch_claude.ps1 process..." "INFO"
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$launchScript`"" -WindowStyle Hidden
+            Write-AppLog "Workspace launch process started successfully" "INFO"
 
-        $form.Hide()
-        # Run the launch script from subfolder with minimized window
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$launchScript`""
-
-        # Wait a moment, then close the main form
-        Start-Sleep -Milliseconds 500
-        $form.Close()
+            # Wait a moment, then close the main form
+            Start-Sleep -Milliseconds 500
+            Write-AppLog "Closing main form" "INFO"
+            $form.Close()
+        } else {
+            Write-AppLog "ERROR: Failed to load launch script from embedded resources" "ERROR"
+            [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+            $form.Show()
+        }
     } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.", "Error", 'OK', 'Error')
-        $form.Show()
+        Write-AppLog "Container 'ai-cli' not found - checking setup status..." "WARN"
+
+        # No container exists - check if setup was ever run
+        $envFileMain = Join-Path $appDataDir ".env"
+        Write-AppLog "Checking for .env file at: [$envFileMain]" "DEBUG"
+
+        if (-not (Test-Path $envFileMain)) {
+            Write-AppLog ".env file not found - setup has not been completed" "WARN"
+            # Neither container nor .env exists - user needs to run setup
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Setup has not been completed yet.`n`n" +
+                "No AI Docker container was found on your system.`n`n" +
+                "Would you like to run the First Time Setup now?",
+                "Setup Required",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to setup prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+            return
+        } else {
+            Write-AppLog ".env file exists but container is missing" "WARN"
+            # .env exists but container is missing - offer to recreate
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Configuration file exists, but the Docker container is missing.`n`n" +
+                "The container may have been manually deleted.`n`n" +
+                "Would you like to run First Time Setup to recreate it?",
+                "Container Missing",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to recreate prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+            return
+        }
     }
 })
 
