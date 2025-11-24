@@ -18,6 +18,9 @@ A production-ready system for running multiple AI Command Line Interface tools (
 - **[tests/TESTING_CHECKLIST.md](tests/TESTING_CHECKLIST.md)** - Comprehensive QA testing guide
 - **[tests/TESTING_WALKTHROUGH.md](tests/TESTING_WALKTHROUGH.md)** - Step-by-step testing procedures
 
+**For Troubleshooting:**
+- **[docs/LOGGING.md](docs/LOGGING.md)** - Production logging system documentation and troubleshooting guide
+
 ## Overview
 
 This project provides a complete AI development environment with multiple AI CLI tools automatically installed and managed in a secure Docker container. All major AI services (Claude, OpenAI/GPT, Google Gemini, GitHub Copilot, AWS Bedrock, Azure AI) are pre-installed and ready to use with a simple configuration wizard.
@@ -40,6 +43,7 @@ This project provides a complete AI development environment with multiple AI CLI
 - ✅ **Persistent Storage** - All files accessible from Windows
 - ✅ **Automatic Management** - Container auto-starts when needed
 - ✅ **Professional UX** - Matrix-themed GUI with progress feedback
+- ✅ **Production Logging** - Comprehensive centralized logging for troubleshooting
 - ✅ **User-Ready** - No command-line knowledge required
 - ✅ **Clean Experience** - No scattered files or folders on your desktop
 
@@ -450,11 +454,64 @@ docker rmi ai-docker-ai
 # Select "First Time Setup"
 ```
 
+## Troubleshooting
+
+The application includes comprehensive production-level logging to help diagnose issues.
+
+### Log File Location
+
+All operations are logged to:
+```
+%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+```
+
+### Quick Access to Logs
+
+```powershell
+# View entire log file
+notepad %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+
+# View last 50 lines
+Get-Content "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Tail 50
+
+# Find errors
+Select-String -Path "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Pattern "\[ERROR\]"
+
+# Watch logs in real-time
+Get-Content "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Wait -Tail 20
+```
+
+### What Gets Logged
+
+- Path detection and resolution
+- Docker operations and status checks
+- Container management operations
+- User actions and button clicks
+- File operations (.env reading, auth sync)
+- Error conditions with full details
+
+### Common Issues
+
+**Issue**: "Cannot bind argument to parameter 'Path'" error
+- **Solution**: Check logs for exact path values and types
+- **Log entries**: Look for `scriptPath value:` and `scriptPath type:` entries
+
+**Issue**: Container won't start
+- **Solution**: Check logs for Docker status checks
+- **Log entries**: Look for `Docker is running and responding` or error messages
+
+**Issue**: Setup wizard fails
+- **Solution**: Review log file for exit codes and error messages
+- **Log entries**: Look for `Setup wizard process completed with exit code:`
+
+For detailed troubleshooting guidance, see [docs/LOGGING.md](docs/LOGGING.md).
+
 ### Getting Help
 
 - **User Manual:** [docs/USER_MANUAL.md](docs/USER_MANUAL.md)
 - **Quick Reference:** [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)
-- **Issues:** Report bugs or request features on GitHub
+- **Logging Guide:** [docs/LOGGING.md](docs/LOGGING.md)
+- **Issues:** Report bugs or request features on GitHub (include log file excerpts)
 
 ## License
 

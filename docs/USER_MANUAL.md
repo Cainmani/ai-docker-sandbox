@@ -325,12 +325,96 @@ Once inside Claude:
 
 ---
 
+## Troubleshooting
+
+The AI Docker Manager includes a comprehensive logging system to help diagnose and fix problems.
+
+### Where Are the Logs?
+
+All application operations are logged to a central file:
+
+**Log File Location:**
+```
+%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+```
+
+**To Open the Log File:**
+1. Press `Windows + R`
+2. Type: `%LOCALAPPDATA%\AI-Docker-CLI\logs`
+3. Press Enter
+4. Open `ai-docker.log` with Notepad
+
+### Common Problems and Solutions
+
+#### Problem: Setup wizard won't start
+
+**Solution:**
+1. Make sure Docker Desktop is running (check system tray)
+2. Check the log file for error messages
+3. Look for: `Docker is running and responding`
+
+#### Problem: Container won't launch
+
+**Solution:**
+1. Open the log file
+2. Look for: `Container check result:` to see if container exists
+3. If container doesn't exist, run "First Time Setup" again
+
+#### Problem: Path-related errors
+
+**Solution:**
+1. Open the log file
+2. Search for: `scriptPath value:` and `scriptPath type:`
+3. Share these lines with support for diagnosis
+
+#### Problem: Tools not working inside container
+
+**Solution:**
+1. Inside the container terminal, run: `configure-tools --status`
+2. This shows which tools are configured
+3. Run `configure-tools` to set up any missing tools
+
+### Reading the Logs
+
+The log file contains entries like:
+```
+[2025-01-24 14:32:15.123] [INFO] [LAUNCHER] Launch AI Workspace button clicked
+[2025-01-24 14:32:15.234] [DEBUG] [LAUNCHER] Docker found at: C:\Program Files\...
+[2025-01-24 14:32:15.345] [ERROR] [LAUNCHER] Container does not exist
+```
+
+**Log Levels:**
+- `INFO` - Normal operations
+- `DEBUG` - Detailed technical information
+- `WARN` - Warnings (not critical)
+- `ERROR` - Problems that caused failures
+
+### Advanced: View Logs with PowerShell
+
+If you're comfortable with PowerShell, you can view logs more easily:
+
+```powershell
+# View last 50 log entries
+Get-Content "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Tail 50
+
+# Find all errors
+Select-String -Path "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Pattern "\[ERROR\]"
+
+# Watch logs in real-time
+Get-Content "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Wait -Tail 20
+```
+
+For complete troubleshooting documentation, see: [docs/LOGGING.md](LOGGING.md)
+
+---
+
 ## Getting Help
 
 ### Technical Issues
 - Check Docker Desktop is running (green icon in system tray)
-- Check console output for error messages
-- Contact your IT support team
+- Review the log file at: `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log`
+- Look for ERROR entries in the logs
+- Contact your IT support team with log file excerpts
 
 ### Claude CLI Questions
 - Visit: https://docs.claude.com/
