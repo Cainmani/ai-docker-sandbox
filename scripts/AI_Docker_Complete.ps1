@@ -71,6 +71,7 @@ $script:EmbeddedFiles = @{
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
+    '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
     'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
     'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
     'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
@@ -85,14 +86,53 @@ $script:EmbeddedFiles = @{
     'TESTING_CHECKLIST.md' = 'TESTING_CHECKLIST_MD_BASE64_HERE'
 }
 
-# Function to decode a file from Base64 to text
+# ============================================================
+# STARTUP VALIDATION - Detect if .exe was built incorrectly
+# ============================================================
+function Test-EmbeddedFilesValid {
+    foreach ($key in $script:EmbeddedFiles.Keys) {
+        $content = $script:EmbeddedFiles[$key]
+        if ($content -match "^[A-Z_]+_BASE64_HERE$") {
+            return @{
+                Valid = $false
+                Message = "File '$key' contains placeholder: $content"
+            }
+        }
+    }
+    return @{ Valid = $true }
+}
+
+$validation = Test-EmbeddedFilesValid
+if (-not $validation.Valid) {
+    Write-AppLog "BUILD ERROR: Embedded files contain placeholders - exe not built correctly" "ERROR"
+    Write-AppLog $validation.Message "ERROR"
+    [System.Windows.Forms.MessageBox]::Show(
+        "ERROR: This executable was not built correctly.`n`n" +
+        "$($validation.Message)`n`n" +
+        "The build script (build_complete_exe.ps1) must be run to embed all files.`n`n" +
+        "Please rebuild the .exe and try again.",
+        "Build Error",
+        'OK',
+        'Error'
+    )
+    exit 1
+}
+Write-AppLog "Embedded files validation passed" "DEBUG"
+
+# Function to decode a file from Base64 to text (with error handling)
 function Get-EmbeddedFileContent {
     param([string]$fileName)
 
     if ($script:EmbeddedFiles.ContainsKey($fileName)) {
-        $bytes = [System.Convert]::FromBase64String($script:EmbeddedFiles[$fileName])
-        return [System.Text.Encoding]::UTF8.GetString($bytes)
+        try {
+            $bytes = [System.Convert]::FromBase64String($script:EmbeddedFiles[$fileName])
+            return [System.Text.Encoding]::UTF8.GetString($bytes)
+        } catch {
+            Write-AppLog "ERROR: Failed to decode $fileName - invalid Base64 content: $($_.Exception.Message)" "ERROR"
+            return $null
+        }
     }
+    Write-AppLog "WARNING: File $fileName not found in embedded resources" "WARN"
     return $null
 }
 
@@ -100,7 +140,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -300,103 +340,117 @@ $form.Controls.Add($btnExit)
 $btnSetup.Add_Click({
     Write-AppLog "First Time Setup button clicked" "INFO"
 
-    # Extract Docker files silently (needed for setup)
-    Write-AppLog "Extracting Docker files..." "DEBUG"
-    Extract-DockerFiles
-    Write-AppLog "Docker files extracted" "DEBUG"
+    try {
+        # Extract Docker files silently (needed for setup)
+        Write-AppLog "Extracting Docker files..." "DEBUG"
+        Extract-DockerFiles
+        Write-AppLog "Docker files extracted" "DEBUG"
 
-    # Get setup wizard content from memory
-    Write-AppLog "Loading setup wizard from embedded resources..." "DEBUG"
-    $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
-    if ($setupContent) {
-        Write-AppLog "Setup wizard loaded successfully" "DEBUG"
-        # Extract setup wizard to subfolder
-        $setupScript = Join-Path $filesDir "setup_wizard.ps1"
-        Write-AppLog "Writing setup wizard to: [$setupScript]" "DEBUG"
-        [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
-        Write-AppLog "Setup wizard written successfully" "DEBUG"
+        # Get setup wizard content from memory
+        Write-AppLog "Loading setup wizard from embedded resources..." "DEBUG"
+        $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
+        if ($setupContent) {
+            Write-AppLog "Setup wizard loaded successfully" "DEBUG"
+            # Extract setup wizard to subfolder
+            $setupScript = Join-Path $filesDir "setup_wizard.ps1"
+            Write-AppLog "Writing setup wizard to: [$setupScript]" "DEBUG"
+            [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
+            Write-AppLog "Setup wizard written successfully" "DEBUG"
 
-        try {
-            $form.Hide()
+            try {
+                $form.Hide()
 
-            # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
-            $devModeArg = ""
-            if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
-                $devModeArg = " -DevMode"
-                Write-AppLog "DEV MODE: Shift key detected - launching setup wizard in DEV mode" "INFO"
-            }
-
-            # Run the setup wizard from subfolder
-            # Build argument list - ensure -DevMode is properly passed as separate argument
-            $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$setupScript`""
-            if ($devModeArg) {
-                $argList = "$argList -DevMode"
-                Write-AppLog "Launch arguments: $argList" "DEBUG"
-            }
-
-            # In DEV MODE, show console for debug output. In normal mode, hide it.
-            Write-AppLog "Starting setup wizard process..." "INFO"
-            if ($devModeArg) {
-                # DEV MODE: Show console window so user can see debug messages
-                Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
-                $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
-            } else {
-                # NORMAL MODE: Hide console for clean UX
-                Write-AppLog "Normal mode: Launching with hidden console" "DEBUG"
-                $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
-            }
-            Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
-            $form.Show()
-
-            # Handle different exit codes
-            if ($process.ExitCode -eq 0) {
-                Write-AppLog "Setup completed successfully" "INFO"
-                # Success - show completion message
-                # Check if .env was created in docker-files folder, then move it to main app directory
-                $envFileInSubfolder = Join-Path $filesDir ".env"
-                $envFileMain = Join-Path $appDataDir ".env"
-
-                if (Test-Path $envFileInSubfolder) {
-                    # Move .env to main app directory for easier access
-                    Copy-Item $envFileInSubfolder $envFileMain -Force
+                # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
+                $devModeArg = ""
+                if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+                    $devModeArg = " -DevMode"
+                    Write-AppLog "DEV MODE: Shift key detected - launching setup wizard in DEV mode" "INFO"
                 }
 
-                # Different message for DEV mode
+                # Run the setup wizard from subfolder
+                # Build argument list - ensure -DevMode is properly passed as separate argument
+                $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$setupScript`""
                 if ($devModeArg) {
-                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Setup wizard UI walkthrough completed.`n`nNo actual changes were made to the system.", "DEV MODE Complete", 'OK', 'Information')
-                } else {
-                    [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+                    $argList = "$argList -DevMode"
+                    Write-AppLog "Launch arguments: $argList" "DEBUG"
                 }
-            } elseif ($process.ExitCode -eq 1) {
-                # Error/failure - show error message (but softer for DEV mode)
+
+                # In DEV MODE, show console for debug output. In normal mode, hide it.
+                Write-AppLog "Starting setup wizard process..." "INFO"
                 if ($devModeArg) {
-                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Wizard closed without completing all pages.`n`nThis is normal if you were just testing specific pages.", "DEV MODE Ended", 'OK', 'Information')
+                    # DEV MODE: Show console window so user can see debug messages
+                    Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
+                    $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
                 } else {
-                    [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                    # NORMAL MODE: Hide console for clean UX
+                    Write-AppLog "Normal mode: Launching with hidden console" "DEBUG"
+                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
                 }
-            } elseif ($process.ExitCode -eq 2) {
-                # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
+                Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
+                $form.Show()
+
+                # Handle different exit codes
+                if ($process.ExitCode -eq 0) {
+                    Write-AppLog "Setup completed successfully" "INFO"
+                    # Success - show completion message
+                    # Check if .env was created in docker-files folder, then move it to main app directory
+                    $envFileInSubfolder = Join-Path $filesDir ".env"
+                    $envFileMain = Join-Path $appDataDir ".env"
+
+                    if (Test-Path $envFileInSubfolder) {
+                        # Move .env to main app directory for easier access
+                        Copy-Item $envFileInSubfolder $envFileMain -Force
+                    }
+
+                    # Different message for DEV mode
+                    if ($devModeArg) {
+                        [System.Windows.Forms.MessageBox]::Show("DEV MODE: Setup wizard UI walkthrough completed.`n`nNo actual changes were made to the system.", "DEV MODE Complete", 'OK', 'Information')
+                    } else {
+                        [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+                    }
+                } elseif ($process.ExitCode -eq 1) {
+                    # Error/failure - show error message (but softer for DEV mode)
+                    if ($devModeArg) {
+                        [System.Windows.Forms.MessageBox]::Show("DEV MODE: Wizard closed without completing all pages.`n`nThis is normal if you were just testing specific pages.", "DEV MODE Ended", 'OK', 'Information')
+                    } else {
+                        [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                    }
+                } elseif ($process.ExitCode -eq 2) {
+                    # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
+                }
+                # Exit codes: 0 = success, 1 = error, 2 = user cancelled
+            } finally {
+                # Optionally clean up the setup wizard file (or leave it for re-runs)
+                # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
             }
-            # Exit codes: 0 = success, 1 = error, 2 = user cancelled
-        } finally {
-            # Optionally clean up the setup wizard file (or leave it for re-runs)
-            # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-AppLog "ERROR: Setup wizard content is null - could not be loaded" "ERROR"
+            [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
         }
-    } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+    } catch {
+        # Catch any unhandled exceptions (file extraction, Base64 decode, etc.)
+        Write-AppLog "ERROR: Exception in First Time Setup: $($_.Exception.Message)" "ERROR"
+        Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show(
+            "An error occurred during setup:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
+            "Setup Error",
+            'OK',
+            'Error'
+        )
     }
 })
 
 $btnLaunch.Add_Click({
     Write-AppLog "Launch AI Workspace button clicked" "INFO"
 
-    # CRITICAL FIX: Check for existing container BEFORE checking .env
-    # This prevents offering to delete a container when .env is accidentally missing
-    Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
-    $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
-    Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+    try {
+        # CRITICAL FIX: Check for existing container BEFORE checking .env
+        # This prevents offering to delete a container when .env is accidentally missing
+        Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
 
-    if ($existingContainer -eq "ai-cli") {
+        if ($existingContainer -eq "ai-cli") {
         Write-AppLog "Container 'ai-cli' found - launching workspace..." "INFO"
 
         # Ensure docker-files subfolder exists
@@ -444,7 +498,7 @@ $btnLaunch.Add_Click({
             $form.Close()
         } else {
             Write-AppLog "ERROR: Failed to load launch script from embedded resources" "ERROR"
-            [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+            [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
             $form.Show()
         }
     } else {
@@ -487,6 +541,18 @@ $btnLaunch.Add_Click({
             }
             return
         }
+    }
+    } catch {
+        # Catch any unhandled exceptions in launch handler
+        Write-AppLog "ERROR: Exception in Launch AI Workspace: $($_.Exception.Message)" "ERROR"
+        Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show(
+            "An error occurred while launching the workspace:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
+            "Launch Error",
+            'OK',
+            'Error'
+        )
+        $form.Show()
     }
 })
 

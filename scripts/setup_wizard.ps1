@@ -272,6 +272,192 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         return @{ Ok = $false; StdOut = ''; StdErr = $_.Exception.Message; Code = -1 }
     }
 }
+
+# Run a process with live output streaming to a terminal box (RichTextBox)
+# This provides real-time feedback to the user during long-running operations like Docker builds
+function Run-Process-WithTerminal {
+    param(
+        [string]$file,
+        [string]$arguments,
+        $terminalBox,
+        $statusLabel,
+        [string]$workingDirectory = '',
+        [string]$operationName = 'Running'
+    )
+
+    try {
+        # Log command start
+        $timestamp = Get-Date -Format 'HH:mm:ss'
+        Write-Host "[$timestamp] [EXEC] $file $arguments" -ForegroundColor White
+
+        # Add to terminal box
+        if ($terminalBox) {
+            $terminalBox.AppendText(">> [$timestamp] $operationName...`r`n")
+            $terminalBox.AppendText(">> Command: $file $arguments`r`n")
+            $terminalBox.AppendText("`r`n")
+            $terminalBox.SelectionStart = $terminalBox.TextLength
+            $terminalBox.ScrollToCaret()
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $file
+        $psi.Arguments = $arguments
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+
+        if ($workingDirectory -and (Test-Path $workingDirectory)) {
+            $psi.WorkingDirectory = $workingDirectory
+        }
+
+        $p = New-Object System.Diagnostics.Process
+        $p.StartInfo = $psi
+
+        # Output collection
+        $outputBuilder = New-Object System.Text.StringBuilder
+        $errorBuilder = New-Object System.Text.StringBuilder
+
+        # Create a synchronized queue for thread-safe output collection
+        $outputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+
+        # Event handlers that add lines to the queue
+        $outputHandler = {
+            if ($EventArgs.Data -ne $null) {
+                [void]$Event.MessageData.OutputBuilder.AppendLine($EventArgs.Data)
+                [void]$Event.MessageData.Queue.Enqueue($EventArgs.Data)
+            }
+        }
+
+        $errorHandler = {
+            if ($EventArgs.Data -ne $null) {
+                [void]$Event.MessageData.ErrorBuilder.AppendLine($EventArgs.Data)
+                [void]$Event.MessageData.Queue.Enqueue("[stderr] " + $EventArgs.Data)
+            }
+        }
+
+        # Create message data object to pass to event handlers
+        $messageData = @{
+            OutputBuilder = $outputBuilder
+            ErrorBuilder = $errorBuilder
+            Queue = $outputQueue
+        }
+
+        $outputEvent = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -Action $outputHandler -MessageData $messageData
+        $errorEvent = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -Action $errorHandler -MessageData $messageData
+
+        [void]$p.Start()
+        $p.BeginOutputReadLine()
+        $p.BeginErrorReadLine()
+
+        $script:runningProcess = $p
+
+        # Update status
+        if ($statusLabel) {
+            $statusLabel.Text = "$operationName in progress..."
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        $lastTerminalUpdate = [DateTime]::Now
+        $lineCount = 0
+
+        # Polling loop with live terminal updates
+        while (-not $p.HasExited) {
+            [System.Windows.Forms.Application]::DoEvents()
+
+            # Dequeue and display new output lines
+            $line = $null
+            while ($outputQueue.TryDequeue([ref]$line)) {
+                if ($line -and $line.Trim()) {
+                    # Strip ANSI escape codes
+                    $cleanLine = $line -replace '\x1b\[[0-9;]*m', '' -replace '\x1b\[K', ''
+
+                    if ($terminalBox) {
+                        $terminalBox.AppendText("$cleanLine`r`n")
+                        $lineCount++
+
+                        # Auto-scroll every few lines to reduce flickering
+                        if ($lineCount % 3 -eq 0) {
+                            $terminalBox.SelectionStart = $terminalBox.TextLength
+                            $terminalBox.ScrollToCaret()
+                        }
+                    }
+
+                    # Also show in console
+                    Write-Host "  $cleanLine" -ForegroundColor DarkGray
+                }
+            }
+
+            # Force UI update every 200ms
+            $now = [DateTime]::Now
+            if (($now - $lastTerminalUpdate).TotalMilliseconds -gt 200) {
+                if ($terminalBox) {
+                    $terminalBox.SelectionStart = $terminalBox.TextLength
+                    $terminalBox.ScrollToCaret()
+                }
+                [System.Windows.Forms.Application]::DoEvents()
+                $lastTerminalUpdate = $now
+            }
+
+            Start-Sleep -Milliseconds 100
+        }
+
+        # Process any remaining output
+        Start-Sleep -Milliseconds 200
+        $line = $null
+        while ($outputQueue.TryDequeue([ref]$line)) {
+            if ($line -and $line.Trim()) {
+                $cleanLine = $line -replace '\x1b\[[0-9;]*m', '' -replace '\x1b\[K', ''
+                if ($terminalBox) {
+                    $terminalBox.AppendText("$cleanLine`r`n")
+                }
+            }
+        }
+
+        $script:runningProcess = $null
+        $p.WaitForExit()
+
+        # Cleanup event handlers
+        Unregister-Event -SourceIdentifier $outputEvent.Name -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $errorEvent.Name -ErrorAction SilentlyContinue
+        Remove-Job -Id $outputEvent.Id -Force -ErrorAction SilentlyContinue
+        Remove-Job -Id $errorEvent.Id -Force -ErrorAction SilentlyContinue
+
+        $out = $outputBuilder.ToString()
+        $err = $errorBuilder.ToString()
+
+        # Final terminal update
+        if ($terminalBox) {
+            $terminalBox.AppendText("`r`n")
+            if ($p.ExitCode -eq 0) {
+                $terminalBox.AppendText(">> [$operationName] Completed successfully`r`n")
+            } else {
+                $terminalBox.AppendText(">> [$operationName] Failed with exit code $($p.ExitCode)`r`n")
+            }
+            $terminalBox.SelectionStart = $terminalBox.TextLength
+            $terminalBox.ScrollToCaret()
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        if ($p.ExitCode -ne 0) {
+            if ($statusLabel) { $statusLabel.Text = "$operationName failed (exit $($p.ExitCode))" }
+            Write-Host "[ERROR] $operationName failed with exit code: $($p.ExitCode)" -ForegroundColor Red
+            return @{ Ok = $false; StdOut = $out; StdErr = $err; Code = $p.ExitCode }
+        } else {
+            if ($statusLabel) { $statusLabel.Text = "$operationName completed" }
+            Write-Host "[OK] $operationName completed" -ForegroundColor Green
+            return @{ Ok = $true; StdOut = $out; StdErr = $err; Code = 0 }
+        }
+    } catch {
+        Write-Host "[CRASH] $($_.Exception.Message)" -ForegroundColor Red
+        if ($terminalBox) {
+            $terminalBox.AppendText(">> [ERROR] $($_.Exception.Message)`r`n")
+        }
+        return @{ Ok = $false; StdOut = ''; StdErr = $_.Exception.Message; Code = -1 }
+    }
+}
+
 function Docker-Running() {
     try {
         $r = Run-Process-UI -file 'docker' -arguments 'info' -progressBar $null -statusLabel $null
@@ -525,14 +711,39 @@ $p4 = New-PanelPage
 $p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p4.Controls.Add((New-Label -text 'BUILDING AND DEPLOYING CONTAINER' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 $p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p4.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p4.Controls.Add((New-Label 'The wizard is now building the Docker image and deploying the container.' 20 95 880 24 10 $false $true))
-$p4.Controls.Add((New-Label 'This process downloads Ubuntu and installs all necessary packages.' 20 115 880 24 10 $false $true))
-$p4.Controls.Add((New-Label '' 20 140 880 24 10 $false $true))
-$p4.Controls.Add((New-Label 'First deployment may take 2-5 minutes.' 20 160 880 24 10 $true $true))
-$p4.Controls.Add((New-Label 'Watch the progress bar and console for detailed updates.' 20 180 880 24 10 $true $true))
-$p4.Controls.Add((New-Label '' 20 205 880 24 10 $false $true))
-$p4.Controls.Add((New-Label 'Please wait while the setup completes...' 20 225 880 30 11 $true $true))
+
+# Dynamic status label for current operation
+$script:lblBuildStatus = New-Label 'Preparing to build...' 20 75 880 24 10 $true $true
+$p4.Controls.Add($script:lblBuildStatus)
+
+# Force rebuild checkbox (unchecked = use cache if image exists)
+$script:chkForceRebuild = New-Object System.Windows.Forms.CheckBox
+$script:chkForceRebuild.Text = "Force rebuild (ignore cached image)"
+$script:chkForceRebuild.Left = 20
+$script:chkForceRebuild.Top = 100
+$script:chkForceRebuild.Width = 300
+$script:chkForceRebuild.Height = 24
+$script:chkForceRebuild.ForeColor = $script:MatrixGreen
+$script:chkForceRebuild.BackColor = [System.Drawing.Color]::Transparent
+$script:chkForceRebuild.Font = New-Object System.Drawing.Font('Consolas', 9)
+$script:chkForceRebuild.Checked = $false
+$p4.Controls.Add($script:chkForceRebuild)
+
+# Terminal display for build output (like Page 5)
+$script:buildTerminalBox = New-Object System.Windows.Forms.RichTextBox
+$script:buildTerminalBox.Left = 20
+$script:buildTerminalBox.Top = 130
+$script:buildTerminalBox.Width = 880
+$script:buildTerminalBox.Height = 350
+$script:buildTerminalBox.BackColor = [System.Drawing.Color]::Black
+$script:buildTerminalBox.ForeColor = $script:MatrixGreen
+$script:buildTerminalBox.Font = New-Object System.Drawing.Font('Consolas', 9)
+$script:buildTerminalBox.ReadOnly = $true
+$script:buildTerminalBox.ScrollBars = 'Vertical'
+$script:buildTerminalBox.BorderStyle = 'FixedSingle'
+$script:buildTerminalBox.Text = ">> Waiting for build to begin...`r`n"
+$p4.Controls.Add($script:buildTerminalBox)
+
 $pages += $p4
 
 # Page 5: Install CLI Tools
@@ -1230,27 +1441,65 @@ $btnNext.Add_Click({
                 return
             }
 
-            # docker compose build
-            $status.Text = 'docker compose build - may take 2 to 5 minutes first time'
-            Write-Host "[INFO] Building Docker image - this downloads Ubuntu and installs packages" -ForegroundColor Cyan
+            # Initialize build terminal display
+            $script:buildTerminalBox.Text = ">> Build process starting...`r`n"
+            $script:buildTerminalBox.SelectionStart = $script:buildTerminalBox.TextLength
+            $script:buildTerminalBox.ScrollToCaret()
+            [System.Windows.Forms.Application]::DoEvents()
 
-            # Use simple 'compose build' without -f flag - docker will find docker-compose.yml in working directory
-            $buildArgs = 'compose build'
-            $r1 = Run-Process-UI -file 'docker' -arguments $buildArgs -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
-            if (-not $r1.Ok) {
-                $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
-                Write-Host "[ERROR] Docker build failed" -ForegroundColor Red
-                Show-Error $errMsg
-                return
+            # Check if image already exists (for caching optimization)
+            $forceRebuild = $script:chkForceRebuild.Checked
+            $imageExists = $false
+
+            $script:lblBuildStatus.Text = 'Checking for existing Docker image...'
+            $script:buildTerminalBox.AppendText(">> Checking for cached image...`r`n")
+            [System.Windows.Forms.Application]::DoEvents()
+
+            $imageCheck = Run-Process-UI -file 'docker' -arguments 'images docker-files-ai --format "{{.ID}}"' -progressBar $null -statusLabel $null
+            if ($imageCheck.Ok -and $imageCheck.StdOut.Trim()) {
+                $imageExists = $true
+                $script:buildTerminalBox.AppendText(">> Found existing image: $($imageCheck.StdOut.Trim())`r`n")
+                Write-Host "[INFO] Found existing Docker image: $($imageCheck.StdOut.Trim())" -ForegroundColor Green
+            } else {
+                $script:buildTerminalBox.AppendText(">> No cached image found - will build from scratch`r`n")
+                Write-Host "[INFO] No cached image found" -ForegroundColor Yellow
             }
-            Write-Host "[SUCCESS] Docker image built" -ForegroundColor Green
+
+            # Decide whether to build
+            $shouldBuild = $true
+            if ($imageExists -and -not $forceRebuild) {
+                $script:lblBuildStatus.Text = 'Using cached image (skipping build)'
+                $script:buildTerminalBox.AppendText("`r`n>> OPTIMIZATION: Using cached image - skipping build step!`r`n")
+                $script:buildTerminalBox.AppendText(">> (Check 'Force rebuild' to rebuild from scratch)`r`n`r`n")
+                Write-Host "[SUCCESS] Using cached image - skipping docker compose build" -ForegroundColor Green
+                $shouldBuild = $false
+                Start-Sleep -Milliseconds 500
+            }
+
+            if ($shouldBuild) {
+                # docker compose build with --progress=plain for readable output
+                $script:lblBuildStatus.Text = 'Building Docker image (2-5 minutes first time)...'
+                Write-Host "[INFO] Building Docker image - this downloads Ubuntu and installs packages" -ForegroundColor Cyan
+
+                # Use --progress=plain for more readable output in terminal
+                $buildArgs = 'compose build --progress=plain'
+                $r1 = Run-Process-WithTerminal -file 'docker' -arguments $buildArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Docker Build'
+                if (-not $r1.Ok) {
+                    $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
+                    Write-Host "[ERROR] Docker build failed" -ForegroundColor Red
+                    Show-Error $errMsg
+                    return
+                }
+                Write-Host "[SUCCESS] Docker image built" -ForegroundColor Green
+            }
 
             # docker compose up -d
-            $status.Text = 'docker compose up -d...'
+            $script:lblBuildStatus.Text = 'Starting container...'
+            $script:buildTerminalBox.AppendText("`r`n>> Starting container...`r`n")
             Write-Host "[INFO] Starting container" -ForegroundColor Cyan
 
             $upArgs = 'compose up -d'
-            $r2 = Run-Process-UI -file 'docker' -arguments $upArgs -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
+            $r2 = Run-Process-WithTerminal -file 'docker' -arguments $upArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Container Start'
             if (-not $r2.Ok) {
                 $errMsg = 'up failed' + [Environment]::NewLine + $r2.StdErr
                 Write-Host "[ERROR] Container startup failed" -ForegroundColor Red
@@ -1260,24 +1509,30 @@ $btnNext.Add_Click({
             Write-Host "[SUCCESS] Container started" -ForegroundColor Green
 
             # Wait for container to fully initialize
-            $status.Text = 'Waiting for container to initialize...'
+            $script:lblBuildStatus.Text = 'Waiting for container to initialize...'
+            $script:buildTerminalBox.AppendText(">> Waiting for container initialization (5 seconds)...`r`n")
             Write-Host "[INFO] Waiting 5 seconds for container to fully initialize..." -ForegroundColor Cyan
             Start-Sleep -Seconds 5
 
             # Verify container is actually running
+            $script:buildTerminalBox.AppendText(">> Verifying container status...`r`n")
             Write-Host "[INFO] Verifying container status..." -ForegroundColor Cyan
             $checkRunning = Run-Process-UI -file 'docker' -arguments 'ps --filter "name=ai-cli" --format "{{.Status}}"' -progressBar $null -statusLabel $null
             if ($checkRunning.Ok -and $checkRunning.StdOut -match 'Up') {
+                $script:buildTerminalBox.AppendText(">> Container is running!`r`n")
                 Write-Host "[SUCCESS] Container is running" -ForegroundColor Green
             } else {
+                $script:buildTerminalBox.AppendText(">> ERROR: Container failed to start!`r`n")
                 Write-Host "[ERROR] Container is not running!" -ForegroundColor Red
                 Write-Host "[INFO] Checking container logs..." -ForegroundColor Yellow
                 $logs = Run-Process-UI -file 'docker' -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
+                $script:buildTerminalBox.AppendText(">> Container logs:`r`n$($logs.StdOut)`r`n")
                 Write-Host "[LOGS] Container output:" -ForegroundColor Yellow
                 Write-Host $logs.StdOut -ForegroundColor Gray
                 Show-Error "Container failed to stay running. Check console for logs."
                 return
             }
+            $script:buildTerminalBox.AppendText("`r`n>> Container ready - proceeding to tool installation...`r`n")
             Write-Host "[SUCCESS] Container ready" -ForegroundColor Green
 
             $status.Text = 'container started'
