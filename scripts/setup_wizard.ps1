@@ -1214,11 +1214,15 @@ $btnSetupCodex.Add_Click({
     if (-not $script:IsDevMode) {
         $cleanupResult = [System.Windows.Forms.MessageBox]::Show(
             "Codex authentication was successful!`n`nWould you like to REMOVE Codex from Windows?`n`n" +
-            "- Click 'Yes' to uninstall Codex from Windows (recommended for security)`n" +
+            "This will:`n" +
+            "- Uninstall @openai/codex from npm`n" +
+            "- Delete the .codex folder (your auth is already copied to Docker)`n`n" +
+            "WARNING: If you use Codex outside of this Docker setup, click 'No'.`n`n" +
+            "- Click 'Yes' to remove (recommended if only using Docker)`n" +
             "- Click 'No' to keep Codex installed on Windows",
             "Remove Codex from Windows?",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
-            [System.Windows.Forms.MessageBoxIcon]::Question
+            [System.Windows.Forms.MessageBoxIcon]::Warning
         )
     } else {
         Write-Host "[DEV MODE] Skipping Codex cleanup popup - auto-removing for security" -ForegroundColor Magenta
@@ -1239,9 +1243,17 @@ $btnSetupCodex.Add_Click({
             # Remove .codex folder from Windows (contains auth.json we already copied)
             $codexFolder = Join-Path $env:USERPROFILE ".codex"
             if (Test-Path $codexFolder) {
-                $script:codexTerminalBox.AppendText(">> Removing .codex folder from Windows...`r`n")
-                Remove-Item -Path $codexFolder -Recurse -Force -ErrorAction SilentlyContinue
-                $script:codexTerminalBox.AppendText("[OK] Removed .codex folder from Windows`r`n")
+                # Check for running Codex processes before deletion
+                $codexProcesses = Get-Process -Name "*codex*" -ErrorAction SilentlyContinue
+                if ($codexProcesses) {
+                    $script:codexTerminalBox.AppendText("[WARNING] Codex processes are running - skipping .codex folder removal`r`n")
+                    $script:codexTerminalBox.AppendText("[INFO] Close Codex and manually delete: $codexFolder`r`n")
+                    Write-Host "[WARNING] Codex processes running, skipping folder removal" -ForegroundColor Yellow
+                } else {
+                    $script:codexTerminalBox.AppendText(">> Removing .codex folder from Windows...`r`n")
+                    Remove-Item -Path $codexFolder -Recurse -Force -ErrorAction SilentlyContinue
+                    $script:codexTerminalBox.AppendText("[OK] Removed .codex folder from Windows`r`n")
+                }
             }
 
             # Verify removal
