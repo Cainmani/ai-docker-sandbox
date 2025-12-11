@@ -198,4 +198,52 @@ Feel free to open a [Discussion](https://github.com/Cainmani/ai-docker-cli-setup
 
 ---
 
+## Release Process (Maintainers)
+
+When creating a new release, follow this checklist:
+
+### Pre-Release Checklist
+
+1. **Update Version Numbers**
+   - [ ] `scripts/AI_Docker_Complete.ps1` - `$script:AppVersion`
+   - [ ] `scripts/AI_Docker_Launcher.ps1` - `$script:AppVersion`
+
+2. **Update Documentation**
+   - [ ] `CHANGELOG.md` - Add new version section with changes
+   - [ ] `README.md` - Update version badge if using static badge
+   - [ ] `docs/USER_MANUAL.md` - Update if features changed
+
+3. **Code Quality**
+   - [ ] Test all new features locally
+   - [ ] Verify build works by running `scripts/build/build_complete_exe.ps1`
+
+### Release Steps
+
+```bash
+# 1. Commit all changes
+git add .
+git commit -m "feat: Description of changes"
+
+# 2. Push to main
+git push origin main
+
+# 3. Create annotated tag
+git tag -a v1.x.x -m "v1.x.x - Brief description"
+
+# 4. Push tag (triggers GitHub Actions release workflow)
+git push origin v1.x.x
+
+# 5. Verify release
+gh release view v1.x.x
+```
+
+### Post-Release Verification
+
+- [ ] GitHub Actions workflow completed successfully
+- [ ] Release page shows correct version and assets
+- [ ] Download and test `.exe` file
+- [ ] Verify update detection works from previous version
+
+---
+
 Thank you for contributing! Your efforts help make AI Docker CLI Manager better for everyone.
