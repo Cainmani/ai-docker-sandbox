@@ -243,24 +243,43 @@ try {
         Write-AppLog "Checking for Windows Codex auth at: [$windowsCodexAuth]" "DEBUG"
 
         if (Test-Path $windowsCodexAuth) {
-            Write-AppLog "Windows Codex auth found - checking container..." "DEBUG"
-            $containerAuthCheck = & $dockerPath exec ai-cli test -f "/home/$userName/.codex/auth.json" 2>&1
+            Write-AppLog "Windows Codex auth found - validating JSON..." "DEBUG"
 
-            if ($LASTEXITCODE -ne 0) {
-                Write-AppLog "Codex auth not found in container - syncing..." "INFO"
+            # Validate auth.json is valid JSON with expected structure
+            $authValid = $false
+            try {
+                $authContent = Get-Content $windowsCodexAuth -Raw -ErrorAction Stop
+                $authJson = $authContent | ConvertFrom-Json -ErrorAction Stop
+                # Check for expected properties (Codex auth should have token-related fields)
+                if ($authJson -and ($authJson.PSObject.Properties.Count -gt 0)) {
+                    $authValid = $true
+                    Write-AppLog "Codex auth.json validated successfully" "DEBUG"
+                } else {
+                    Write-AppLog "Codex auth.json is empty or has no properties" "WARN"
+                }
+            } catch {
+                Write-AppLog "Codex auth.json is invalid or corrupted: $($_.Exception.Message)" "WARN"
+            }
 
-                # Ensure .codex directory exists in container
-                & $dockerPath exec ai-cli mkdir -p "/home/$userName/.codex" 2>&1 | Out-Null
-                & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex" 2>&1 | Out-Null
+            if ($authValid) {
+                $containerAuthCheck = & $dockerPath exec ai-cli test -f "/home/$userName/.codex/auth.json" 2>&1
 
-                # Copy auth file
-                & $dockerPath cp $windowsCodexAuth "ai-cli:/home/$userName/.codex/auth.json" 2>&1 | Out-Null
-                & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
-                & $dockerPath exec ai-cli chmod 600 "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-AppLog "Codex auth not found in container - syncing..." "INFO"
 
-                Write-AppLog "Codex auth synced to container successfully" "INFO"
-            } else {
-                Write-AppLog "Codex auth already exists in container" "DEBUG"
+                    # Ensure .codex directory exists in container
+                    & $dockerPath exec ai-cli mkdir -p "/home/$userName/.codex" 2>&1 | Out-Null
+                    & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex" 2>&1 | Out-Null
+
+                    # Copy auth file
+                    & $dockerPath cp $windowsCodexAuth "ai-cli:/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                    & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                    & $dockerPath exec ai-cli chmod 600 "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+
+                    Write-AppLog "Codex auth synced to container successfully" "INFO"
+                } else {
+                    Write-AppLog "Codex auth already exists in container" "DEBUG"
+                }
             }
         } else {
             Write-AppLog "No Windows Codex auth found - skipping sync" "DEBUG"

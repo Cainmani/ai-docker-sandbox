@@ -35,9 +35,12 @@ Write-AppLog "AI Docker Launcher Started" "INFO"
 Write-AppLog "Log file: $script:LogFile" "INFO"
 Write-AppLog "========================================" "INFO"
 
-# Version information
+# ============================================================
+# CONFIGURATION - Edit these values if forking/moving the repo
+# ============================================================
 $script:AppVersion = "1.0.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
+$script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 # Function to check for updates
 function Check-ForUpdates {
@@ -462,7 +465,7 @@ if (-not $dockerRunning) {
     if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
         Write-AppLog "User chose to open Docker Desktop" "INFO"
         # Try to start Docker Desktop
-        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        $dockerPath = $script:DockerDesktopPath
         if (Test-Path $dockerPath) {
             Start-Process $dockerPath
         } else {
