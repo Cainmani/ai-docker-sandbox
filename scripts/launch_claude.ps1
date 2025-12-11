@@ -268,12 +268,14 @@ try {
                     Write-AppLog "Codex auth not found in container - syncing..." "INFO"
 
                     # Ensure .codex directory exists in container
+                    # Use ${var} syntax for chown to avoid backtick-colon escaping issues across PS versions
+                    $chownArg = "${userName}:${userName}"
                     & $dockerPath exec ai-cli mkdir -p "/home/$userName/.codex" 2>&1 | Out-Null
-                    & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex" 2>&1 | Out-Null
+                    & $dockerPath exec ai-cli chown $chownArg "/home/$userName/.codex" 2>&1 | Out-Null
 
                     # Copy auth file
                     & $dockerPath cp $windowsCodexAuth "ai-cli:/home/$userName/.codex/auth.json" 2>&1 | Out-Null
-                    & $dockerPath exec ai-cli chown "$userName`:$userName" "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
+                    & $dockerPath exec ai-cli chown $chownArg "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
                     & $dockerPath exec ai-cli chmod 600 "/home/$userName/.codex/auth.json" 2>&1 | Out-Null
 
                     Write-AppLog "Codex auth synced to container successfully" "INFO"
