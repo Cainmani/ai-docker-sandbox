@@ -1715,7 +1715,7 @@ $btnNext.Add_Click({
             $script:terminalBox.ScrollToCaret()
             [System.Windows.Forms.Application]::DoEvents()
 
-            # Give entrypoint time to start the installation (responsive sleep)
+            # Give entry point time to start the installation (responsive sleep)
             for ($i = 0; $i -lt 50; $i++) {
                 Start-Sleep -Milliseconds 100
                 [System.Windows.Forms.Application]::DoEvents()
