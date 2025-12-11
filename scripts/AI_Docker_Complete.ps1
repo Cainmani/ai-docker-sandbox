@@ -137,7 +137,7 @@ $script:EmbeddedFiles = @{
 # ============================================================
 # STARTUP VALIDATION - Detect if .exe was built incorrectly
 # ============================================================
-# Placeholder format: UPPERCASE_NAME_BASE64_HERE (e.g., DOCKERFILE_BASE64_HERE)
+# Placeholder format: FILENAME (uppercase, underscores) + "_BASE64_HERE" suffix
 # The build script replaces these with actual Base64-encoded file contents.
 # If placeholders remain, it means the build process failed or was skipped.
 function Test-EmbeddedFilesValid {

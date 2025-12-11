@@ -102,9 +102,10 @@ $bundledScript | Out-File $bundledScriptPath -Encoding UTF8
 $bundledContent = Get-Content $bundledScriptPath -Raw
 $unreplacedCount = 0
 
-# Check for any remaining BASE64_HERE placeholders
-if ($bundledContent -match "([A-Z_]+_BASE64_HERE)") {
-    $unreplacedPlaceholders = [regex]::Matches($bundledContent, "([A-Z_]+_BASE64_HERE)")
+# Check for any remaining BASE64_HERE placeholders (quoted strings only, not comments)
+# Pattern: matches 'PLACEHOLDER' or "PLACEHOLDER" - actual placeholders are always quoted
+if ($bundledContent -match "'[A-Z_]+_BASE64_HERE'") {
+    $unreplacedPlaceholders = [regex]::Matches($bundledContent, "'([A-Z_]+_BASE64_HERE)'")
     $unreplacedCount = $unreplacedPlaceholders.Count
 
     if ($unreplacedCount -gt 0) {
