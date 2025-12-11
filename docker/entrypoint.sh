@@ -90,7 +90,7 @@ if [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|   * gemini       - Google Gemini CLI                        |"
   echo "|   * codex        - OpenAI Codex CLI                         |"
   echo "|   * python3      - OpenAI Python SDK (import openai)        |"
-  echo "|                                                            |"
+  echo "|                                                             |"
   echo "| Management Commands:                                        |"
   echo "|   * configure-tools  - Set up API keys and authentication   |"
   echo "|   * config-status    - Check configuration status           |"

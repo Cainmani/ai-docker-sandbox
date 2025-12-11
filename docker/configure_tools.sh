@@ -89,6 +89,14 @@ is_configured() {
                 return 0
             fi
             ;;
+        codex)
+            # Codex can use OAuth (auth.json) for subscription, or OPENAI_API_KEY for API credits
+            if [ -f "${HOME}/.codex/auth.json" ]; then
+                return 0  # Subscription auth (preferred)
+            elif [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
+                return 0  # API key fallback
+            fi
+            ;;
     esac
     return 1
 }
@@ -318,6 +326,56 @@ configure_codeium() {
     fi
 }
 
+# Function to configure OpenAI Codex CLI
+configure_codex() {
+    print_header "Configure OpenAI Codex CLI"
+
+    # Check if already authenticated via OAuth (auth.json exists)
+    if [ -f "${HOME}/.codex/auth.json" ]; then
+        print_success "Codex CLI is authenticated (using subscription login)"
+        echo ""
+        echo "Test with: codex --help"
+        return 0
+    fi
+
+    # Check if API key is configured as fallback
+    if [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
+        print_success "Codex CLI can use OPENAI_API_KEY (API credits)"
+        print_warning "Note: API key uses pay-per-use credits, not your subscription."
+        echo ""
+        echo "To use your ChatGPT Plus/Pro subscription instead, see Option 1 below."
+        echo ""
+    fi
+
+    print_status "Codex CLI Authentication Options"
+    echo ""
+    print_warning "KNOWN ISSUE: Browser-based OAuth does not work inside Docker containers."
+    echo "See: https://github.com/openai/codex/issues/2798"
+    echo ""
+    echo -e "${CYAN}=== OPTION 1: Use Your Subscription (Recommended) ===${NC}"
+    echo ""
+    echo "To use your ChatGPT Plus/Pro subscription (no API credits needed):"
+    echo ""
+    echo "  1. On your Windows host (outside Docker), install Codex:"
+    echo "     npm install -g @openai/codex"
+    echo ""
+    echo "  2. Run 'codex' on Windows and complete the browser login"
+    echo ""
+    echo -e "  3. ${GREEN}AUTO-SYNC: Next time you 'Launch AI Workspace', your auth${NC}"
+    echo -e "     ${GREEN}will be automatically copied into the container!${NC}"
+    echo ""
+    echo "     (Manual copy if needed: docker cp \"\$env:USERPROFILE\\.codex\\auth.json\" ai-cli:/home/\$USER/.codex/)"
+    echo ""
+    echo -e "${CYAN}=== OPTION 2: Use API Key (Pay-per-use Credits) ===${NC}"
+    echo ""
+    echo "If you prefer to use API credits instead of your subscription:"
+    echo "  - Get your API key from: https://platform.openai.com/api-keys"
+    echo "  - Run: configure-tools --openai"
+    echo ""
+    echo -e "${YELLOW}Note: API key billing is separate from your ChatGPT subscription.${NC}"
+    echo ""
+}
+
 # Function to show configuration status
 show_status() {
     print_header "CLI Tools Configuration Status"
@@ -327,6 +385,7 @@ show_status() {
         "claude:Claude Code CLI"
         "gh:GitHub CLI"
         "openai:OpenAI/GPT Tools"
+        "codex:OpenAI Codex CLI"
         "gemini:Google Gemini"
         "aws:AWS CLI"
         "azure:Azure CLI"
@@ -361,31 +420,34 @@ interactive_configure() {
     echo ""
     echo "1. Claude Code CLI"
     echo "2. GitHub CLI"
-    echo "3. OpenAI/GPT Tools"
-    echo "4. Google Gemini"
-    echo "5. AWS CLI"
-    echo "6. Azure CLI"
-    echo "7. Google Cloud CLI"
-    echo "8. Codeium"
-    echo "9. Configure All"
+    echo "3. OpenAI/GPT Tools (Python SDK)"
+    echo "4. OpenAI Codex CLI"
+    echo "5. Google Gemini"
+    echo "6. AWS CLI"
+    echo "7. Azure CLI"
+    echo "8. Google Cloud CLI"
+    echo "9. Codeium"
+    echo "A. Configure All"
     echo "0. Exit"
     echo ""
 
-    read -p "Enter your choice (0-9): " choice
+    read -p "Enter your choice (0-9, A): " choice
 
     case $choice in
         1) configure_claude; interactive_configure ;;
         2) configure_github; interactive_configure ;;
         3) configure_openai; interactive_configure ;;
-        4) configure_gemini; interactive_configure ;;
-        5) configure_aws; interactive_configure ;;
-        6) configure_azure; interactive_configure ;;
-        7) configure_gcloud; interactive_configure ;;
-        8) configure_codeium; interactive_configure ;;
-        9)
+        4) configure_codex; interactive_configure ;;
+        5) configure_gemini; interactive_configure ;;
+        6) configure_aws; interactive_configure ;;
+        7) configure_azure; interactive_configure ;;
+        8) configure_gcloud; interactive_configure ;;
+        9) configure_codeium; interactive_configure ;;
+        [Aa])
             configure_claude
             configure_github
             configure_openai
+            configure_codex
             configure_gemini
             configure_aws
             configure_azure
@@ -435,10 +497,14 @@ case "$1" in
     --codeium)
         configure_codeium
         ;;
+    --codex)
+        configure_codex
+        ;;
     --all)
         configure_claude
         configure_github
         configure_openai
+        configure_codex
         configure_gemini
         configure_aws
         configure_azure
@@ -453,7 +519,8 @@ case "$1" in
         echo "  --status, -s     Show configuration status"
         echo "  --claude         Configure Claude Code CLI"
         echo "  --github, --gh   Configure GitHub CLI"
-        echo "  --openai, --gpt  Configure OpenAI/GPT tools"
+        echo "  --openai, --gpt  Configure OpenAI/GPT tools (Python SDK)"
+        echo "  --codex          Configure OpenAI Codex CLI"
         echo "  --gemini         Configure Google Gemini"
         echo "  --aws            Configure AWS CLI"
         echo "  --azure          Configure Azure CLI"

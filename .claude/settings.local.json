@@ -3,9 +3,16 @@
     "allow": [
       "Bash(gh issue view:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "context7",
+    "memory",
+    "github"
+  ],
+  "enableAllProjectMcpServers": true
 }

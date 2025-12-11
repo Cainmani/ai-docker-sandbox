@@ -1,0 +1,53 @@
+# .dockerignore - Exclude unnecessary files from Docker build context
+# This speeds up builds by reducing the amount of data sent to Docker daemon
+
+# Documentation files - not needed in build
+*.md
+*.txt
+LICENSE*
+README*
+CHANGELOG*
+
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Test files
+tests/
+test/
+*.test.*
+*.spec.*
+
+# Build artifacts
+*.exe
+*.log
+*.tmp
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python cache (if any scripts use Python during build)
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Node modules (if present from local development)
+node_modules/
+
+# Temporary files
+tmp/
+temp/
+*.bak
+
+# Claude/AI config files
+.claude/

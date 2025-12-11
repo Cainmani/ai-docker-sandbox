@@ -22,6 +22,7 @@ $filesToEmbed = @(
    "..\launch_claude.ps1",
    "..\..\docker\docker-compose.yml",
    "..\..\docker\Dockerfile",
+   "..\..\docker\.dockerignore",
    "..\..\docker\entrypoint.sh",
    "..\..\docker\claude_wrapper.sh",
    "..\..\docker\install_cli_tools.sh",

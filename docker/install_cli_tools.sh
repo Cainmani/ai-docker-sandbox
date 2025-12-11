@@ -54,6 +54,79 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
+# NOTE: Parallel implementation exists in scripts/setup_wizard.ps1 (Test-NpmFunctional)
+#       for Windows host. Keep both in sync when making changes.
+validate_npm() {
+    print_status "Validating npm installation..."
+
+    # Check npm command exists
+    if ! command -v npm >/dev/null 2>&1; then
+        print_error "npm command not found in PATH"
+        print_error "PATH is: $PATH"
+        return 1
+    fi
+
+    # Verify npm can execute (catches "Unknown command: pm" type errors)
+    local npm_version
+    npm_version=$(npm --version 2>&1)
+    local npm_exit_code=$?
+
+    if [ $npm_exit_code -ne 0 ] || [ -z "$npm_version" ]; then
+        print_error "npm is not functioning correctly"
+        print_error "npm --version output: $npm_version"
+        return 1
+    fi
+
+    # Test npm can actually list global packages
+    if ! npm list -g --depth=0 >/dev/null 2>&1; then
+        print_warning "npm global list failed, attempting to fix global prefix..."
+        rm -rf "${HOME}/.npm-global" 2>/dev/null || true
+        mkdir -p "${HOME}/.npm-global"
+        npm config set prefix "${HOME}/.npm-global"
+        export PATH="${HOME}/.npm-global/bin:${PATH}"
+
+        # Retry after fix
+        if ! npm list -g --depth=0 >/dev/null 2>&1; then
+            print_warning "npm global list still failing, but may work for installs"
+        fi
+    fi
+
+    print_success "npm is working correctly (version: $npm_version)"
+    return 0
+}
+
+# Function to attempt npm repair if validation fails
+# NOTE: Parallel implementation exists in scripts/setup_wizard.ps1 (Repair-NpmInstallation)
+repair_npm() {
+    print_warning "Attempting to repair npm installation..."
+
+    # Clear npm cache
+    npm cache clean --force 2>/dev/null || true
+
+    # Remove and recreate global directory
+    rm -rf "${HOME}/.npm-global" 2>/dev/null || true
+    mkdir -p "${HOME}/.npm-global"
+    npm config set prefix "${HOME}/.npm-global"
+    export PATH="${HOME}/.npm-global/bin:${PATH}"
+
+    # On Debian/Ubuntu systems, try reinstalling nodejs/npm if available
+    if command -v apt-get >/dev/null 2>&1; then
+        print_status "Reinstalling Node.js and npm via apt..."
+        sudo apt-get update -qq
+        sudo apt-get install --reinstall nodejs npm -y -qq 2>/dev/null || true
+    fi
+
+    # Validate after repair
+    if validate_npm; then
+        print_success "npm repair successful"
+        return 0
+    fi
+
+    print_error "npm repair failed - manual intervention may be required"
+    return 1
+}
+
 # Function to get installed version
 get_version() {
     local tool=$1
@@ -96,6 +169,16 @@ save_versions() {
 # Main installation function
 install_cli_tools() {
     print_status "Starting CLI tools installation..."
+
+    # CRITICAL: Validate npm before any npm operations
+    # This prevents "Unknown command: pm" errors and other npm issues
+    if ! validate_npm; then
+        print_warning "npm validation failed, attempting repair..."
+        if ! repair_npm; then
+            print_error "npm is not working - npm-based tools (Claude, Gemini, Codex) will be skipped"
+            print_error "Please check Node.js/npm installation and try again"
+        fi
+    fi
 
     # Update package lists
     print_status "Updating package lists..."

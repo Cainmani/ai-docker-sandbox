@@ -6,6 +6,15 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # Use AppData for all persistent files - makes this a true self-contained app
+# Ensure LOCALAPPDATA is set (robust fallback)
+if (-not $env:LOCALAPPDATA) {
+    $env:LOCALAPPDATA = Join-Path $env:USERPROFILE "AppData\Local"
+}
+if (-not $env:LOCALAPPDATA) {
+    # Ultimate fallback
+    $env:LOCALAPPDATA = [System.IO.Path]::GetTempPath()
+}
+
 $appDataDir = Join-Path $env:LOCALAPPDATA "AI_Docker_Manager"
 if (-not (Test-Path $appDataDir)) {
     New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
@@ -15,6 +24,87 @@ if (-not (Test-Path $appDataDir)) {
 $filesDir = Join-Path $appDataDir "docker-files"
 if (-not (Test-Path $filesDir)) {
     New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
+}
+
+# ============================================================
+# CENTRALIZED LOGGING SYSTEM
+# Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
+# ============================================================
+$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+$script:LogFile = Join-Path $script:LogDir "ai-docker.log"
+
+# Ensure log directory exists
+if (-not (Test-Path $script:LogDir)) {
+    New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
+}
+
+function Write-AppLog {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
+    )
+    try {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        $logEntry = "[$timestamp] [$Level] [COMPLETE] $Message"
+        Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
+    } catch {
+        # Silently fail if logging doesn't work - don't break the app
+    }
+}
+
+Write-AppLog "========================================" "INFO"
+Write-AppLog "AI Docker Complete (Standalone) Started" "INFO"
+Write-AppLog "Log file: $script:LogFile" "INFO"
+Write-AppLog "AppData directory: $appDataDir" "INFO"
+Write-AppLog "Files directory: $filesDir" "INFO"
+
+# ============================================================
+# CONFIGURATION - Edit these values if forking/moving the repo
+# ============================================================
+$script:AppVersion = "1.0.0"
+$script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
+$script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+
+# Function to check for updates
+function Check-ForUpdates {
+    try {
+        Write-AppLog "Checking for updates..." "DEBUG"
+        $releaseUrl = "https://api.github.com/repos/$script:GitHubRepo/releases/latest"
+        $response = Invoke-RestMethod -Uri $releaseUrl -Method Get -TimeoutSec 5 -ErrorAction Stop
+
+        $latestVersion = $response.tag_name -replace '^v', ''
+        Write-AppLog "Latest version: $latestVersion, Current version: $script:AppVersion" "DEBUG"
+
+        if ($latestVersion -and ($latestVersion -ne $script:AppVersion)) {
+            # Validate version strings before comparison
+            $current = $null
+            $latest = $null
+            if (-not [Version]::TryParse($script:AppVersion, [ref]$current)) {
+                Write-AppLog "Invalid current version format: $script:AppVersion" "WARN"
+                return @{ UpdateAvailable = $false }
+            }
+            if (-not [Version]::TryParse($latestVersion, [ref]$latest)) {
+                Write-AppLog "Invalid latest version format from API: $latestVersion" "WARN"
+                return @{ UpdateAvailable = $false }
+            }
+
+            if ($latest -gt $current) {
+                Write-AppLog "Update available: $latestVersion" "INFO"
+                return @{
+                    UpdateAvailable = $true
+                    CurrentVersion = $script:AppVersion
+                    LatestVersion = $latestVersion
+                    DownloadUrl = $response.assets | Where-Object { $_.name -like "*.exe" } | Select-Object -First 1 -ExpandProperty browser_download_url
+                    ReleaseUrl = $response.html_url
+                    ReleaseNotes = $response.body
+                }
+            }
+        }
+        return @{ UpdateAvailable = $false }
+    } catch {
+        Write-AppLog "Update check failed: $($_.Exception.Message)" "DEBUG"
+        return @{ UpdateAvailable = $false; Error = $_.Exception.Message }
+    }
 }
 
 # Matrix Green Theme Colors
@@ -29,6 +119,7 @@ $script:EmbeddedFiles = @{
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
+    '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
     'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
     'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
     'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
@@ -43,14 +134,57 @@ $script:EmbeddedFiles = @{
     'TESTING_CHECKLIST.md' = 'TESTING_CHECKLIST_MD_BASE64_HERE'
 }
 
-# Function to decode a file from Base64 to text
+# ============================================================
+# STARTUP VALIDATION - Detect if .exe was built incorrectly
+# ============================================================
+# Placeholder format: UPPERCASE_NAME_BASE64_HERE (e.g., DOCKERFILE_BASE64_HERE)
+# The build script replaces these with actual Base64-encoded file contents.
+# If placeholders remain, it means the build process failed or was skipped.
+function Test-EmbeddedFilesValid {
+    foreach ($key in $script:EmbeddedFiles.Keys) {
+        $content = $script:EmbeddedFiles[$key]
+        # Match placeholder pattern: starts with optional underscore, uppercase letters/underscores, ends with _BASE64_HERE
+        if ($content -match "^_?[A-Z][A-Z0-9_]*_BASE64_HERE$") {
+            return @{
+                Valid = $false
+                Message = "File '$key' contains placeholder: $content"
+            }
+        }
+    }
+    return @{ Valid = $true }
+}
+
+$validation = Test-EmbeddedFilesValid
+if (-not $validation.Valid) {
+    Write-AppLog "BUILD ERROR: Embedded files contain placeholders - exe not built correctly" "ERROR"
+    Write-AppLog $validation.Message "ERROR"
+    [System.Windows.Forms.MessageBox]::Show(
+        "ERROR: This executable was not built correctly.`n`n" +
+        "$($validation.Message)`n`n" +
+        "The build script (build_complete_exe.ps1) must be run to embed all files.`n`n" +
+        "Please rebuild the .exe and try again.",
+        "Build Error",
+        'OK',
+        'Error'
+    )
+    exit 1
+}
+Write-AppLog "Embedded files validation passed" "DEBUG"
+
+# Function to decode a file from Base64 to text (with error handling)
 function Get-EmbeddedFileContent {
     param([string]$fileName)
 
     if ($script:EmbeddedFiles.ContainsKey($fileName)) {
-        $bytes = [System.Convert]::FromBase64String($script:EmbeddedFiles[$fileName])
-        return [System.Text.Encoding]::UTF8.GetString($bytes)
+        try {
+            $bytes = [System.Convert]::FromBase64String($script:EmbeddedFiles[$fileName])
+            return [System.Text.Encoding]::UTF8.GetString($bytes)
+        } catch {
+            Write-AppLog "ERROR: Failed to decode $fileName - invalid Base64 content: $($_.Exception.Message)" "ERROR"
+            return $null
+        }
     }
+    Write-AppLog "WARNING: File $fileName not found in embedded resources" "WARN"
     return $null
 }
 
@@ -58,7 +192,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -87,15 +221,31 @@ function Extract-DockerFiles {
         $needsUpdate = $true
     }
 
-    # If docker files changed, clean up old containers/images automatically
+    # If docker files changed, only remove the IMAGE (not the container)
+    # This forces a rebuild with new files while preserving user data in the container
     if ($needsUpdate -and $oldHash -ne "") {
-        try {
-            # Silently clean up old container and image to force rebuild with new files
-            $null = docker stop ai-cli 2>$null
-            $null = docker rm ai-cli 2>$null
-            $null = docker rmi docker-files-ai 2>$null
-        } catch {
-            # Ignore errors - container/image might not exist
+        # Note: Removed Write-Host to prevent console window from appearing during updates
+
+        # Check if container exists
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        if ($existingContainer -eq "ai-cli") {
+            # CRITICAL: Never delete the container automatically - user data is preserved
+            # Only remove the old image to force rebuild
+            try {
+                $existingImage = docker images -q docker-files-ai 2>$null
+                if ($existingImage) {
+                    $null = docker rmi docker-files-ai 2>$null
+                }
+            } catch {
+                # Ignore errors - image might be in use
+            }
+        } else {
+            # No container exists - safe to remove image
+            try {
+                $null = docker rmi docker-files-ai 2>$null
+            } catch {
+                # Ignore errors - image might not exist
+            }
         }
     }
 
@@ -214,9 +364,20 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Status label for loading feedback
+$lblStatus = New-Object System.Windows.Forms.Label
+$lblStatus.Left = 20; $lblStatus.Top = 385
+$lblStatus.Width = 560; $lblStatus.Height = 24
+$lblStatus.Text = ""
+$lblStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 0)  # Yellow/Gold for visibility
+$lblStatus.BackColor = 'Transparent'
+$lblStatus.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($lblStatus)
+
 # Status label showing where app data is stored
 $lblAppData = New-Object System.Windows.Forms.Label
-$lblAppData.Left = 20; $lblAppData.Top = 390
+$lblAppData.Left = 20; $lblAppData.Top = 410
 $lblAppData.Width = 560; $lblAppData.Height = 40
 $lblAppData.Text = "Configuration stored in:`n$appDataDir"
 $lblAppData.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -228,7 +389,7 @@ $form.Controls.Add($lblAppData)
 # Button 3: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
-$btnExit.Left = 250; $btnExit.Top = 440
+$btnExit.Left = 250; $btnExit.Top = 460
 $btnExit.Width = 100; $btnExit.Height = 35
 $btnExit.FlatStyle = 'Flat'
 $btnExit.FlatAppearance.BorderColor = $script:MatrixAccent
@@ -240,107 +401,252 @@ $form.Controls.Add($btnExit)
 
 # Event Handlers
 $btnSetup.Add_Click({
-    # Extract Docker files silently (needed for setup)
-    Extract-DockerFiles
+    Write-AppLog "First Time Setup button clicked" "INFO"
 
-    # Get setup wizard content from memory
-    $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
-    if ($setupContent) {
-        # Extract setup wizard to subfolder
-        $setupScript = Join-Path $filesDir "setup_wizard.ps1"
-        [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
+    # Show loading feedback immediately
+    $lblStatus.Text = ">>> LOADING SETUP WIZARD... <<<"
+    $btnSetup.Enabled = $false
+    $btnLaunch.Enabled = $false
+    $btnExit.Enabled = $false
+    [System.Windows.Forms.Application]::DoEvents()  # Force UI update
+    Write-AppLog "Loading indicator shown, buttons disabled" "DEBUG"
 
-        try {
-            $form.Hide()
+    try {
+        # Extract Docker files silently (needed for setup)
+        $lblStatus.Text = ">>> EXTRACTING FILES... <<<"
+        [System.Windows.Forms.Application]::DoEvents()
+        Write-AppLog "Extracting Docker files..." "DEBUG"
+        Extract-DockerFiles
+        Write-AppLog "Docker files extracted" "DEBUG"
 
-            # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
-            $devModeArg = ""
-            if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
-                $devModeArg = " -DevMode"
-                Write-Host "[DEV MODE] Shift key detected - launching setup wizard in DEV mode" -ForegroundColor Magenta
-            }
+        # Get setup wizard content from memory
+        $lblStatus.Text = ">>> PREPARING WIZARD... <<<"
+        [System.Windows.Forms.Application]::DoEvents()
+        Write-AppLog "Loading setup wizard from embedded resources..." "DEBUG"
+        $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
+        if ($setupContent) {
+            Write-AppLog "Setup wizard loaded successfully" "DEBUG"
+            # Extract setup wizard to subfolder
+            $setupScript = Join-Path $filesDir "setup_wizard.ps1"
+            Write-AppLog "Writing setup wizard to: [$setupScript]" "DEBUG"
+            [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
+            Write-AppLog "Setup wizard written successfully" "DEBUG"
 
-            # Run the setup wizard from subfolder with minimized window (GUI scripts can't be fully hidden)
-            $process = Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$setupScript`"$devModeArg" -Wait -PassThru
-            $form.Show()
+            try {
+                $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 300  # Brief pause so user sees the status
+                $form.Hide()
 
-            # Handle different exit codes
-            if ($process.ExitCode -eq 0) {
-                # Success - show completion message
-                # Check if .env was created in docker-files folder, then move it to main app directory
-                $envFileInSubfolder = Join-Path $filesDir ".env"
-                $envFileMain = Join-Path $appDataDir ".env"
-
-                if (Test-Path $envFileInSubfolder) {
-                    # Move .env to main app directory for easier access
-                    Copy-Item $envFileInSubfolder $envFileMain -Force
+                # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
+                $devModeArg = ""
+                if ([System.Windows.Forms.Control]::ModifierKeys -eq [System.Windows.Forms.Keys]::Shift) {
+                    $devModeArg = " -DevMode"
+                    Write-AppLog "DEV MODE: Shift key detected - launching setup wizard in DEV mode" "INFO"
                 }
 
-                # Different message for DEV mode
+                # Run the setup wizard from subfolder
+                # Build argument list - ensure -DevMode is properly passed as separate argument
+                $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$setupScript`""
                 if ($devModeArg) {
-                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Setup wizard UI walkthrough completed.`n`nNo actual changes were made to the system.", "DEV MODE Complete", 'OK', 'Information')
-                } else {
-                    [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+                    $argList = "$argList -DevMode"
+                    Write-AppLog "Launch arguments: $argList" "DEBUG"
                 }
-            } elseif ($process.ExitCode -eq 1) {
-                # Error/failure - show error message (but softer for DEV mode)
+
+                # Show console window for progress visibility (helps users see what's happening)
+                Write-AppLog "Starting setup wizard process..." "INFO"
                 if ($devModeArg) {
-                    [System.Windows.Forms.MessageBox]::Show("DEV MODE: Wizard closed without completing all pages.`n`nThis is normal if you were just testing specific pages.", "DEV MODE Ended", 'OK', 'Information')
+                    # DEV MODE: Normal console window for full debug visibility
+                    Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
+                    $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
                 } else {
-                    [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                    # NORMAL MODE: Show console (minimized) so user can see progress if needed
+                    Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
+                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
                 }
-            } elseif ($process.ExitCode -eq 2) {
-                # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
+                Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
+
+                # Reset UI state
+                $lblStatus.Text = ""
+                $btnSetup.Enabled = $true
+                $btnLaunch.Enabled = $true
+                $btnExit.Enabled = $true
+
+                $form.Show()
+
+                # Handle different exit codes
+                if ($process.ExitCode -eq 0) {
+                    Write-AppLog "Setup completed successfully" "INFO"
+                    # Success - show completion message
+                    # Check if .env was created in docker-files folder, then move it to main app directory
+                    $envFileInSubfolder = Join-Path $filesDir ".env"
+                    $envFileMain = Join-Path $appDataDir ".env"
+
+                    if (Test-Path $envFileInSubfolder) {
+                        # Move .env to main app directory for easier access
+                        Copy-Item $envFileInSubfolder $envFileMain -Force
+                    }
+
+                    # Different message for DEV mode
+                    if ($devModeArg) {
+                        [System.Windows.Forms.MessageBox]::Show("DEV MODE: Setup wizard UI walkthrough completed.`n`nNo actual changes were made to the system.", "DEV MODE Complete", 'OK', 'Information')
+                    } else {
+                        [System.Windows.Forms.MessageBox]::Show("Setup wizard completed successfully!`n`nYou can now use 'Launch AI Workspace' to access your environment.`n`nConfiguration stored in:`n$appDataDir", "Setup Complete", 'OK', 'Information')
+                    }
+                } elseif ($process.ExitCode -eq 1) {
+                    # Error/failure - show error message (but softer for DEV mode)
+                    if ($devModeArg) {
+                        [System.Windows.Forms.MessageBox]::Show("DEV MODE: Wizard closed without completing all pages.`n`nThis is normal if you were just testing specific pages.", "DEV MODE Ended", 'OK', 'Information')
+                    } else {
+                        [System.Windows.Forms.MessageBox]::Show("Setup failed to complete.`n`nPlease check that:`n  - Docker Desktop is running`n  - All required files extracted successfully`n  - You have administrator privileges", "Setup Failed", 'OK', 'Error')
+                    }
+                } elseif ($process.ExitCode -eq 2) {
+                    # User cancelled - exit silently (no message needed, user already saw cancellation confirmation)
+                }
+                # Exit codes: 0 = success, 1 = error, 2 = user cancelled
+            } finally {
+                # Optionally clean up the setup wizard file (or leave it for re-runs)
+                # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
             }
-            # Exit codes: 0 = success, 1 = error, 2 = user cancelled
-        } finally {
-            # Optionally clean up the setup wizard file (or leave it for re-runs)
-            # Remove-Item $setupScript -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-AppLog "ERROR: Setup wizard content is null - could not be loaded" "ERROR"
+            # Reset UI state on error
+            $lblStatus.Text = ""
+            $btnSetup.Enabled = $true
+            $btnLaunch.Enabled = $true
+            $btnExit.Enabled = $true
+            [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
         }
-    } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+    } catch {
+        # Catch any unhandled exceptions (file extraction, Base64 decode, etc.)
+        Write-AppLog "ERROR: Exception in First Time Setup: $($_.Exception.Message)" "ERROR"
+        Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        # Reset UI state on error
+        $lblStatus.Text = ""
+        $btnSetup.Enabled = $true
+        $btnLaunch.Enabled = $true
+        $btnExit.Enabled = $true
+        [System.Windows.Forms.MessageBox]::Show(
+            "An error occurred during setup:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
+            "Setup Error",
+            'OK',
+            'Error'
+        )
     }
 })
 
 $btnLaunch.Add_Click({
-    # Check if .env exists in AppData directory
-    $envFileMain = Join-Path $appDataDir ".env"
-    if (-not (Test-Path $envFileMain)) {
-        $result = [System.Windows.Forms.MessageBox]::Show("Setup has not been completed yet.`n`nWould you like to run the First Time Setup now?", "Setup Required", 'YesNo', 'Warning')
-        if ($result -eq 'Yes') {
-            $btnSetup.PerformClick()
+    Write-AppLog "Launch AI Workspace button clicked" "INFO"
+
+    try {
+        # CRITICAL FIX: Check for existing container BEFORE checking .env
+        # This prevents offering to delete a container when .env is accidentally missing
+        Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+
+        if ($existingContainer -eq "ai-cli") {
+        Write-AppLog "Container 'ai-cli' found - launching workspace..." "INFO"
+
+        # Ensure docker-files subfolder exists
+        if (-not (Test-Path $filesDir)) {
+            Write-AppLog "Creating docker-files directory: [$filesDir]" "DEBUG"
+            New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
         }
-        return
-    }
 
-    # Ensure docker-files subfolder exists and copy .env there for the launch script to use
-    if (-not (Test-Path $filesDir)) {
-        New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
-    }
+        # Copy .env if it exists, otherwise create a minimal one
+        $envFileInSubfolder = Join-Path $filesDir ".env"
+        $envFileMain = Join-Path $appDataDir ".env"
+        if (Test-Path $envFileMain) {
+            Write-AppLog "Copying .env from [$envFileMain] to [$envFileInSubfolder]" "DEBUG"
+            Copy-Item $envFileMain $envFileInSubfolder -Force
+        } else {
+            Write-AppLog ".env file not found at [$envFileMain]" "DEBUG"
+        }
 
-    # Copy .env from main app directory to docker-files folder for launch script to access
-    $envFileInSubfolder = Join-Path $filesDir ".env"
-    Copy-Item $envFileMain $envFileInSubfolder -Force
+        # Re-extract Docker files if they were deleted
+        Write-AppLog "Re-extracting Docker files..." "DEBUG"
+        Extract-DockerFiles
+        Write-AppLog "Docker files extracted" "DEBUG"
 
-    # Re-extract Docker files if they were deleted
-    Extract-DockerFiles
+        # Get launch script content from memory
+        Write-AppLog "Loading launch script from embedded resources..." "DEBUG"
+        $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
+        if ($launchContent) {
+            Write-AppLog "Launch script loaded successfully" "DEBUG"
+            # Extract launch script to subfolder
+            $launchScript = Join-Path $filesDir "launch_claude.ps1"
+            Write-AppLog "Writing launch script to: [$launchScript]" "DEBUG"
+            [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
+            Write-AppLog "Launch script written successfully" "DEBUG"
 
-    # Get launch script content from memory
-    $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
-    if ($launchContent) {
-        # Extract launch script to subfolder
-        $launchScript = Join-Path $filesDir "launch_claude.ps1"
-        [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
+            $form.Hide()
+            # Run the launch script from subfolder with hidden console (no debug output visible to user)
+            # Use -WindowStyle parameter of Start-Process, not in ArgumentList
+            Write-AppLog "Starting launch_claude.ps1 process..." "INFO"
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$launchScript`"" -WindowStyle Hidden
+            Write-AppLog "Workspace launch process started successfully" "INFO"
 
-        $form.Hide()
-        # Run the launch script from subfolder with minimized window
-        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -WindowStyle Minimized -File `"$launchScript`""
-
-        # Wait a moment, then close the main form
-        Start-Sleep -Milliseconds 500
-        $form.Close()
+            # Wait a moment, then close the main form
+            Start-Sleep -Milliseconds 500
+            Write-AppLog "Closing main form" "INFO"
+            $form.Close()
+        } else {
+            Write-AppLog "ERROR: Failed to load launch script from embedded resources" "ERROR"
+            [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
+            $form.Show()
+        }
     } else {
-        [System.Windows.Forms.MessageBox]::Show("Error: Launch script could not be loaded from embedded resources.", "Error", 'OK', 'Error')
+        Write-AppLog "Container 'ai-cli' not found - checking setup status..." "WARN"
+
+        # No container exists - check if setup was ever run
+        $envFileMain = Join-Path $appDataDir ".env"
+        Write-AppLog "Checking for .env file at: [$envFileMain]" "DEBUG"
+
+        if (-not (Test-Path $envFileMain)) {
+            Write-AppLog ".env file not found - setup has not been completed" "WARN"
+            # Neither container nor .env exists - user needs to run setup
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Setup has not been completed yet.`n`n" +
+                "No AI Docker container was found on your system.`n`n" +
+                "Would you like to run the First Time Setup now?",
+                "Setup Required",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to setup prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+            return
+        } else {
+            Write-AppLog ".env file exists but container is missing" "WARN"
+            # .env exists but container is missing - offer to recreate
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Configuration file exists, but the Docker container is missing.`n`n" +
+                "The container may have been manually deleted.`n`n" +
+                "Would you like to run First Time Setup to recreate it?",
+                "Container Missing",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to recreate prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+            return
+        }
+    }
+    } catch {
+        # Catch any unhandled exceptions in launch handler
+        Write-AppLog "ERROR: Exception in Launch AI Workspace: $($_.Exception.Message)" "ERROR"
+        Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show(
+            "An error occurred while launching the workspace:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
+            "Launch Error",
+            'OK',
+            'Error'
+        )
         $form.Show()
     }
 })
@@ -348,6 +654,109 @@ $btnLaunch.Add_Click({
 $btnExit.Add_Click({
     $form.Close()
 })
+
+# Check if Docker Desktop is running on startup
+Write-AppLog "Checking if Docker Desktop is running..." "DEBUG"
+function Test-DockerRunning {
+    try {
+        $result = docker info 2>&1
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+$dockerRunning = Test-DockerRunning
+if (-not $dockerRunning) {
+    Write-AppLog "Docker Desktop is not running" "WARN"
+
+    $dockerMessage = "Docker Desktop is not running!`n`n" +
+                     "This application requires Docker Desktop to be running.`n`n" +
+                     "Would you like to open Docker Desktop now?`n`n" +
+                     "Yes = Open Docker Desktop for me`n" +
+                     "No = I'll open it myself`n" +
+                     "Cancel = Exit the application"
+
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $dockerMessage,
+        "Docker Desktop Required",
+        [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-AppLog "User chose to open Docker Desktop" "INFO"
+        # Try to start Docker Desktop
+        $dockerPath = $script:DockerDesktopPath
+        if (Test-Path $dockerPath) {
+            Start-Process $dockerPath
+        } else {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Could not find Docker Desktop.`n`n" +
+                "Please open it manually from your Start Menu.",
+                "Docker Desktop Not Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+        }
+
+        # Keep checking until Docker is running or user cancels
+        $keepWaiting = $true
+        while ($keepWaiting) {
+            $waitResult = [System.Windows.Forms.MessageBox]::Show(
+                "Waiting for Docker Desktop to start...`n`n" +
+                "This usually takes 20-30 seconds.`n`n" +
+                "Click 'Retry' to check if Docker is ready.`n" +
+                "Click 'Cancel' to exit.",
+                "Waiting for Docker",
+                [System.Windows.Forms.MessageBoxButtons]::RetryCancel,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+
+            if ($waitResult -eq [System.Windows.Forms.DialogResult]::Cancel) {
+                Write-AppLog "User cancelled while waiting for Docker" "INFO"
+                exit 0
+            }
+
+            # User clicked Retry - check if Docker is running now
+            if (Test-DockerRunning) {
+                Write-AppLog "Docker is now running" "INFO"
+                $keepWaiting = $false
+            } else {
+                Write-AppLog "Docker still not running, user will retry" "DEBUG"
+            }
+        }
+    } elseif ($result -eq [System.Windows.Forms.DialogResult]::Cancel) {
+        Write-AppLog "User cancelled - exiting application" "INFO"
+        exit 0
+    } else {
+        # User clicked No - they want to continue without Docker (their choice)
+        Write-AppLog "User chose to continue without Docker" "WARN"
+    }
+}
+
+# Check for updates on startup (non-blocking)
+Write-AppLog "Performing startup update check..." "DEBUG"
+$updateInfo = Check-ForUpdates
+if ($updateInfo.UpdateAvailable) {
+    Write-AppLog "Update available: v$($updateInfo.LatestVersion)" "INFO"
+    $updateMessage = "A new version is available!`n`n" +
+                     "Current: v$($updateInfo.CurrentVersion)`n" +
+                     "Latest: v$($updateInfo.LatestVersion)`n`n" +
+                     "Would you like to open the download page?"
+
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $updateMessage,
+        "Update Available",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-AppLog "User chose to open download page" "INFO"
+        Start-Process $updateInfo.ReleaseUrl
+    }
+}
 
 # Show form
 [void]$form.ShowDialog()
