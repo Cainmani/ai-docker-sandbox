@@ -32,35 +32,26 @@ jobs:
 
       - name: Build executable
         shell: pwsh
+        working-directory: scripts/build
         run: |
           # The build script embeds all files (docker configs, shell scripts, docs)
           # into the template and then compiles to .exe
 
-          # Change to build directory
-          Set-Location scripts/build
+          Write-Host "Current directory: $(Get-Location)"
+          Write-Host "Building from scripts/build directory..."
 
-          # Run the build script (non-interactive mode for CI)
-          $buildScript = Get-Content build_complete_exe.ps1 -Raw
+          # Run the build script directly (it handles paths relative to its location)
+          # Use -NonInteractive and pipe 'Y' to handle any prompts
+          & powershell.exe -ExecutionPolicy Bypass -File "build_complete_exe.ps1" -NonInteractive
 
-          # Remove the interactive prompt for CI
-          $buildScript = $buildScript -replace "Read-Host", "'Y'"
-
-          # Execute modified build script
-          Invoke-Expression $buildScript
-
-          # Move back to root
-          Set-Location ../..
-
-          # Update version in the exe metadata
+      - name: Verify build
+        shell: pwsh
+        run: |
           $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
 
-          # Verify the build
           if (Test-Path $outputPath) {
             Write-Host "Build successful: $outputPath"
             Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
-
-            # Verify no placeholders remain
-            Write-Host "Verifying embedded files..."
           } else {
             Write-Error "Build failed - output file not found"
             exit 1

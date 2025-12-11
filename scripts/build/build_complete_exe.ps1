@@ -113,6 +113,14 @@ if ($bundledContent -match "([A-Z_]+_BASE64_HERE)") {
             Write-Host "    $($match.Value)" -ForegroundColor Yellow
         }
         Write-Host ""
+
+        # Check if running in CI/non-interactive mode
+        if ($env:CI -or $env:GITHUB_ACTIONS -or [Environment]::UserInteractive -eq $false) {
+            Write-Host "  ERROR: Build failed with unreplaced placeholders (CI mode - cannot prompt)" -ForegroundColor Red
+            Remove-Item $bundledScriptPath -Force -ErrorAction SilentlyContinue
+            exit 1
+        }
+
         Write-Host "  This indicates the build may have failed. Continue anyway? (Y/N)" -ForegroundColor Yellow
         $response = Read-Host
         if ($response -ne 'Y' -and $response -ne 'y') {
