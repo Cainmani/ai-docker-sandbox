@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Version: $version"
+
+      - name: Install ps2exe
+        shell: pwsh
+        run: |
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+          Import-Module ps2exe
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          # Build the complete standalone executable
+          $scriptPath = Join-Path $PWD "scripts/AI_Docker_Complete.ps1"
+          $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
+
+          Invoke-ps2exe -inputFile $scriptPath -outputFile $outputPath -noConsole -title "AI Docker CLI Manager" -version "${{ steps.get_version.outputs.VERSION }}" -company "AI Docker CLI Manager" -product "AI Docker CLI Manager" -copyright "MIT License"
+
+          # Verify the build
+          if (Test-Path $outputPath) {
+            Write-Host "Build successful: $outputPath"
+            Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
+          } else {
+            Write-Error "Build failed - output file not found"
+            exit 1
+          }
+
+      - name: Generate SHA256 checksum
+        id: checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path "AI_Docker_Manager.exe" -Algorithm SHA256).Hash
+          echo "SHA256=$hash" >> $env:GITHUB_OUTPUT
+          echo "$hash  AI_Docker_Manager.exe" | Out-File -FilePath "AI_Docker_Manager.exe.sha256" -Encoding utf8
+          Write-Host "SHA256: $hash"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            AI_Docker_Manager.exe
+            AI_Docker_Manager.exe.sha256
+          body: |
+            ## AI Docker CLI Manager ${{ github.ref_name }}
+
+            ### Installation
+
+            1. Download `AI_Docker_Manager.exe` below
+            2. Run the executable (you may need to click "More info" → "Run anyway" on Windows SmartScreen)
+            3. Click "First Time Setup" to begin
+
+            ### SHA256 Checksum
+            ```
+            ${{ steps.checksum.outputs.SHA256 }}
+            ```
+
+            ### What's New
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+            ### Requirements
+            - Windows 10/11
+            - Docker Desktop
+
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

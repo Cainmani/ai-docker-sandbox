@@ -2,10 +2,24 @@
 # Requirements: Windows PowerShell 5+ or PowerShell 7+, Docker Desktop installed
 param([switch]$DevMode)
 
+# ============================================================
+# EARLY STARTUP LOGGING - Shows progress immediately
+# ============================================================
+Write-Host ""
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "  SETUP WIZARD STARTING..." -ForegroundColor Cyan
+Write-Host "  $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "[INIT] Loading .NET assemblies..." -ForegroundColor Yellow
+
 Add-Type -AssemblyName System.Windows.Forms
+Write-Host "[INIT] System.Windows.Forms loaded" -ForegroundColor Green
 Add-Type -AssemblyName System.Drawing
+Write-Host "[INIT] System.Drawing loaded" -ForegroundColor Green
 
 $script:IsDevMode = $DevMode.IsPresent
+Write-Host "[INIT] DevMode: $($script:IsDevMode)" -ForegroundColor Cyan
 
 # Show DEV MODE status at startup
 if ($script:IsDevMode) {
@@ -133,6 +147,63 @@ function Show-Error([string]$msg) {
 function Show-Info([string]$msg) {
     [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Information') | Out-Null
 }
+
+# Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
+function Test-NpmFunctional {
+    Write-Host "[INFO] Validating npm installation..." -ForegroundColor Cyan
+
+    # Check if npm command exists
+    $npmPath = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $npmPath) {
+        Write-Host "[ERROR] npm not found in PATH" -ForegroundColor Red
+        return @{ Valid = $false; Error = "npm not found in PATH"; NeedsInstall = $true }
+    }
+
+    # Verify npm can actually execute (catches "Unknown command: pm" type errors)
+    try {
+        $npmVersion = & npm --version 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] npm --version failed: $npmVersion" -ForegroundColor Red
+            return @{ Valid = $false; Error = "npm not functioning: $npmVersion"; NeedsRepair = $true }
+        }
+    } catch {
+        Write-Host "[ERROR] npm execution failed: $($_.Exception.Message)" -ForegroundColor Red
+        return @{ Valid = $false; Error = $_.Exception.Message; NeedsRepair = $true }
+    }
+
+    # Test npm can list global packages
+    try {
+        $listResult = & npm list -g --depth=0 2>&1
+        if ($LASTEXITCODE -ne 0 -and $listResult -notmatch "empty") {
+            Write-Host "[WARNING] npm global list had issues, but may still work" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[WARNING] Could not list npm global packages" -ForegroundColor Yellow
+    }
+
+    Write-Host "[OK] npm is functional (version: $npmVersion)" -ForegroundColor Green
+    return @{ Valid = $true; Version = $npmVersion; Path = $npmPath.Source }
+}
+
+# Function to attempt npm repair
+function Repair-NpmInstallation {
+    Write-Host "[INFO] Attempting to repair npm installation..." -ForegroundColor Yellow
+
+    # Refresh PATH from system
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+    # Clear npm cache
+    try {
+        & npm cache clean --force 2>&1 | Out-Null
+        Write-Host "[INFO] npm cache cleared" -ForegroundColor Cyan
+    } catch {
+        Write-Host "[WARNING] Could not clear npm cache" -ForegroundColor Yellow
+    }
+
+    # Re-test npm
+    return Test-NpmFunctional
+}
+
 $script:runningProcess = $null
 
 function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $statusLabel, [string]$workingDirectory = '') {
@@ -505,6 +576,7 @@ function Get-LinuxPasswordHash {
     return ''
 }
 
+Write-Host "[INIT] Checking for existing .env file..." -ForegroundColor Yellow
 # Load existing .env file if present (for retry scenarios)
 if (Test-Path $script:envPath) {
     Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
@@ -526,6 +598,7 @@ if (Test-Path $script:envPath) {
     }
 }
 
+Write-Host "[INIT] Detecting Docker files location..." -ForegroundColor Yellow
 # Docker files location - detect if running from embedded exe or project directory
 # If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
 # If running from project scripts folder, use ../docker
@@ -538,12 +611,17 @@ $dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
 }
 
 $composePath = Join-Path $dockerPath 'docker-compose.yml'
+Write-Host "[INIT] Docker path: $dockerPath" -ForegroundColor Cyan
+Write-Host "[INIT] Compose path: $composePath" -ForegroundColor Cyan
 if ((-not $script:IsDevMode) -and (-not (Test-Path $composePath))) {
+    Write-Host "[ERROR] docker-compose.yml not found!" -ForegroundColor Red
     Show-Error ('docker-compose.yml not found at: ' + $composePath + [Environment]::NewLine + [Environment]::NewLine + 'Project structure may be incorrect.' + [Environment]::NewLine + [Environment]::NewLine + 'Script location: ' + $PSScriptRoot + [Environment]::NewLine + 'Looking for: ' + $composePath)
     exit 1  # Exit with error code
 }
+Write-Host "[INIT] Docker compose file found" -ForegroundColor Green
 
 # ---------- main form ----------
+Write-Host "[INIT] Creating main form window..." -ForegroundColor Yellow
 $form = New-Object System.Windows.Forms.Form
 if ($script:IsDevMode) {
     $form.Text = '>>> AI CLI DOCKER SETUP :: [DEV MODE] <<<'
@@ -557,6 +635,14 @@ $form.BackColor = $script:MatrixDarkGreen
 $form.ForeColor = $script:MatrixGreen
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
+$form.TopMost = $true  # Ensure form comes to front when launched
+
+# Bring form to front when shown, then disable TopMost so user can interact with other windows
+$form.Add_Shown({
+    $this.Activate()
+    $this.BringToFront()
+    $this.TopMost = $false
+})
 
 # footer controls
 $btnBack = New-Button 'Back' 630 580
@@ -831,80 +917,110 @@ $btnSkipCodex.Add_Click({
 
 $btnSetupCodex.Add_Click({
     $script:codexTerminalBox.Text = ">> Starting Codex authentication setup...`r`n"
-    $script:lblCodexStatus.Text = 'Checking for Node.js/npm...'
+    $script:lblCodexStatus.Text = 'Validating Node.js/npm installation...'
     $script:lblCodexStatus.ForeColor = $script:MatrixGreen  # Reset color
     [System.Windows.Forms.Application]::DoEvents()
 
-    # Check if npm is available
-    $npmPath = Get-Command npm -ErrorAction SilentlyContinue
-    if (-not $npmPath) {
-        $script:codexTerminalBox.AppendText("[ERROR] Node.js/npm is not installed on Windows`r`n")
-        Write-Host "[ERROR] npm not found - Node.js not installed" -ForegroundColor Red
+    # Validate npm is working correctly (not just that it exists)
+    $script:codexTerminalBox.AppendText(">> Validating npm installation...`r`n")
+    [System.Windows.Forms.Application]::DoEvents()
+    $npmCheck = Test-NpmFunctional
 
-        # Offer to auto-install Node.js (skip in DEV MODE)
-        if (-not $script:IsDevMode) {
-            $installResult = [System.Windows.Forms.MessageBox]::Show(
-                "Node.js is required but not installed.`n`n" +
-                "Would you like to install Node.js automatically using winget?`n`n" +
-                "Click 'Yes' to install automatically`n" +
-                "Click 'No' to install manually from nodejs.org",
-                "Install Node.js?",
-                [System.Windows.Forms.MessageBoxButtons]::YesNo,
-                [System.Windows.Forms.MessageBoxIcon]::Question
-            )
-        } else {
-            Write-Host "[DEV MODE] Skipping Node.js install popup - assuming Yes" -ForegroundColor Magenta
-            $installResult = [System.Windows.Forms.DialogResult]::Yes
-        }
+    if (-not $npmCheck.Valid) {
+        $errorMessage = $npmCheck.Error
 
-        if ($installResult -eq [System.Windows.Forms.DialogResult]::Yes) {
-            $script:codexTerminalBox.AppendText("`r`n>> Installing Node.js via winget...`r`n")
-            $script:lblCodexStatus.Text = 'Installing Node.js (this may take a minute)...'
+        # Check if npm needs repair vs fresh install
+        if ($npmCheck.NeedsRepair) {
+            $script:codexTerminalBox.AppendText("[WARNING] npm exists but is not functioning correctly`r`n")
+            $script:codexTerminalBox.AppendText("[WARNING] Error: $errorMessage`r`n")
+            $script:codexTerminalBox.AppendText("`r`n>> Attempting to repair npm...`r`n")
             [System.Windows.Forms.Application]::DoEvents()
 
-            try {
-                # Try winget first
-                $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
-                if ($wingetCheck) {
-                    $script:codexTerminalBox.AppendText(">> Running: winget install OpenJS.NodeJS.LTS`r`n")
-                    [System.Windows.Forms.Application]::DoEvents()
+            $repairResult = Repair-NpmInstallation
+            if ($repairResult.Valid) {
+                $script:codexTerminalBox.AppendText("[OK] npm repair successful!`r`n")
+                $npmCheck = $repairResult
+            } else {
+                $script:codexTerminalBox.AppendText("[ERROR] npm repair failed`r`n")
+                $script:codexTerminalBox.AppendText("[INFO] Please reinstall Node.js from nodejs.org`r`n")
+                $script:lblCodexStatus.Text = 'npm repair failed. Please reinstall Node.js.'
+                $script:lblCodexStatus.ForeColor = [System.Drawing.Color]::Red
 
-                    $installProc = Start-Process -FilePath "winget" -ArgumentList "install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements" -Wait -PassThru -WindowStyle Normal
-
-                    if ($installProc.ExitCode -eq 0) {
-                        $script:codexTerminalBox.AppendText("[OK] Node.js installed successfully!`r`n")
-                        $script:codexTerminalBox.AppendText("`r`n>> Please click 'Setup Codex Auth' again to continue.`r`n")
-                        $script:lblCodexStatus.Text = 'Node.js installed! Click "Setup Codex Auth" again to continue.'
-                        $script:lblCodexStatus.ForeColor = $script:MatrixGreen
-
-                        # Refresh PATH for this session
-                        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-                    } else {
-                        $script:codexTerminalBox.AppendText("[WARNING] winget install may have failed. Try clicking Setup again.`r`n")
-                        $script:lblCodexStatus.Text = 'Installation may have completed. Click "Setup Codex Auth" to retry.'
-                    }
-                } else {
-                    $script:codexTerminalBox.AppendText("[ERROR] winget not available`r`n")
-                    $script:codexTerminalBox.AppendText(">> Opening Node.js download page...`r`n")
+                if (-not $script:IsDevMode) {
                     Start-Process "https://nodejs.org/"
-                    $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
                 }
-            } catch {
-                $script:codexTerminalBox.AppendText("[ERROR] Auto-install failed: $($_.Exception.Message)`r`n")
-                $script:lblCodexStatus.Text = 'Auto-install failed. Click "Setup Codex Auth" to retry after manual install.'
+                return
             }
         } else {
-            # User chose manual install - open browser
-            $script:codexTerminalBox.AppendText("`r`n>> Opening Node.js download page...`r`n")
-            Start-Process "https://nodejs.org/"
-            $script:codexTerminalBox.AppendText(">> After installing, click 'Setup Codex Auth' again.`r`n")
-            $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
+            # npm not installed at all
+            $script:codexTerminalBox.AppendText("[ERROR] Node.js/npm is not installed on Windows`r`n")
+            Write-Host "[ERROR] npm not found - Node.js not installed" -ForegroundColor Red
+
+            # Offer to auto-install Node.js (skip in DEV MODE)
+            if (-not $script:IsDevMode) {
+                $installResult = [System.Windows.Forms.MessageBox]::Show(
+                    "Node.js is required but not installed.`n`n" +
+                    "Would you like to install Node.js automatically using winget?`n`n" +
+                    "Click 'Yes' to install automatically`n" +
+                    "Click 'No' to install manually from nodejs.org",
+                    "Install Node.js?",
+                    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                    [System.Windows.Forms.MessageBoxIcon]::Question
+                )
+            } else {
+                Write-Host "[DEV MODE] Skipping Node.js install popup - assuming Yes" -ForegroundColor Magenta
+                $installResult = [System.Windows.Forms.DialogResult]::Yes
+            }
+
+            if ($installResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+                $script:codexTerminalBox.AppendText("`r`n>> Installing Node.js via winget...`r`n")
+                $script:lblCodexStatus.Text = 'Installing Node.js (this may take a minute)...'
+                [System.Windows.Forms.Application]::DoEvents()
+
+                try {
+                    # Try winget first
+                    $wingetCheck = Get-Command winget -ErrorAction SilentlyContinue
+                    if ($wingetCheck) {
+                        $script:codexTerminalBox.AppendText(">> Running: winget install OpenJS.NodeJS.LTS`r`n")
+                        [System.Windows.Forms.Application]::DoEvents()
+
+                        $installProc = Start-Process -FilePath "winget" -ArgumentList "install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements" -Wait -PassThru -WindowStyle Normal
+
+                        if ($installProc.ExitCode -eq 0) {
+                            $script:codexTerminalBox.AppendText("[OK] Node.js installed successfully!`r`n")
+                            $script:codexTerminalBox.AppendText("`r`n>> Please click 'Setup Codex Auth' again to continue.`r`n")
+                            $script:lblCodexStatus.Text = 'Node.js installed! Click "Setup Codex Auth" again to continue.'
+                            $script:lblCodexStatus.ForeColor = $script:MatrixGreen
+
+                            # Refresh PATH for this session
+                            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                        } else {
+                            $script:codexTerminalBox.AppendText("[WARNING] winget install may have failed. Try clicking Setup again.`r`n")
+                            $script:lblCodexStatus.Text = 'Installation may have completed. Click "Setup Codex Auth" to retry.'
+                        }
+                    } else {
+                        $script:codexTerminalBox.AppendText("[ERROR] winget not available`r`n")
+                        $script:codexTerminalBox.AppendText(">> Opening Node.js download page...`r`n")
+                        Start-Process "https://nodejs.org/"
+                        $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
+                    }
+                } catch {
+                    $script:codexTerminalBox.AppendText("[ERROR] Auto-install failed: $($_.Exception.Message)`r`n")
+                    $script:lblCodexStatus.Text = 'Auto-install failed. Click "Setup Codex Auth" to retry after manual install.'
+                }
+            } else {
+                # User chose manual install - open browser
+                $script:codexTerminalBox.AppendText("`r`n>> Opening Node.js download page...`r`n")
+                Start-Process "https://nodejs.org/"
+                $script:codexTerminalBox.AppendText(">> After installing, click 'Setup Codex Auth' again.`r`n")
+                $script:lblCodexStatus.Text = 'Install Node.js from the browser, then click "Setup Codex Auth" again.'
+            }
+            return
         }
-        return
     }
 
-    $script:codexTerminalBox.AppendText("[OK] Node.js/npm found`r`n")
-    Write-Host "[OK] npm found at: $($npmPath.Source)" -ForegroundColor Green
+    $script:codexTerminalBox.AppendText("[OK] Node.js/npm validated (version: $($npmCheck.Version))`r`n")
+    Write-Host "[OK] npm validated at: $($npmCheck.Path)" -ForegroundColor Green
 
     # Install Codex globally
     $script:lblCodexStatus.Text = 'Installing Codex CLI on Windows (temporary)...'
@@ -990,9 +1106,29 @@ $btnSetupCodex.Add_Click({
             $script:codexTerminalBox.AppendText("`r`n[SUCCESS] Authentication completed!`r`n")
             $script:codexTerminalBox.AppendText("[SUCCESS] Found auth.json at: $authFile`r`n")
             Write-Host "[SUCCESS] Codex auth.json found" -ForegroundColor Green
+
+            # Auto-close the Codex auth cmd window now that auth is complete
+            if ($codexAuthProcess -and -not $codexAuthProcess.HasExited) {
+                $script:codexTerminalBox.AppendText("[INFO] Closing Codex auth window automatically...`r`n")
+                Write-Host "[INFO] Auto-closing Codex auth window" -ForegroundColor Cyan
+                try {
+                    $codexAuthProcess.CloseMainWindow() | Out-Null
+                    Start-Sleep -Milliseconds 500
+                    if (-not $codexAuthProcess.HasExited) {
+                        $codexAuthProcess.Kill()
+                    }
+                    $script:codexTerminalBox.AppendText("[OK] Auth window closed`r`n")
+                } catch {
+                    Write-Host "[WARNING] Could not auto-close auth window: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
             break
         }
-        Start-Sleep -Seconds 3
+        # Use smaller sleep increments to keep UI responsive (prevents "Not Responding")
+        for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Milliseconds 100
+            [System.Windows.Forms.Application]::DoEvents()
+        }
         $waited += 3
         $remainingTime = $maxWait - $waited
         $script:lblCodexStatus.Text = "Waiting for authentication... ($waited/$maxWait seconds - $remainingTime remaining)"
@@ -1366,8 +1502,14 @@ $btnNext.Add_Click({
                     return
                 }
             }
-            Write-Host "[SUCCESS] Docker verified - proceeding to build" -ForegroundColor Green
+            Write-Host "[SUCCESS] Docker verified - proceeding to build page" -ForegroundColor Green
             $script:current++; Show-Page $script:current
+            # STOP HERE - let user see Page 4 and toggle Force Rebuild checkbox if needed
+            # Build will start when user clicks Next on Page 4 (case 4)
+        }
+        4 {
+            # Build/Deploy page - user clicked Next, start the build process
+            Write-Host "[DEBUG] Page 4: Starting build process" -ForegroundColor Cyan
 
             # DEV MODE: Skip all Docker operations
             if ($script:IsDevMode) {
@@ -1508,11 +1650,14 @@ $btnNext.Add_Click({
             }
             Write-Host "[SUCCESS] Container started" -ForegroundColor Green
 
-            # Wait for container to fully initialize
+            # Wait for container to fully initialize (responsive sleep)
             $script:lblBuildStatus.Text = 'Waiting for container to initialize...'
             $script:buildTerminalBox.AppendText(">> Waiting for container initialization (5 seconds)...`r`n")
             Write-Host "[INFO] Waiting 5 seconds for container to fully initialize..." -ForegroundColor Cyan
-            Start-Sleep -Seconds 5
+            for ($i = 0; $i -lt 50; $i++) {
+                Start-Sleep -Milliseconds 100
+                [System.Windows.Forms.Application]::DoEvents()
+            }
 
             # Verify container is actually running
             $script:buildTerminalBox.AppendText(">> Verifying container status...`r`n")
@@ -1555,8 +1700,11 @@ $btnNext.Add_Click({
             $script:terminalBox.ScrollToCaret()
             [System.Windows.Forms.Application]::DoEvents()
 
-            # Give entrypoint time to start the installation
-            Start-Sleep -Seconds 5
+            # Give entrypoint time to start the installation (responsive sleep)
+            for ($i = 0; $i -lt 50; $i++) {
+                Start-Sleep -Milliseconds 100
+                [System.Windows.Forms.Application]::DoEvents()
+            }
 
             # Track last log position for incremental updates
             $script:lastLogLines = 0
@@ -1703,12 +1851,6 @@ $btnNext.Add_Click({
             $status.Text = 'system ready'
             $script:current++; Show-Page $script:current
         }
-        4 {
-            # Build/Deploy page - this page auto-advances via case 3's flow
-            # If user somehow clicks Next directly, just show a message
-            Write-Host "[INFO] Build page - process is handled automatically" -ForegroundColor Yellow
-            $status.Text = 'Build process is automatic - please wait...'
-        }
         5 {
             # Install CLI Tools page - this page auto-advances via case 3's flow
             # If user somehow clicks Next directly, just show a message
@@ -1854,6 +1996,11 @@ Write-Host "[INIT] Creating GUI form..." -ForegroundColor Cyan
 
 Show-Page 0
 Write-Host "[INIT] Displaying page 0 (Welcome)" -ForegroundColor Green
+Write-Host ""
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host "  WIZARD READY - Opening window now..." -ForegroundColor Green
+Write-Host "================================================================" -ForegroundColor Green
+Write-Host ""
 $result = $form.ShowDialog()
 Write-Host ""
 Write-Host "[SHUTDOWN] Wizard closed" -ForegroundColor Yellow

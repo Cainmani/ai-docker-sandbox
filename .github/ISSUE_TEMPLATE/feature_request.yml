@@ -1,0 +1,69 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please provide as much detail as possible.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like
+      placeholder: "I would like the ability to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What area does this feature relate to?
+      options:
+        - Setup Wizard
+        - AI CLI Tools (Claude, GitHub CLI, Gemini, etc.)
+        - Docker Container
+        - User Interface
+        - Documentation
+        - Auto-Updates
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, mockups, or screenshots about the feature request
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to make sure this is not a duplicate
+          required: true
+        - label: I am willing to help implement this feature
+          required: false

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = @()
+
+          Get-ChildItem -Path "scripts/*.ps1" | ForEach-Object {
+            Write-Host "Checking: $($_.Name)"
+            try {
+              $null = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$null)
+              Write-Host "  ✓ Syntax OK" -ForegroundColor Green
+            } catch {
+              Write-Host "  ✗ Syntax Error: $($_.Exception.Message)" -ForegroundColor Red
+              $errors += $_.FullName
+            }
+          }
+
+          if ($errors.Count -gt 0) {
+            Write-Error "Syntax errors found in: $($errors -join ', ')"
+            exit 1
+          }
+
+      - name: Validate Dockerfile
+        shell: bash
+        run: |
+          echo "Checking Dockerfile syntax..."
+          if docker build --check -f docker/Dockerfile docker/ 2>/dev/null; then
+            echo "✓ Dockerfile syntax OK"
+          else
+            # --check not available in all Docker versions, try basic validation
+            if grep -q "^FROM" docker/Dockerfile; then
+              echo "✓ Dockerfile has FROM instruction"
+            else
+              echo "✗ Dockerfile missing FROM instruction"
+              exit 1
+            fi
+          fi
+
+      - name: Check for common issues
+        shell: pwsh
+        run: |
+          $issues = @()
+
+          # Check for hardcoded paths that might not work on other systems
+          $files = Get-ChildItem -Path "scripts/*.ps1" -Recurse
+          foreach ($file in $files) {
+            $content = Get-Content $file.FullName -Raw
+            if ($content -match 'C:\\Users\\[^$]') {
+              $issues += "$($file.Name): Contains hardcoded user path"
+            }
+          }
+
+          # Check for TODO/FIXME comments
+          $todoCount = (Get-ChildItem -Path "scripts/*.ps1" | Select-String -Pattern "TODO|FIXME" -AllMatches).Matches.Count
+          if ($todoCount -gt 0) {
+            Write-Host "Note: Found $todoCount TODO/FIXME comments" -ForegroundColor Yellow
+          }
+
+          if ($issues.Count -gt 0) {
+            Write-Warning "Issues found:"
+            $issues | ForEach-Object { Write-Warning "  - $_" }
+          }
+
+          Write-Host "Validation complete"

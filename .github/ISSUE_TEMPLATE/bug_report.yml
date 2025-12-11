@@ -1,0 +1,104 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us investigate.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "When I click X, Y happens instead of Z..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Open the application
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Windows Version
+      description: What version of Windows are you using?
+      placeholder: "Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker Desktop Version
+      description: What version of Docker Desktop are you using?
+      placeholder: "Docker Desktop 4.27.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log File Contents
+      description: |
+        **IMPORTANT**: Please attach the log file from:
+        `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log`
+
+        You can find this by:
+        1. Press Win+R
+        2. Type: `%LOCALAPPDATA%\AI-Docker-CLI\logs`
+        3. Open `ai-docker.log` in Notepad
+        4. Copy and paste the relevant sections here
+      placeholder: |
+        [2025-01-24 14:32:15.123] [INFO] [LAUNCHER] First Time Setup button clicked
+        [2025-01-24 14:32:15.234] [ERROR] [LAUNCHER] ...
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain your problem.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to make sure this is not a duplicate
+          required: true
+        - label: I have included the log file or relevant log entries
+          required: false
+        - label: Docker Desktop is installed and running
+          required: false

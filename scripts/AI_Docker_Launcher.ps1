@@ -35,6 +35,44 @@ Write-AppLog "AI Docker Launcher Started" "INFO"
 Write-AppLog "Log file: $script:LogFile" "INFO"
 Write-AppLog "========================================" "INFO"
 
+# Version information
+$script:AppVersion = "1.0.0"
+$script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
+
+# Function to check for updates
+function Check-ForUpdates {
+    try {
+        Write-AppLog "Checking for updates..." "DEBUG"
+        $releaseUrl = "https://api.github.com/repos/$script:GitHubRepo/releases/latest"
+        $response = Invoke-RestMethod -Uri $releaseUrl -Method Get -TimeoutSec 5 -ErrorAction Stop
+
+        $latestVersion = $response.tag_name -replace '^v', ''
+        Write-AppLog "Latest version: $latestVersion, Current version: $script:AppVersion" "DEBUG"
+
+        if ($latestVersion -and ($latestVersion -ne $script:AppVersion)) {
+            # Compare versions
+            $current = [Version]$script:AppVersion
+            $latest = [Version]$latestVersion
+
+            if ($latest -gt $current) {
+                Write-AppLog "Update available: $latestVersion" "INFO"
+                return @{
+                    UpdateAvailable = $true
+                    CurrentVersion = $script:AppVersion
+                    LatestVersion = $latestVersion
+                    DownloadUrl = $response.assets | Where-Object { $_.name -like "*.exe" } | Select-Object -First 1 -ExpandProperty browser_download_url
+                    ReleaseUrl = $response.html_url
+                    ReleaseNotes = $response.body
+                }
+            }
+        }
+        return @{ UpdateAvailable = $false }
+    } catch {
+        Write-AppLog "Update check failed: $($_.Exception.Message)" "DEBUG"
+        return @{ UpdateAvailable = $false; Error = $_.Exception.Message }
+    }
+}
+
 # Matrix Green Theme Colors
 $script:MatrixGreen = [System.Drawing.Color]::FromArgb(0, 255, 65)
 $script:MatrixDarkGreen = [System.Drawing.Color]::FromArgb(0, 20, 0)
@@ -176,9 +214,20 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Status label for loading feedback
+$lblStatus = New-Object System.Windows.Forms.Label
+$lblStatus.Left = 20; $lblStatus.Top = 390
+$lblStatus.Width = 560; $lblStatus.Height = 24
+$lblStatus.Text = ""
+$lblStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 0)  # Yellow/Gold for visibility
+$lblStatus.BackColor = 'Transparent'
+$lblStatus.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($lblStatus)
+
 # Separator line above Exit button
 $lblSeparator = New-Object System.Windows.Forms.Label
-$lblSeparator.Left = 20; $lblSeparator.Top = 405
+$lblSeparator.Left = 20; $lblSeparator.Top = 420
 $lblSeparator.Width = 560; $lblSeparator.Height = 20
 $lblSeparator.Text = "============================================================"
 $lblSeparator.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -190,7 +239,7 @@ $form.Controls.Add($lblSeparator)
 # Button 3: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
-$btnExit.Left = 250; $btnExit.Top = 440
+$btnExit.Left = 250; $btnExit.Top = 455
 $btnExit.Width = 100; $btnExit.Height = 35
 $btnExit.FlatStyle = 'Flat'
 $btnExit.FlatAppearance.BorderColor = $script:MatrixAccent
@@ -209,6 +258,18 @@ $btnSetup.Add_Click({
 
     if (Test-Path $setupScript) {
         Write-AppLog "Setup script found, launching..." "INFO"
+
+        # Show loading feedback BEFORE hiding the form
+        $lblStatus.Text = ">>> LOADING SETUP WIZARD... <<<"
+        $btnSetup.Enabled = $false
+        $btnLaunch.Enabled = $false
+        $btnExit.Enabled = $false
+        [System.Windows.Forms.Application]::DoEvents()  # Force UI update
+        Write-AppLog "Loading indicator shown, buttons disabled" "DEBUG"
+
+        # Brief pause so user sees the loading message
+        Start-Sleep -Milliseconds 500
+
         $form.Hide()
 
         # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
@@ -225,18 +286,26 @@ $btnSetup.Add_Click({
             Write-AppLog "Launch arguments: $argList" "DEBUG"
         }
 
-        # In DEV MODE, show console for debug output. In normal mode, hide it.
+        # Show console window for progress visibility (helps users see what's happening)
+        # DEV MODE (Shift+Click) shows minimized console, normal mode shows normal console
         Write-AppLog "Starting setup wizard process..." "INFO"
         if ($devModeArg) {
-            # DEV MODE: Show console window so user can see debug messages
+            # DEV MODE: Normal console window for full debug visibility
             Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
             $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
         } else {
-            # NORMAL MODE: Hide console for clean UX
-            Write-AppLog "Normal mode: Launching with hidden console" "DEBUG"
-            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
+            # NORMAL MODE: Show console (minimized) so user can see progress if needed
+            # This prevents the "nothing happening" experience when wizard takes time to load
+            Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
+            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
         }
         Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
+
+        # Reset UI state
+        $lblStatus.Text = ""
+        $btnSetup.Enabled = $true
+        $btnLaunch.Enabled = $true
+        $btnExit.Enabled = $true
 
         $form.Show()
         if ($process.ExitCode -eq 0) {
@@ -352,6 +421,109 @@ $btnLaunch.Add_Click({
 $btnExit.Add_Click({
     $form.Close()
 })
+
+# Check if Docker Desktop is running on startup
+Write-AppLog "Checking if Docker Desktop is running..." "DEBUG"
+function Test-DockerRunning {
+    try {
+        $result = docker info 2>&1
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    }
+}
+
+$dockerRunning = Test-DockerRunning
+if (-not $dockerRunning) {
+    Write-AppLog "Docker Desktop is not running" "WARN"
+
+    $dockerMessage = "Docker Desktop is not running!`n`n" +
+                     "This application requires Docker Desktop to be running.`n`n" +
+                     "Would you like to open Docker Desktop now?`n`n" +
+                     "Yes = Open Docker Desktop for me`n" +
+                     "No = I'll open it myself`n" +
+                     "Cancel = Exit the application"
+
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $dockerMessage,
+        "Docker Desktop Required",
+        [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-AppLog "User chose to open Docker Desktop" "INFO"
+        # Try to start Docker Desktop
+        $dockerPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $dockerPath) {
+            Start-Process $dockerPath
+        } else {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Could not find Docker Desktop.`n`n" +
+                "Please open it manually from your Start Menu.",
+                "Docker Desktop Not Found",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+        }
+
+        # Keep checking until Docker is running or user cancels
+        $keepWaiting = $true
+        while ($keepWaiting) {
+            $waitResult = [System.Windows.Forms.MessageBox]::Show(
+                "Waiting for Docker Desktop to start...`n`n" +
+                "This usually takes 20-30 seconds.`n`n" +
+                "Click 'Retry' to check if Docker is ready.`n" +
+                "Click 'Cancel' to exit.",
+                "Waiting for Docker",
+                [System.Windows.Forms.MessageBoxButtons]::RetryCancel,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+
+            if ($waitResult -eq [System.Windows.Forms.DialogResult]::Cancel) {
+                Write-AppLog "User cancelled while waiting for Docker" "INFO"
+                exit 0
+            }
+
+            # User clicked Retry - check if Docker is running now
+            if (Test-DockerRunning) {
+                Write-AppLog "Docker is now running" "INFO"
+                $keepWaiting = $false
+            } else {
+                Write-AppLog "Docker still not running, user will retry" "DEBUG"
+            }
+        }
+    } elseif ($result -eq [System.Windows.Forms.DialogResult]::Cancel) {
+        Write-AppLog "User cancelled - exiting application" "INFO"
+        exit 0
+    } else {
+        # User clicked No - they want to continue without Docker (their choice)
+        Write-AppLog "User chose to continue without Docker" "WARN"
+    }
+}
+
+# Check for updates on startup (non-blocking)
+Write-AppLog "Performing startup update check..." "DEBUG"
+$updateInfo = Check-ForUpdates
+if ($updateInfo.UpdateAvailable) {
+    Write-AppLog "Update available: v$($updateInfo.LatestVersion)" "INFO"
+    $updateMessage = "A new version is available!`n`n" +
+                     "Current: v$($updateInfo.CurrentVersion)`n" +
+                     "Latest: v$($updateInfo.LatestVersion)`n`n" +
+                     "Would you like to open the download page?"
+
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $updateMessage,
+        "Update Available",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-AppLog "User chose to open download page" "INFO"
+        Start-Process $updateInfo.ReleaseUrl
+    }
+}
 
 # Show form
 [void]$form.ShowDialog()
