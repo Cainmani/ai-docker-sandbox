@@ -9,10 +9,10 @@
     "deny": [],
     "ask": []
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "context7",
     "memory",
     "github"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

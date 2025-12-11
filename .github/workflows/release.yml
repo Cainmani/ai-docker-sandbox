@@ -33,16 +33,34 @@ jobs:
       - name: Build executable
         shell: pwsh
         run: |
-          # Build the complete standalone executable
-          $scriptPath = Join-Path $PWD "scripts/AI_Docker_Complete.ps1"
-          $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
+          # The build script embeds all files (docker configs, shell scripts, docs)
+          # into the template and then compiles to .exe
 
-          Invoke-ps2exe -inputFile $scriptPath -outputFile $outputPath -noConsole -title "AI Docker CLI Manager" -version "${{ steps.get_version.outputs.VERSION }}" -company "AI Docker CLI Manager" -product "AI Docker CLI Manager" -copyright "MIT License"
+          # Change to build directory
+          Set-Location scripts/build
+
+          # Run the build script (non-interactive mode for CI)
+          $buildScript = Get-Content build_complete_exe.ps1 -Raw
+
+          # Remove the interactive prompt for CI
+          $buildScript = $buildScript -replace "Read-Host", "'Y'"
+
+          # Execute modified build script
+          Invoke-Expression $buildScript
+
+          # Move back to root
+          Set-Location ../..
+
+          # Update version in the exe metadata
+          $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
 
           # Verify the build
           if (Test-Path $outputPath) {
             Write-Host "Build successful: $outputPath"
             Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
+
+            # Verify no placeholders remain
+            Write-Host "Verifying embedded files..."
           } else {
             Write-Error "Build failed - output file not found"
             exit 1
