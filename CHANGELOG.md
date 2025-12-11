@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-12-11
+
+### Added
+- Version display in GUI footer (bottom-left corner)
+- "Report Issue" clickable link in GUI footer (bottom-right corner)
+- Link opens GitHub bug report template directly
+
+### Changed
+- Increased form height to accommodate new footer elements
+
 ## [1.0.0] - 2025-12-11
 
 ### Added
@@ -45,7 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Cainmani/ai-docker-cli-setup/releases/tag/v1.0.0
