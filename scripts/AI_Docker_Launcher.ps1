@@ -38,7 +38,7 @@ Write-AppLog "========================================" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.0.0"
+$script:AppVersion = "1.0.1"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -132,7 +132,7 @@ Write-AppLog "Final scriptPath: [$scriptPath]" "INFO"
 $form = New-Object System.Windows.Forms.Form
 $form.Text = ">>> AI CLI DOCKER MANAGER <<<"
 $form.Width = 600
-$form.Height = 550
+$form.Height = 590
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = $script:MatrixDarkGreen
 $form.ForeColor = $script:MatrixGreen
@@ -259,6 +259,33 @@ $btnExit.BackColor = $script:MatrixMidGreen
 $btnExit.ForeColor = $script:MatrixGreen
 $btnExit.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($btnExit)
+
+# Footer with version and Report Issue link
+$lblVersion = New-Object System.Windows.Forms.Label
+$lblVersion.Left = 20; $lblVersion.Top = 505
+$lblVersion.Width = 280; $lblVersion.Height = 20
+$lblVersion.Text = "v$script:AppVersion"
+$lblVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$lblVersion.ForeColor = [System.Drawing.Color]::FromArgb(100, 150, 100)  # Dimmer green
+$lblVersion.BackColor = 'Transparent'
+$lblVersion.Font = New-Object System.Drawing.Font('Consolas', 8)
+$form.Controls.Add($lblVersion)
+
+$lblReportIssue = New-Object System.Windows.Forms.LinkLabel
+$lblReportIssue.Left = 300; $lblReportIssue.Top = 505
+$lblReportIssue.Width = 280; $lblReportIssue.Height = 20
+$lblReportIssue.Text = "Report Issue"
+$lblReportIssue.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$lblReportIssue.LinkColor = $script:MatrixAccent
+$lblReportIssue.ActiveLinkColor = $script:MatrixGreen
+$lblReportIssue.VisitedLinkColor = $script:MatrixAccent
+$lblReportIssue.BackColor = 'Transparent'
+$lblReportIssue.Font = New-Object System.Drawing.Font('Consolas', 8)
+$lblReportIssue.Add_LinkClicked({
+    Write-AppLog "Report Issue link clicked" "INFO"
+    Start-Process "https://github.com/$script:GitHubRepo/issues/new?template=bug_report.yml"
+})
+$form.Controls.Add($lblReportIssue)
 
 # Event Handlers
 $btnSetup.Add_Click({
