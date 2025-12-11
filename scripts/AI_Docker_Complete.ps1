@@ -137,10 +137,14 @@ $script:EmbeddedFiles = @{
 # ============================================================
 # STARTUP VALIDATION - Detect if .exe was built incorrectly
 # ============================================================
+# Placeholder format: UPPERCASE_NAME_BASE64_HERE (e.g., DOCKERFILE_BASE64_HERE)
+# The build script replaces these with actual Base64-encoded file contents.
+# If placeholders remain, it means the build process failed or was skipped.
 function Test-EmbeddedFilesValid {
     foreach ($key in $script:EmbeddedFiles.Keys) {
         $content = $script:EmbeddedFiles[$key]
-        if ($content -match "^[A-Z_]+_BASE64_HERE$") {
+        # Match placeholder pattern: starts with optional underscore, uppercase letters/underscores, ends with _BASE64_HERE
+        if ($content -match "^_?[A-Z][A-Z0-9_]*_BASE64_HERE$") {
             return @{
                 Valid = $false
                 Message = "File '$key' contains placeholder: $content"
