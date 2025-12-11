@@ -73,9 +73,17 @@ function Check-ForUpdates {
         Write-AppLog "Latest version: $latestVersion, Current version: $script:AppVersion" "DEBUG"
 
         if ($latestVersion -and ($latestVersion -ne $script:AppVersion)) {
-            # Compare versions
-            $current = [Version]$script:AppVersion
-            $latest = [Version]$latestVersion
+            # Validate version strings before comparison
+            $current = $null
+            $latest = $null
+            if (-not [Version]::TryParse($script:AppVersion, [ref]$current)) {
+                Write-AppLog "Invalid current version format: $script:AppVersion" "WARN"
+                return @{ UpdateAvailable = $false }
+            }
+            if (-not [Version]::TryParse($latestVersion, [ref]$latest)) {
+                Write-AppLog "Invalid latest version format from API: $latestVersion" "WARN"
+                return @{ UpdateAvailable = $false }
+            }
 
             if ($latest -gt $current) {
                 Write-AppLog "Update available: $latestVersion" "INFO"
