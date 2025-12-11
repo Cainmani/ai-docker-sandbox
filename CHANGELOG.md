@@ -7,23 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Production-level logging system with centralized log file
-- Live terminal display during Docker build and CLI tools installation
-- Status feedback indicators in launcher UI
-- Force rebuild checkbox now visible before build starts
-- Early startup logging for debugging wizard initialization
-- Console window visible (minimized) during setup for progress visibility
-
-### Changed
-- Improved setup wizard flow - users can now toggle Force Rebuild before build starts
-- Enhanced error handling with UI state reset on failures
-
-### Fixed
-- Fixed issue where setup wizard showed no feedback during initialization
-- Fixed Force Rebuild checkbox not being usable (build started automatically)
-
-## [1.0.0] - 2025-01-XX
+## [1.0.0] - 2025-12-11
 
 ### Added
 - Initial release of AI Docker CLI Manager
@@ -41,11 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker status checking and validation
 - DEV MODE for UI testing (Shift+Click)
 - Comprehensive documentation
+- Production-level logging system (`%LOCALAPPDATA%\AI-Docker-CLI\logs\`)
+- Live terminal display during Docker build
+- Docker Desktop startup check with retry loop
+- Codex subscription authentication support (OAuth flow)
+- Auto-update checker for new releases
+- GitHub integration (issue templates, CI/CD workflows)
 
 ### Security
 - Secure password hashing for Ubuntu user
 - Docker isolation prevents AI access to host system files
 - Credentials stored securely in container
+- Codex auth.json validation before sync
+- Process check before removing .codex folder
 
 ---
 
@@ -53,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
-| 1.0.0 | 2025-01-XX | Initial public release |
+| 1.0.0 | 2025-12-11 | Initial production release |
 
 [Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/Cainmani/ai-docker-cli-setup/releases/tag/v1.0.0

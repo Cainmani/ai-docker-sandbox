@@ -10,13 +10,11 @@
 
 <p align="center">
   <a href="https://github.com/Cainmani/ai-docker-cli-setup/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Cainmani/ai-docker-cli-setup?style=for-the-badge&logo=github&label=Download" alt="Download Latest Release">
+    <img src="https://img.shields.io/badge/Download-v1.0.0-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
+  &nbsp;
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/Cainmani/ai-docker-cli-setup?style=for-the-badge" alt="License">
-  </a>
-  <a href="https://github.com/Cainmani/ai-docker-cli-setup/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/Cainmani/ai-docker-cli-setup/ci.yml?style=for-the-badge&label=CI" alt="CI Status">
+    <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
   </a>
 </p>
 
