@@ -55,6 +55,8 @@ command_exists() {
 }
 
 # Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
+# NOTE: Parallel implementation exists in scripts/setup_wizard.ps1 (Test-NpmFunctional)
+#       for Windows host. Keep both in sync when making changes.
 validate_npm() {
     print_status "Validating npm installation..."
 
@@ -95,6 +97,7 @@ validate_npm() {
 }
 
 # Function to attempt npm repair if validation fails
+# NOTE: Parallel implementation exists in scripts/setup_wizard.ps1 (Repair-NpmInstallation)
 repair_npm() {
     print_warning "Attempting to repair npm installation..."
 

@@ -149,6 +149,8 @@ function Show-Info([string]$msg) {
 }
 
 # Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
+# NOTE: Parallel implementation exists in docker/install_cli_tools.sh (validate_npm)
+#       for the Linux container. Keep both in sync when making changes.
 function Test-NpmFunctional {
     Write-Host "[INFO] Validating npm installation..." -ForegroundColor Cyan
 
@@ -186,6 +188,7 @@ function Test-NpmFunctional {
 }
 
 # Function to attempt npm repair
+# NOTE: Parallel implementation exists in docker/install_cli_tools.sh (repair_npm)
 function Repair-NpmInstallation {
     Write-Host "[INFO] Attempting to repair npm installation..." -ForegroundColor Yellow
 
