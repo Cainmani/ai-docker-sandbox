@@ -61,7 +61,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.0.1"
+$script:AppVersion = "1.1.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -486,8 +486,6 @@ $btnSetup.Add_Click({
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
                 [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 300  # Brief pause so user sees the status
-                $form.Hide()
 
                 # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
                 $devModeArg = ""
@@ -504,17 +502,46 @@ $btnSetup.Add_Click({
                     Write-AppLog "Launch arguments: $argList" "DEBUG"
                 }
 
-                # Show console window for progress visibility (helps users see what's happening)
+                # Start wizard process WITHOUT -Wait so we can keep showing status
                 Write-AppLog "Starting setup wizard process..." "INFO"
                 if ($devModeArg) {
-                    # DEV MODE: Normal console window for full debug visibility
                     Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
-                    $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
+                    $process = Start-Process powershell.exe -ArgumentList $argList -PassThru
                 } else {
-                    # NORMAL MODE: Show console (minimized) so user can see progress if needed
                     Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
-                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
+                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -PassThru
                 }
+
+                # Keep menu visible with status while wizard loads
+                # Wait for wizard window to appear (poll for process to have a main window)
+                $lblStatus.Text = ">>> WAITING FOR WIZARD WINDOW... <<<"
+                [System.Windows.Forms.Application]::DoEvents()
+
+                $maxWaitMs = 5000  # Max 5 seconds
+                $waited = 0
+                while ($waited -lt $maxWaitMs -and -not $process.HasExited) {
+                    Start-Sleep -Milliseconds 100
+                    $waited += 100
+                    [System.Windows.Forms.Application]::DoEvents()
+
+                    # Check if process has a main window handle (wizard GUI is visible)
+                    try {
+                        $process.Refresh()
+                        if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                            Write-AppLog "Wizard window detected after ${waited}ms" "DEBUG"
+                            break
+                        }
+                    } catch {
+                        # Process may have exited, continue
+                    }
+                }
+
+                # Now hide the menu since wizard is visible (or timeout reached)
+                $form.Hide()
+                Write-AppLog "Menu hidden, waiting for wizard to complete..." "DEBUG"
+
+                # Wait for wizard process to complete
+                $process.WaitForExit()
                 Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
 
                 # Reset UI state

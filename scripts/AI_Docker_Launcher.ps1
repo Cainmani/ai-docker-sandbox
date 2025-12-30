@@ -38,7 +38,7 @@ Write-AppLog "========================================" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.0.1"
+$script:AppVersion = "1.1.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
