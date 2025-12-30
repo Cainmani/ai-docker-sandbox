@@ -205,8 +205,8 @@ if ($containerStatus -ne "ai-cli") {
     Write-AppLog "Container is already running" "DEBUG"
 }
 
-# Read username from .env file
-$userName = "user"  # default
+# Read username from .env file - REQUIRED, no fallback
+$userName = $null
 Write-AppLog "Reading username from .env..." "DEBUG"
 
 try {
@@ -224,11 +224,17 @@ try {
             }
         }
     } else {
-        Write-AppLog ".env file not found at [$envFile], using default username" "DEBUG"
+        Write-AppLog ".env file not found at [$envFile]" "ERROR"
     }
 } catch {
     Write-AppLog "ERROR reading .env file: $($_.Exception.Message)" "ERROR"
-    $userName = "user"
+}
+
+# If username not found, show error and exit - do NOT use fallback
+if (-not $userName) {
+    Write-AppLog "ERROR: Could not determine username - .env file missing or invalid" "ERROR"
+    ShowMsg "Configuration error: .env file is missing or invalid.`n`nPlease run 'First Time Setup' again to fix this." 'Error'
+    exit 1
 }
 Write-AppLog "Final username: [$userName]" "INFO"
 
