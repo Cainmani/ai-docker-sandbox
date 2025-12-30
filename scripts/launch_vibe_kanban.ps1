@@ -223,6 +223,7 @@ if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
 
 # Start Vibe Kanban in the container
 Write-AppLog "Starting Vibe Kanban server..." "INFO"
+Write-AppLog "NOTE: First run may take 1-2 minutes to download required files (~26MB)" "INFO"
 
 # Run Vibe Kanban in background with proper environment variables
 # HOST=0.0.0.0 allows access from Windows host
@@ -232,9 +233,9 @@ Write-AppLog "Start command: $startCmd" "DEBUG"
 
 & $dockerPath exec -d -u $userName -w /workspace ai-cli bash -c $startCmd 2>&1 | Out-Null
 
-# Wait for server to start
-Write-AppLog "Waiting for Vibe Kanban to start..." "INFO"
-$maxWait = 15  # seconds
+# Wait for server to start (longer timeout for first-run download)
+Write-AppLog "Waiting for Vibe Kanban to start (may take longer on first run)..." "INFO"
+$maxWait = 90  # seconds - first run downloads ~26MB
 $waited = 0
 $serverStarted = $false
 
