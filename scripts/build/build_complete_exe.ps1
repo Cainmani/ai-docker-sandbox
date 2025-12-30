@@ -20,6 +20,7 @@ Write-Host "[1/4] Reading source files..." -ForegroundColor Cyan
 $filesToEmbed = @(
    "..\setup_wizard.ps1",
    "..\launch_claude.ps1",
+   "..\launch_vibe_kanban.ps1",
    "..\..\docker\docker-compose.yml",
    "..\..\docker\Dockerfile",
    "..\..\docker\.dockerignore",
@@ -179,6 +180,7 @@ Write-Host ""
 Write-Host "This executable contains:" -ForegroundColor Cyan
 Write-Host "  OK Setup Wizard" -ForegroundColor Green
 Write-Host "  OK Claude Launcher" -ForegroundColor Green
+Write-Host "  OK Vibe Kanban Launcher" -ForegroundColor Green
 Write-Host "  OK Docker configuration files" -ForegroundColor Green
 Write-Host "  OK All shell scripts" -ForegroundColor Green
 Write-Host "  OK Complete documentation" -ForegroundColor Green
@@ -187,7 +189,8 @@ Write-Host "Users can:" -ForegroundColor Cyan
 Write-Host "  1. Download AI_Docker_Manager.exe" -ForegroundColor Yellow
 Write-Host "  2. Run it (extracts files on first run)" -ForegroundColor Yellow
 Write-Host "  3. Click First Time Setup to install" -ForegroundColor Yellow
-Write-Host "  4. Click Launch AI Workspace for daily use" -ForegroundColor Yellow
+Write-Host "  4. Click Launch AI Workspace for terminal access" -ForegroundColor Yellow
+Write-Host "  5. Click Launch Vibe Kanban for web-based AI orchestration" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green
 Write-Host ""
