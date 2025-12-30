@@ -149,6 +149,9 @@ get_version() {
         cursor)
             cursor --version 2>/dev/null || echo "not installed"
             ;;
+        vibe-kanban)
+            npm list -g vibe-kanban 2>/dev/null | grep 'vibe-kanban' | cut -d'@' -f2 || echo "not installed"
+            ;;
         *)
             echo "unknown"
             ;;
@@ -164,6 +167,7 @@ save_versions() {
     echo "codex=$(get_version codex)" >> "$TOOLS_VERSION_FILE"
     echo "aider=$(get_version aider)" >> "$TOOLS_VERSION_FILE"
     echo "cursor=$(get_version cursor)" >> "$TOOLS_VERSION_FILE"
+    echo "vibe-kanban=$(get_version vibe-kanban)" >> "$TOOLS_VERSION_FILE"
 }
 
 # Main installation function
@@ -277,6 +281,19 @@ install_cli_tools() {
     # NOTE: Removed Shell-GPT, Aider, Continue, Codeium, TabNine, AWS, Azure, Google Cloud, and extra dev tools
     # User requested only: GitHub CLI, Claude Code, Gemini, OpenAI SDK, and Codex
 
+    # 5. Install Vibe Kanban (AI agent orchestration tool)
+    update_install_status "Vibe Kanban" "npm"
+    print_status "Installing Vibe Kanban (AI agent orchestration)..."
+    if npm install -g vibe-kanban@latest 2>&1 | tee /tmp/vibe_kanban_install.log; then
+        print_success "Vibe Kanban installed successfully"
+        # Create .vibe-kanban directory for data persistence
+        mkdir -p "${HOME}/.vibe-kanban"
+    else
+        print_error "Failed to install Vibe Kanban"
+        cat /tmp/vibe_kanban_install.log
+        # Continue with other installations
+    fi
+
     # Save versions to file
     save_versions
 
@@ -314,6 +331,12 @@ create_marker_file() {
         echo "[OK] OpenAI Codex CLI: installed" >> "$INSTALL_MARKER"
     else
         echo "[ERROR] OpenAI Codex CLI: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if npm list -g vibe-kanban >/dev/null 2>&1; then
+        echo "[OK] Vibe Kanban: installed" >> "$INSTALL_MARKER"
+    else
+        echo "[ERROR] Vibe Kanban: failed" >> "$INSTALL_MARKER"
     fi
 
     print_success "Installation marker file created at: $INSTALL_MARKER"

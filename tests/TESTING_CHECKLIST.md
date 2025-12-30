@@ -311,6 +311,86 @@ docker start ai-cli
 
 ---
 
+## Phase 4B: Vibe Kanban Testing
+
+### 4B.1 Launch Vibe Kanban from GUI
+- [ ] Double-click AI_Docker_Manager.exe
+- [ ] Three buttons visible (Setup, Launch Workspace, Launch Vibe Kanban)
+- [ ] Click "**3. LAUNCH VIBE KANBAN**"
+- [ ] Browser opens automatically to `http://localhost:3000`
+- [ ] Vibe Kanban web interface loads
+
+**If Vibe Kanban not installed:**
+- [ ] Dialog appears asking to install
+- [ ] Click "Yes" to install
+- [ ] Installation completes successfully
+- [ ] Retry launch - browser opens
+
+**Notes**: _______________________________________________
+
+### 4B.2 Vibe Kanban First-Time Setup
+- [ ] Initial setup dialog appears
+- [ ] Configure coding agent preferences
+- [ ] Editor integration settings accessible
+- [ ] Setup completes successfully
+
+**Notes**: _______________________________________________
+
+### 4B.3 Create Project in Vibe Kanban
+- [ ] Click "Create Project" or similar
+- [ ] Select a git repository from `/workspace`
+- [ ] Project appears on kanban board
+- [ ] Can add tasks to the board
+
+**Notes**: _______________________________________________
+
+### 4B.4 Run AI Agent Task
+- [ ] Create a task on the board
+- [ ] Select an AI agent (Claude, Codex, or Gemini)
+- [ ] Agent must be authenticated (run configure-tools first if needed)
+- [ ] Start the task
+- [ ] Task runs in background
+- [ ] Progress visible in UI
+- [ ] Task completes (or errors gracefully)
+
+**Notes**: _______________________________________________
+
+### 4B.5 Review Agent Changes
+- [ ] After task completes, diff tool available
+- [ ] Can view changes made by agent
+- [ ] Can approve or reject changes
+- [ ] Changes apply to git worktree
+
+**Notes**: _______________________________________________
+
+### 4B.6 Multiple Agents in Parallel
+- [ ] Create multiple tasks
+- [ ] Assign different agents to different tasks
+- [ ] Start multiple tasks simultaneously
+- [ ] All agents run in parallel
+- [ ] UI updates for all running tasks
+
+**Notes**: _______________________________________________
+
+### 4B.7 Vibe Kanban Persistence
+- [ ] Close browser tab
+- [ ] Click "3. LAUNCH VIBE KANBAN" again
+- [ ] Browser opens to same URL
+- [ ] Previous projects and tasks still visible
+- [ ] Configuration persisted
+
+**Notes**: _______________________________________________
+
+### 4B.8 Port Configuration (Optional)
+- [ ] Edit `.env` file, add: `VIBE_KANBAN_PORT=8080`
+- [ ] Restart container (docker stop ai-cli && docker start ai-cli)
+- [ ] Launch Vibe Kanban
+- [ ] Browser opens to `http://localhost:8080`
+
+**Notes**: _______________________________________________
+
+---
+
 ## Phase 5: Error Handling Testing
 
 ### 5.1 Docker Not Running Scenario

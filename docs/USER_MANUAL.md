@@ -9,10 +9,11 @@
 2. [Prerequisites](#prerequisites)
 3. [First Time Setup](#first-time-setup)
 4. [Daily Usage](#daily-usage)
-5. [First Time Authentication](#first-time-authentication)
-6. [Common Tasks](#common-tasks)
-7. [Troubleshooting](#troubleshooting)
-8. [Important Notes](#important-notes)
+5. [Using Vibe Kanban](#using-vibe-kanban)
+6. [First Time Authentication](#first-time-authentication)
+7. [Common Tasks](#common-tasks)
+8. [Troubleshooting](#troubleshooting)
+9. [Important Notes](#important-notes)
 
 ---
 
@@ -109,12 +110,12 @@ You've successfully created your secure AI environment. Now you can launch the A
 ### How to Start the AI Workspace
 
 1. Double-click `AI_Docker_Manager.exe`
-2. Select:
-   ```
-   [2. LAUNCH AI WORKSPACE]
-   ```
-3. A terminal window opens automatically
-4. You're now inside the container at `/workspace` directory
+2. You'll see three main options:
+   - **1. FIRST TIME SETUP** - Run once to create your environment
+   - **2. LAUNCH AI WORKSPACE** - Open terminal for direct AI CLI access
+   - **3. LAUNCH VIBE KANBAN** - Open web-based AI orchestration interface
+3. Select option 2 or 3 depending on your needs
+4. A terminal window or browser opens automatically
 
 ### Inside the Terminal
 
@@ -129,6 +130,66 @@ claude
 ```
 
 Press Enter, and Claude will start!
+
+---
+
+## Using Vibe Kanban
+
+Vibe Kanban is a visual web interface that lets you manage multiple AI agents at once. Instead of using one AI tool at a time in the terminal, you can orchestrate Claude, Codex, and Gemini in parallel through a kanban-style board.
+
+### How to Launch Vibe Kanban
+
+1. Double-click `AI_Docker_Manager.exe`
+2. Select:
+   ```
+   [3. LAUNCH VIBE KANBAN]
+   ```
+3. Your web browser opens automatically to `http://localhost:3000`
+4. The Vibe Kanban interface appears
+
+### First Time Setup for Vibe Kanban
+
+Before using Vibe Kanban, you must authenticate your AI tools:
+
+1. Launch the AI Workspace first (option 2)
+2. Run `configure-tools` in the terminal
+3. Set up authentication for Claude, Codex, or Gemini
+4. Exit the terminal
+5. Now launch Vibe Kanban (option 3)
+
+### Using the Vibe Kanban Interface
+
+**Creating Tasks:**
+1. Click "Create Project" and select a git repository from `/workspace`
+2. Add tasks to the kanban board
+3. Select which AI agent to use (Claude, Codex, Gemini)
+4. The agent works on your task automatically
+
+**Monitoring Progress:**
+- Tasks move through columns: To Do → In Progress → Done
+- Each agent runs in isolation using git worktrees
+- Review changes with the built-in diff tool
+
+**Multiple Agents:**
+- Run different tasks with different agents simultaneously
+- Claude might work on code while Codex writes tests
+- Compare results between different AI models
+
+### Stopping Vibe Kanban
+
+- Close the browser tab
+- The server continues running in the background
+- Re-open by clicking "3. LAUNCH VIBE KANBAN" again
+- To fully stop: Open terminal and press Ctrl+C in the Vibe Kanban process
+
+### Vibe Kanban Tips
+
+- Always ensure your `/workspace` contains git repositories
+- Authenticate AI tools BEFORE using Vibe Kanban
+- Use the diff tool to review changes before committing
+- Multiple agents can work on different branches simultaneously
+
+For more information, visit: https://vibekanban.com/docs
 
 ---
 

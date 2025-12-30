@@ -9,12 +9,21 @@ services:
       # Password can be provided as hash (preferred) or plain text (fallback)
       USER_PASSWORD_HASH: ${USER_PASSWORD_HASH:-}
       USER_PASSWORD_PLAIN: ${USER_PASSWORD_PLAIN:-}
+      # Vibe Kanban configuration
+      VIBE_KANBAN_PORT: ${VIBE_KANBAN_PORT:-3000}
+    ports:
+      # Vibe Kanban web UI - accessible from Windows browser at http://localhost:3000
+      - "${VIBE_KANBAN_PORT:-3000}:${VIBE_KANBAN_PORT:-3000}"
     volumes:
       - ${WORKSPACE_PATH}:/workspace
       - claude-config:/home/${USER_NAME}/.claude
+      # Vibe Kanban data persistence
+      - vibe-kanban-data:/home/${USER_NAME}/.vibe-kanban
     tty: true
     stdin_open: true
 
 volumes:
   claude-config:
+    driver: local
+  vibe-kanban-data:
     driver: local

@@ -319,10 +319,135 @@ Test-Assertion "AI_Docker_Complete.ps1 has placeholder for USER_MANUAL.md" {
 } "USER_MANUAL.md placeholder missing in template"
 
 # ============================================================================
-# PHASE 6: DOCKER TESTS (Optional - requires Docker running)
+# PHASE 6: VIBE KANBAN INTEGRATION TESTS
 # ============================================================================
 
-Write-TestHeader "PHASE 6: DOCKER ENVIRONMENT TESTS"
+Write-TestHeader "PHASE 6: VIBE KANBAN INTEGRATION TESTS"
+
+# Test launch_vibe_kanban.ps1 exists
+$vibeKanbanLauncher = Join-Path $projectRoot 'scripts\launch_vibe_kanban.ps1'
+Test-Assertion "launch_vibe_kanban.ps1 exists" {
+    Test-Path $vibeKanbanLauncher
+} "Vibe Kanban launcher script not found"
+
+# Test launch_vibe_kanban.ps1 is valid PowerShell
+Test-Assertion "launch_vibe_kanban.ps1 is valid PowerShell" {
+    if (Test-Path $vibeKanbanLauncher) {
+        $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content $vibeKanbanLauncher -Raw), [ref]$null)
+        $true
+    } else {
+        $false
+    }
+} "Syntax error in Vibe Kanban launcher"
+
+# Test launch_vibe_kanban.ps1 uses correct HOST binding
+Test-Assertion "launch_vibe_kanban.ps1 uses HOST=0.0.0.0" {
+    if (Test-Path $vibeKanbanLauncher) {
+        $content = Get-Content $vibeKanbanLauncher -Raw
+        $content -match 'HOST=0.0.0.0'
+    } else {
+        $false
+    }
+} "HOST binding not configured for container access"
+
+# Test docker-compose.yml has Vibe Kanban port
+Test-Assertion "docker-compose.yml exposes Vibe Kanban port" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        $content -match 'VIBE_KANBAN_PORT'
+    } else {
+        $false
+    }
+} "Vibe Kanban port not configured"
+
+# Test docker-compose.yml has ports section
+Test-Assertion "docker-compose.yml has ports mapping" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        $content -match 'ports:'
+    } else {
+        $false
+    }
+} "Port mapping section missing"
+
+# Test docker-compose.yml has vibe-kanban-data volume
+Test-Assertion "docker-compose.yml has vibe-kanban-data volume" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        $content -match 'vibe-kanban-data'
+    } else {
+        $false
+    }
+} "Vibe Kanban data volume not configured"
+
+# Test install_cli_tools.sh includes Vibe Kanban
+$installScript = Join-Path $projectRoot 'docker\install_cli_tools.sh'
+Test-Assertion "install_cli_tools.sh installs Vibe Kanban" {
+    if (Test-Path $installScript) {
+        $content = Get-Content $installScript -Raw
+        $content -match 'vibe-kanban'
+    } else {
+        $false
+    }
+} "Vibe Kanban not in installation script"
+
+# Test auto_update.sh includes Vibe Kanban
+$updateScript = Join-Path $projectRoot 'docker\auto_update.sh'
+Test-Assertion "auto_update.sh checks Vibe Kanban updates" {
+    if (Test-Path $updateScript) {
+        $content = Get-Content $updateScript -Raw
+        $content -match 'vibe-kanban'
+    } else {
+        $false
+    }
+} "Vibe Kanban not in update script"
+
+# Test AI_Docker_Launcher.ps1 has Vibe Kanban button
+$launcherFile = Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1'
+Test-Assertion "AI_Docker_Launcher.ps1 has Vibe Kanban button" {
+    if (Test-Path $launcherFile) {
+        $content = Get-Content $launcherFile -Raw
+        ($content -match 'btnVibeKanban') -and ($content -match 'LAUNCH VIBE KANBAN')
+    } else {
+        $false
+    }
+} "Vibe Kanban button not added to launcher"
+
+# Test documentation includes Vibe Kanban
+Test-Assertion "CLI_TOOLS_GUIDE.md documents Vibe Kanban" {
+    $cliGuide = Join-Path $projectRoot 'docs\CLI_TOOLS_GUIDE.md'
+    if (Test-Path $cliGuide) {
+        $content = Get-Content $cliGuide -Raw
+        $content -match 'Vibe Kanban'
+    } else {
+        $false
+    }
+} "Vibe Kanban not documented in CLI guide"
+
+Test-Assertion "USER_MANUAL.md documents Vibe Kanban" {
+    if (Test-Path $userManualFile) {
+        $content = Get-Content $userManualFile -Raw
+        $content -match 'Vibe Kanban'
+    } else {
+        $false
+    }
+} "Vibe Kanban not documented in user manual"
+
+Test-Assertion "QUICK_REFERENCE.md documents Vibe Kanban" {
+    $quickRef = Join-Path $projectRoot 'docs\QUICK_REFERENCE.md'
+    if (Test-Path $quickRef) {
+        $content = Get-Content $quickRef -Raw
+        $content -match 'Vibe Kanban'
+    } else {
+        $false
+    }
+} "Vibe Kanban not documented in quick reference"
+
+# ============================================================================
+# PHASE 7: DOCKER TESTS (Optional - requires Docker running)
+# ============================================================================
+
+Write-TestHeader "PHASE 7: DOCKER ENVIRONMENT TESTS"
 
 if ($SkipDocker) {
     Write-TestSkip "Docker executable check" "Docker tests skipped (-SkipDocker flag)"
@@ -377,10 +502,10 @@ if ($SkipDocker) {
 }
 
 # ============================================================================
-# PHASE 7: DOCUMENTATION QUALITY TESTS
+# PHASE 8: DOCUMENTATION QUALITY TESTS
 # ============================================================================
 
-Write-TestHeader "PHASE 7: DOCUMENTATION QUALITY TESTS"
+Write-TestHeader "PHASE 8: DOCUMENTATION QUALITY TESTS"
 
 # Test USER_MANUAL.md has key sections
 $userManualFile = Join-Path $projectRoot 'docs\USER_MANUAL.md'
