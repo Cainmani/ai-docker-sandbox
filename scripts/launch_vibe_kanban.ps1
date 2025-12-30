@@ -235,18 +235,19 @@ Write-AppLog "Starting Vibe Kanban server..." "INFO"
 Write-AppLog "NOTE: First run may take 1-2 minutes to download required files (~26MB)" "INFO"
 
 # First verify vibe-kanban binary location
-$whichResult = & $dockerPath exec -u $userName ai-cli bash -c "which vibe-kanban 2>&1" 2>&1
+# Use bash -l (login shell) to ensure PATH includes npm global bin directory
+$whichResult = & $dockerPath exec -u $userName ai-cli bash -l -c "which vibe-kanban 2>&1" 2>&1
 Write-AppLog "vibe-kanban location: $whichResult" "DEBUG"
 
 if (-not $whichResult -or $whichResult -match "not found" -or $whichResult -match "no vibe-kanban") {
     Write-AppLog "ERROR: vibe-kanban binary not found in PATH" "ERROR"
 
-    # Check npm global bin directory
-    $npmBin = & $dockerPath exec -u $userName ai-cli bash -c "npm bin -g 2>/dev/null" 2>&1
+    # Check npm global bin directory (npm bin -g was removed in npm v9+)
+    $npmBin = & $dockerPath exec -u $userName ai-cli bash -c 'echo $(npm config get prefix)/bin' 2>&1
     Write-AppLog "npm global bin: $npmBin" "DEBUG"
 
     # Check if vibe-kanban exists there
-    $checkNpmBin = & $dockerPath exec -u $userName ai-cli bash -c "ls -la `$(npm bin -g)/vibe-kanban 2>&1" 2>&1
+    $checkNpmBin = & $dockerPath exec -u $userName ai-cli bash -c 'ls -la $(npm config get prefix)/bin/vibe-kanban 2>&1' 2>&1
     Write-AppLog "vibe-kanban in npm bin: $checkNpmBin" "DEBUG"
 
     ShowMsg "Vibe Kanban binary not found in PATH.`n`nThe installation may have failed. Please run First Time Setup again with 'Force Rebuild' checked." 'Error'
@@ -256,11 +257,13 @@ if (-not $whichResult -or $whichResult -match "not found" -or $whichResult -matc
 # Run Vibe Kanban in background with proper environment variables
 # HOST=0.0.0.0 allows access from Windows host
 # PORT is configurable via env var
-# Use full path to ensure binary is found
-$startCmd = "cd /workspace && HOST=0.0.0.0 PORT=$vibeKanbanPort nohup vibe-kanban > /tmp/vibe-kanban.log 2>&1 &"
+# CRITICAL: Must set PATH explicitly because 'docker exec bash -c' is non-login shell
+# and doesn't source .bashrc or .profile where npm global bin PATH is defined
+$startCmd = "export PATH=`$HOME/.npm-global/bin:`$HOME/.local/bin:`$PATH && cd /workspace && HOST=0.0.0.0 PORT=$vibeKanbanPort nohup vibe-kanban > /tmp/vibe-kanban.log 2>&1 &"
 Write-AppLog "Start command: $startCmd" "DEBUG"
 
-$execResult = & $dockerPath exec -u $userName -w /workspace ai-cli bash -c $startCmd 2>&1
+# Use bash -l (login shell) to source .profile, combined with explicit PATH for redundancy
+$execResult = & $dockerPath exec -u $userName -w /workspace ai-cli bash -l -c $startCmd 2>&1
 if ($execResult) {
     Write-AppLog "Exec output: $execResult" "DEBUG"
 }

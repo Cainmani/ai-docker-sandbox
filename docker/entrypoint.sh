@@ -140,8 +140,14 @@ else
 fi
 
 # Install CLI tools on first run (runs as the user)
+# If FORCE_CLI_REINSTALL is set, force reinstallation even if marker file exists
 echo "Checking CLI tools installation..."
-su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh" || true
+if [ "${FORCE_CLI_REINSTALL:-}" = "1" ]; then
+  echo "Force reinstall requested - running install_cli_tools.sh --force"
+  su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh --force" || true
+else
+  su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh" || true
+fi
 
 # Setup auto-update cron job (weekly on Sunday at 2 AM)
 if ! crontab -u "$USER_NAME" -l 2>/dev/null | grep -q "auto_update.sh"; then

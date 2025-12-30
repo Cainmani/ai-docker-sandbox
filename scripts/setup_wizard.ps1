@@ -1644,6 +1644,18 @@ $btnNext.Add_Click({
                     $buildArgs = 'compose build --no-cache --progress=plain'
                     Write-Host "[INFO] Force rebuild enabled - using --no-cache" -ForegroundColor Yellow
                     $script:buildTerminalBox.AppendText(">> Force rebuild: using --no-cache flag`r`n")
+
+                    # Add FORCE_CLI_REINSTALL to .env so entrypoint.sh will reinstall CLI tools
+                    # This is needed because the marker file persists in the home directory volume
+                    $envFilePath = Join-Path $dockerPath ".env"
+                    if (Test-Path $envFilePath) {
+                        $envContent = Get-Content $envFilePath -Raw
+                        if ($envContent -notmatch 'FORCE_CLI_REINSTALL') {
+                            Add-Content -Path $envFilePath -Value "FORCE_CLI_REINSTALL=1"
+                            Write-Host "[INFO] Added FORCE_CLI_REINSTALL=1 to .env" -ForegroundColor Yellow
+                            $script:buildTerminalBox.AppendText(">> Force rebuild: will reinstall all CLI tools`r`n")
+                        }
+                    }
                 } else {
                     $buildArgs = 'compose build --progress=plain'
                 }
@@ -1870,6 +1882,18 @@ $btnNext.Add_Click({
             }
 
             Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
+
+            # Clean up FORCE_CLI_REINSTALL from .env so it doesn't reinstall on every restart
+            $envFilePath = Join-Path $dockerPath ".env"
+            if (Test-Path $envFilePath) {
+                $envContent = Get-Content $envFilePath
+                $cleanedContent = $envContent | Where-Object { $_ -notmatch '^FORCE_CLI_REINSTALL=' }
+                if ($cleanedContent.Count -lt $envContent.Count) {
+                    $cleanedContent | Set-Content -Path $envFilePath -Encoding UTF8
+                    Write-Host "[INFO] Cleaned up FORCE_CLI_REINSTALL from .env" -ForegroundColor Cyan
+                }
+            }
+
             $status.Text = 'system ready'
             $script:current++; Show-Page $script:current
         }
