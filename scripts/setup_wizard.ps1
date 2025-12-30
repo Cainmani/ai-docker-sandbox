@@ -39,7 +39,7 @@ function Fix-LineEndings {
     param([string]$scriptPath)
 
     # Docker files location - detect if running from embedded exe or project directory
-    $dockerPath = if ($scriptPath -like '*AI_Docker_Manager*docker-files*') {
+    $dockerPath = if ($scriptPath -like '*AI-Docker-CLI*docker-files*') {
         # Running from embedded exe - docker files are in same folder
         $scriptPath
     } else {
@@ -603,9 +603,9 @@ if (Test-Path $script:envPath) {
 
 Write-Host "[INIT] Detecting Docker files location..." -ForegroundColor Yellow
 # Docker files location - detect if running from embedded exe or project directory
-# If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
+# If running from AppData\AI-Docker-CLI\docker-files (embedded exe), use current directory
 # If running from project scripts folder, use ../docker
-$dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
+$dockerPath = if ($PSScriptRoot -like '*AI-Docker-CLI*docker-files*') {
     # Running from embedded exe - docker files are in same folder
     $PSScriptRoot
 } else {

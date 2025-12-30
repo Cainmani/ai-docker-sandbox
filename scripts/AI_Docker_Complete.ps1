@@ -15,7 +15,7 @@ if (-not $env:LOCALAPPDATA) {
     $env:LOCALAPPDATA = [System.IO.Path]::GetTempPath()
 }
 
-$appDataDir = Join-Path $env:LOCALAPPDATA "AI_Docker_Manager"
+$appDataDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI"
 if (-not (Test-Path $appDataDir)) {
     New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
 }
