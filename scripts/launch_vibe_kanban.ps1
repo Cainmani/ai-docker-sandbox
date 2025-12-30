@@ -161,21 +161,22 @@ try {
 Write-AppLog "Vibe Kanban port: [$vibeKanbanPort]" "INFO"
 
 # Check if Vibe Kanban is already running inside the container
-# Note: We check the process inside the container, not just the TCP port,
-# because Docker port mapping may make the port appear open even when nothing is running
+# Note: We check by looking for a node process listening on the port, not just pgrep
+# because pgrep -f can match itself and cause false positives
 Write-AppLog "Checking if Vibe Kanban is already running in container..." "DEBUG"
 $vibeKanbanRunning = $false
 try {
-    # Check for vibe-kanban or node process running vibe-kanban
-    $processCheck = & $dockerPath exec -u $userName ai-cli bash -c "pgrep -f 'vibe-kanban' 2>/dev/null || pgrep -f 'node.*vibe' 2>/dev/null" 2>&1
-    if ($processCheck -and $processCheck -match '^\d+$') {
+    # Check if something is actually listening on the vibe-kanban port inside the container
+    # Use netstat/ss to check for actual listeners, not pgrep which can match itself
+    $portCheck = & $dockerPath exec -u $userName ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort ' || echo 'NOT_LISTENING'" 2>&1
+    if ($portCheck -and $portCheck -notmatch 'NOT_LISTENING' -and $portCheck -match ':' + $vibeKanbanPort) {
         $vibeKanbanRunning = $true
-        Write-AppLog "Vibe Kanban process found running (PID: $processCheck)" "INFO"
+        Write-AppLog "Vibe Kanban is listening on port $vibeKanbanPort inside container" "INFO"
     } else {
-        Write-AppLog "No Vibe Kanban process found in container" "DEBUG"
+        Write-AppLog "Nothing listening on port $vibeKanbanPort inside container" "DEBUG"
     }
 } catch {
-    Write-AppLog "Process check failed, assuming not running: $($_.Exception.Message)" "DEBUG"
+    Write-AppLog "Port check failed, assuming not running: $($_.Exception.Message)" "DEBUG"
 }
 
 if ($vibeKanbanRunning) {
