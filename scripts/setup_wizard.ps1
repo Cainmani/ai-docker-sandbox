@@ -1639,7 +1639,14 @@ $btnNext.Add_Click({
                 Write-Host "[INFO] Building Docker image - this downloads Ubuntu and installs packages" -ForegroundColor Cyan
 
                 # Use --progress=plain for more readable output in terminal
-                $buildArgs = 'compose build --progress=plain'
+                # Add --no-cache when force rebuild is checked to ensure fresh build
+                if ($forceRebuild) {
+                    $buildArgs = 'compose build --no-cache --progress=plain'
+                    Write-Host "[INFO] Force rebuild enabled - using --no-cache" -ForegroundColor Yellow
+                    $script:buildTerminalBox.AppendText(">> Force rebuild: using --no-cache flag`r`n")
+                } else {
+                    $buildArgs = 'compose build --progress=plain'
+                }
                 $r1 = Run-Process-WithTerminal -file 'docker' -arguments $buildArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Docker Build'
                 if (-not $r1.Ok) {
                     $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
