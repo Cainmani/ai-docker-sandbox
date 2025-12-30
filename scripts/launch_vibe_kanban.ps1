@@ -234,13 +234,49 @@ if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
 Write-AppLog "Starting Vibe Kanban server..." "INFO"
 Write-AppLog "NOTE: First run may take 1-2 minutes to download required files (~26MB)" "INFO"
 
+# First verify vibe-kanban binary location
+$whichResult = & $dockerPath exec -u $userName ai-cli bash -c "which vibe-kanban 2>&1" 2>&1
+Write-AppLog "vibe-kanban location: $whichResult" "DEBUG"
+
+if (-not $whichResult -or $whichResult -match "not found" -or $whichResult -match "no vibe-kanban") {
+    Write-AppLog "ERROR: vibe-kanban binary not found in PATH" "ERROR"
+
+    # Check npm global bin directory
+    $npmBin = & $dockerPath exec -u $userName ai-cli bash -c "npm bin -g 2>/dev/null" 2>&1
+    Write-AppLog "npm global bin: $npmBin" "DEBUG"
+
+    # Check if vibe-kanban exists there
+    $checkNpmBin = & $dockerPath exec -u $userName ai-cli bash -c "ls -la `$(npm bin -g)/vibe-kanban 2>&1" 2>&1
+    Write-AppLog "vibe-kanban in npm bin: $checkNpmBin" "DEBUG"
+
+    ShowMsg "Vibe Kanban binary not found in PATH.`n`nThe installation may have failed. Please run First Time Setup again with 'Force Rebuild' checked." 'Error'
+    exit 1
+}
+
 # Run Vibe Kanban in background with proper environment variables
 # HOST=0.0.0.0 allows access from Windows host
 # PORT is configurable via env var
+# Use full path to ensure binary is found
 $startCmd = "cd /workspace && HOST=0.0.0.0 PORT=$vibeKanbanPort nohup vibe-kanban > /tmp/vibe-kanban.log 2>&1 &"
 Write-AppLog "Start command: $startCmd" "DEBUG"
 
-& $dockerPath exec -d -u $userName -w /workspace ai-cli bash -c $startCmd 2>&1 | Out-Null
+$execResult = & $dockerPath exec -u $userName -w /workspace ai-cli bash -c $startCmd 2>&1
+if ($execResult) {
+    Write-AppLog "Exec output: $execResult" "DEBUG"
+}
+
+# Give it a moment to create the log file
+Start-Sleep -Milliseconds 500
+
+# Check if log file was created
+$logExists = & $dockerPath exec -u $userName ai-cli bash -c "test -f /tmp/vibe-kanban.log && echo EXISTS || echo MISSING" 2>&1
+Write-AppLog "Log file status: $logExists" "DEBUG"
+
+# Check for immediate errors in log
+$earlyLog = & $dockerPath exec -u $userName ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null | head -10" 2>&1
+if ($earlyLog) {
+    Write-AppLog "Early log output: $earlyLog" "DEBUG"
+}
 
 # Wait for server to start (longer timeout for first-run download)
 Write-AppLog "Waiting for Vibe Kanban to start (may take longer on first run)..." "INFO"
@@ -268,10 +304,29 @@ if (-not $serverStarted) {
     Write-AppLog "ERROR: Vibe Kanban failed to start within $maxWait seconds" "ERROR"
 
     # Try to get logs for debugging
-    $logs = & $dockerPath exec -u $userName ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null | tail -20" 2>&1
-    Write-AppLog "Vibe Kanban logs: $logs" "DEBUG"
+    $logs = & $dockerPath exec -u $userName ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null" 2>&1
+    Write-AppLog "Vibe Kanban full log: $logs" "ERROR"
 
-    ShowMsg "Vibe Kanban failed to start.`n`nPlease check that all AI tools are properly authenticated.`n`nYou may need to run 'configure-tools' in the terminal first." 'Error'
+    # Check if process is running at all
+    $processCheck = & $dockerPath exec -u $userName ai-cli bash -c "ps aux | grep -v grep | grep vibe-kanban" 2>&1
+    Write-AppLog "Process check: $processCheck" "DEBUG"
+
+    # Check if port is in use by something else
+    $portInUse = & $dockerPath exec -u $userName ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort'" 2>&1
+    Write-AppLog "Port $vibeKanbanPort status: $portInUse" "DEBUG"
+
+    # Build error message with log excerpt
+    $errorMsg = "Vibe Kanban failed to start after $maxWait seconds.`n`n"
+    if ($logs -and $logs.Length -gt 0) {
+        # Show last 5 lines of log in error message
+        $logLines = $logs -split "`n" | Select-Object -Last 5
+        $errorMsg += "Log output:`n$($logLines -join "`n")`n`n"
+    } else {
+        $errorMsg += "No log output captured (log file may not have been created).`n`n"
+    }
+    $errorMsg += "Check the full log at:`n%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log"
+
+    ShowMsg $errorMsg 'Error'
     exit 1
 }
 
