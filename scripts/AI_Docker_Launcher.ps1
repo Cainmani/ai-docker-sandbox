@@ -354,10 +354,10 @@ $btnSetup.Add_Click({
             Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
             $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
         } else {
-            # NORMAL MODE: Show console (minimized) so user can see progress if needed
-            # This prevents the "nothing happening" experience when wizard takes time to load
-            Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
-            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
+            # NORMAL MODE: Hide console so the wizard GUI displays prominently
+            # The wizard form uses TopMost and BringToFront to ensure visibility
+            Write-AppLog "Normal mode: Launching with hidden console (GUI will be visible)" "DEBUG"
+            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
         }
         Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
 
