@@ -49,6 +49,8 @@
 
 Vibe Kanban lets you run multiple AI agents simultaneously through a visual web interface.
 
+⚠️ **SAFETY WARNING**: Vibe Kanban runs agents with `--dangerously-skip-permissions` by default. Agents have unrestricted access to execute code and commands. **Always review changes before committing!**
+
 | Step | Action |
 |------|--------|
 | 1. Authenticate first | Run `configure-tools` in terminal to set up Claude/Codex/Gemini |
@@ -57,9 +59,10 @@ Vibe Kanban lets you run multiple AI agents simultaneously through a visual web 
 | 4. Add tasks | Create tasks on the kanban board |
 | 5. Assign agent | Choose Claude, Codex, or Gemini for each task |
 | 6. Monitor | Watch agents work in parallel |
-| 7. Review | Use built-in diff tool to check changes |
+| 7. Review | **Always review** with built-in diff tool before accepting |
 
 **URL**: http://localhost:3000 (opens automatically)
+**Custom Port**: Edit `.env` file → `VIBE_KANBAN_PORT=8080`
 
 ---
 
@@ -80,6 +83,8 @@ Files sync automatically both ways! Edit from Windows or from Claude - changes a
 | "claude: command not found" | Re-run First Time Setup |
 | "Permission denied" | Use `sudo` command (your password from setup) |
 | Can't find AI_Work folder | Check `.env` file for `WORKSPACE_PATH=` |
+| "Vibe Kanban binary not found" | Run First Time Setup with "Force Rebuild" checked |
+| Port 3000 already in use | Change port in `.env`: `VIBE_KANBAN_PORT=8080` |
 
 ---
 
