@@ -51,20 +51,16 @@ is_configured() {
     case $tool in
         claude)
             # Check for ANTHROPIC_API_KEY environment variable
-            if [ ! -z "$ANTHROPIC_API_KEY" ]; then
+            if [ -n "$ANTHROPIC_API_KEY" ]; then
                 return 0
             fi
             # Check for Claude config directory with any config/settings files
+            # OAuth authentication creates credential files in ~/.claude/
             if [ -d "${HOME}/.claude" ]; then
-                # Check for common Claude config files
                 if [ -f "${HOME}/.claude/config.json" ] || \
                    [ -f "${HOME}/.claude/settings.json" ] || \
                    [ -f "${HOME}/.claude/.credentials.json" ] || \
                    [ -f "${HOME}/.claude/credentials.json" ]; then
-                    return 0
-                fi
-                # Check if claude command works (authenticated via OAuth)
-                if command -v claude >/dev/null 2>&1 && claude --version >/dev/null 2>&1; then
                     return 0
                 fi
             fi
