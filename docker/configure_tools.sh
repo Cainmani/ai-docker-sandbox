@@ -54,15 +54,12 @@ is_configured() {
             if [ -n "$ANTHROPIC_API_KEY" ]; then
                 return 0
             fi
-            # Check for Claude config directory with any config/settings files
-            # OAuth authentication creates credential files in ~/.claude/
-            if [ -d "${HOME}/.claude" ]; then
-                if [ -f "${HOME}/.claude/config.json" ] || \
-                   [ -f "${HOME}/.claude/settings.json" ] || \
-                   [ -f "${HOME}/.claude/.credentials.json" ] || \
-                   [ -f "${HOME}/.claude/credentials.json" ]; then
-                    return 0
-                fi
+            # Check for Claude config files (OAuth authentication creates files in ~/.claude/)
+            if [ -f "${HOME}/.claude/config.json" ] || \
+               [ -f "${HOME}/.claude/settings.json" ] || \
+               [ -f "${HOME}/.claude/.credentials.json" ] || \
+               [ -f "${HOME}/.claude/credentials.json" ]; then
+                return 0
             fi
             ;;
         gh)
