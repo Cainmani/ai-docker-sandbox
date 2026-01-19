@@ -50,7 +50,15 @@ is_configured() {
     local tool=$1
     case $tool in
         claude)
-            if [ -f "${HOME}/.claude/config.json" ]; then
+            # Check for ANTHROPIC_API_KEY environment variable
+            if [ -n "$ANTHROPIC_API_KEY" ]; then
+                return 0
+            fi
+            # Check for Claude config files (OAuth authentication creates files in ~/.claude/)
+            if [ -f "${HOME}/.claude/config.json" ] || \
+               [ -f "${HOME}/.claude/settings.json" ] || \
+               [ -f "${HOME}/.claude/.credentials.json" ] || \
+               [ -f "${HOME}/.claude/credentials.json" ]; then
                 return 0
             fi
             ;;
