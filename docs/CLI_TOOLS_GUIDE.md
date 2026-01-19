@@ -15,6 +15,7 @@ The AI Docker CLI Manager now automatically installs and manages a comprehensive
 | **Shell GPT** | `sgpt` | OpenAI GPT in your terminal | [Shell-GPT](https://github.com/TheR1D/shell_gpt) |
 | **Aider** | `aider` | AI pair programming tool | [Aider](https://aider.chat) |
 | **Codeium** | `codeium` | Free AI code completion | [Codeium](https://codeium.com) |
+| **Vibe Kanban** | `vibe-kanban` | Orchestrate AI agents in parallel via web UI | [Vibe Kanban](https://vibekanban.com) |
 
 ### Cloud Provider CLIs
 
@@ -143,6 +144,72 @@ export GEMINI_API_KEY="your-key-here"
 # Use Gemini
 gemini "Explain quantum computing"
 ```
+
+### Vibe Kanban (AI Agent Orchestration)
+
+Vibe Kanban is a web-based tool that lets you orchestrate multiple AI coding agents in parallel through a visual kanban interface.
+
+**⚠️ Safety Warning:**
+Vibe Kanban runs AI agents with `--dangerously-skip-permissions` (aka `--yolo` mode) by default. This means agents have **unrestricted access** to:
+- Execute arbitrary code on your system
+- Run terminal commands without confirmation
+- Modify, create, and delete files
+
+**Best Practices:**
+- Always review agent changes using the built-in diff tool before accepting
+- Ensure you have backups of important work
+- Use git branches to isolate agent changes
+- Consider testing on non-critical projects first
+
+**Launch from Windows GUI:**
+1. Click "3. LAUNCH VIBE KANBAN" in the AI Docker Manager
+2. Browser automatically opens to `http://localhost:3000`
+
+**Launch from Terminal:**
+```bash
+# Start Vibe Kanban server (inside container)
+HOST=0.0.0.0 PORT=3000 vibe-kanban
+
+# Then open http://localhost:3000 in your Windows browser
+```
+
+**Key Features:**
+- Run multiple AI agents (Claude, Codex, Gemini) simultaneously
+- Visual task management with kanban board
+- Each task runs in isolated git worktrees
+- Built-in diff tool for reviewing agent changes
+- MCP server integration for enhanced capabilities
+
+**Prerequisites:**
+- AI agents must be authenticated BEFORE using Vibe Kanban
+- Run `configure-tools` to set up Claude, Codex, etc.
+- Ensure `/workspace` contains a git repository
+
+**Configuration:**
+```bash
+# Port can be customized via environment variable
+export VIBE_KANBAN_PORT=3000
+
+# Or in the .env file (located at %LOCALAPPDATA%\AI-Docker-CLI\.env)
+VIBE_KANBAN_PORT=8080
+```
+
+**Supported Agents:**
+- Claude Code (claude)
+- OpenAI Codex (codex)
+- Gemini CLI (gemini)
+- GitHub CLI (gh)
+
+**Troubleshooting:**
+
+| Problem | Solution |
+|---------|----------|
+| "vibe-kanban binary not found" | Run First Time Setup with "Force Rebuild" checked |
+| Port 3000 already in use | Change `VIBE_KANBAN_PORT` in `.env` file |
+| Browser doesn't open | Manually navigate to `http://localhost:3000` |
+| Agents not responding | Verify authentication with `configure-tools --status` |
+
+For more information, visit [vibekanban.com/docs](https://vibekanban.com/docs)
 
 ### AWS CLI for AI Services
 

@@ -55,7 +55,7 @@ check_updates() {
     log_message "${BLUE}[INFO]${NC} Checking for available updates..."
 
     # Check npm updates
-    npm_outdated=$(npm outdated -g 2>/dev/null | grep -E "@anthropic-ai/claude-code|continue|tldr" || true)
+    npm_outdated=$(npm outdated -g 2>/dev/null | grep -E "@anthropic-ai/claude-code|continue|tldr|vibe-kanban" || true)
     if [ ! -z "$npm_outdated" ]; then
         log_message "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
         echo "$npm_outdated" | while read line; do

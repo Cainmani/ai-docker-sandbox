@@ -9,10 +9,11 @@
 2. [Prerequisites](#prerequisites)
 3. [First Time Setup](#first-time-setup)
 4. [Daily Usage](#daily-usage)
-5. [First Time Authentication](#first-time-authentication)
-6. [Common Tasks](#common-tasks)
-7. [Troubleshooting](#troubleshooting)
-8. [Important Notes](#important-notes)
+5. [Using Vibe Kanban](#using-vibe-kanban)
+6. [First Time Authentication](#first-time-authentication)
+7. [Common Tasks](#common-tasks)
+8. [Troubleshooting](#troubleshooting)
+9. [Important Notes](#important-notes)
 
 ---
 
@@ -109,12 +110,12 @@ You've successfully created your secure AI environment. Now you can launch the A
 ### How to Start the AI Workspace
 
 1. Double-click `AI_Docker_Manager.exe`
-2. Select:
-   ```
-   [2. LAUNCH AI WORKSPACE]
-   ```
-3. A terminal window opens automatically
-4. You're now inside the container at `/workspace` directory
+2. You'll see three main options:
+   - **1. FIRST TIME SETUP** - Run once to create your environment
+   - **2. LAUNCH AI WORKSPACE** - Open terminal for direct AI CLI access
+   - **3. LAUNCH VIBE KANBAN** - Open web-based AI orchestration interface
+3. Select option 2 or 3 depending on your needs
+4. A terminal window or browser opens automatically
 
 ### Inside the Terminal
 
@@ -129,6 +130,126 @@ claude
 ```
 
 Press Enter, and Claude will start!
+
+---
+
+## Using Vibe Kanban
+
+Vibe Kanban is a visual web interface that lets you manage multiple AI agents at once. Instead of using one AI tool at a time in the terminal, you can orchestrate Claude, Codex, and Gemini in parallel through a kanban-style board.
+
+### ⚠️ Safety Notice - READ FIRST
+
+**Vibe Kanban runs AI coding agents with `--dangerously-skip-permissions` (also known as `--yolo` mode) by default.** This gives agents unrestricted access to:
+- Execute code on your system
+- Run terminal commands
+- Modify files without confirmation
+
+**Important Safety Practices:**
+- Always review what agents are doing before accepting changes
+- Ensure you have backups of important work
+- Use git branches to isolate agent changes
+- The diff tool helps you review changes before committing
+- Consider running on non-critical projects first
+
+This software is experimental - use it responsibly. Learn more at: https://vibekanban.com/docs/getting-started#safety-notice
+
+### How to Launch Vibe Kanban
+
+1. Double-click `AI_Docker_Manager.exe`
+2. Select:
+   ```
+   [3. LAUNCH VIBE KANBAN]
+   ```
+3. Your web browser opens automatically to `http://localhost:3000`
+4. The Vibe Kanban interface appears
+
+### Configuring the Port
+
+By default, Vibe Kanban runs on port 3000. To use a different port:
+
+1. Open the `.env` file in `%LOCALAPPDATA%\AI-Docker-CLI\`
+2. Add or modify: `VIBE_KANBAN_PORT=8080` (or your preferred port)
+3. Restart the container (close terminal and launch again)
+4. Browser will open to the new port automatically
+
+### First Time Setup for Vibe Kanban
+
+Before using Vibe Kanban, you must authenticate your AI tools:
+
+1. Launch the AI Workspace first (option 2)
+2. Run `configure-tools` in the terminal
+3. Set up authentication for Claude, Codex, or Gemini
+4. Exit the terminal
+5. Now launch Vibe Kanban (option 3)
+
+### Using the Vibe Kanban Interface
+
+**Creating Tasks:**
+1. Click "Create Project" and select a git repository from `/workspace`
+2. Add tasks to the kanban board
+3. Select which AI agent to use (Claude, Codex, Gemini)
+4. The agent works on your task automatically
+
+**Monitoring Progress:**
+- Tasks move through columns: To Do → In Progress → Done
+- Each agent runs in isolation using git worktrees
+- Review changes with the built-in diff tool
+
+**Multiple Agents:**
+- Run different tasks with different agents simultaneously
+- Claude might work on code while Codex writes tests
+- Compare results between different AI models
+
+### Stopping Vibe Kanban
+
+- Close the browser tab
+- The server continues running in the background
+- Re-open by clicking "3. LAUNCH VIBE KANBAN" again
+- To fully stop: Open terminal and press Ctrl+C in the Vibe Kanban process
+
+### Vibe Kanban Troubleshooting
+
+#### Problem: "Vibe Kanban binary not found in PATH"
+
+**Solution:**
+1. Run First Time Setup with "Force Rebuild" checked
+2. This reinstalls all CLI tools including Vibe Kanban
+3. Your Claude and GitHub logins will be preserved
+
+#### Problem: Port 3000 already in use
+
+**Solution:**
+1. Change the port in `.env` file (see "Configuring the Port" above)
+2. Or find and stop the process using port 3000:
+   ```powershell
+   # In PowerShell on Windows
+   netstat -ano | findstr :3000
+   taskkill /PID <process_id> /F
+   ```
+
+#### Problem: Browser doesn't open automatically
+
+**Solution:**
+1. Manually open your browser
+2. Navigate to `http://localhost:3000` (or your configured port)
+3. Check logs at `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log`
+
+#### Problem: Agents not responding or failing
+
+**Solution:**
+1. Verify AI tools are authenticated: `configure-tools --status`
+2. Check the Vibe Kanban logs in the terminal window
+3. Restart Vibe Kanban by closing and relaunching
+
+### Vibe Kanban Tips
+
+- Always ensure your `/workspace` contains git repositories
+- Authenticate AI tools BEFORE using Vibe Kanban
+- Use the diff tool to review changes before committing
+- Multiple agents can work on different branches simultaneously
+- **Always review agent changes** - they have full system access
+
+For more information, visit: https://vibekanban.com/docs
 
 ---
 

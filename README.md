@@ -63,6 +63,7 @@
 | Feature | Description |
 |---------|-------------|
 | 🤖 **Multiple AI Tools** | Claude, GitHub CLI, OpenAI/GPT, Gemini, Codex, and more |
+| 🎯 **Vibe Kanban** | Orchestrate multiple AI agents in parallel via web UI |
 | 🔒 **Secure Isolation** | AI runs in Docker container - can't access your system files |
 | 🚀 **One-Click Setup** | Interactive wizard handles everything automatically |
 | 🔄 **Auto-Updates** | CLI tools update automatically every week |
@@ -72,6 +73,7 @@
 ### Included AI CLI Tools
 
 - **Claude Code** - Anthropic's AI coding assistant
+- **Vibe Kanban** - Web UI to orchestrate AI agents in parallel (⚠️ runs with elevated permissions)
 - **GitHub CLI** - GitHub's official command-line tool
 - **OpenAI Tools** - Shell GPT, Aider, Codex
 - **Google Gemini** - Google's AI assistant
@@ -94,16 +96,20 @@
 ### Daily Use (10 seconds)
 
 1. **Run** `AI_Docker_Manager.exe`
-2. **Click** "Launch AI Workspace"
+2. **Choose your interface:**
+   - **"Launch AI Workspace"** - Terminal access to all AI tools
+   - **"Launch Vibe Kanban"** - Web UI for parallel AI agents
 3. **Start working** - all AI tools are ready!
 
 ```bash
-# Inside the container
+# Inside the container (terminal mode)
 cd /workspace/my-project
 claude                    # Start Claude Code
 gh repo clone user/repo   # Use GitHub CLI
 sgpt "explain this code"  # Use Shell GPT
 ```
+
+> **Vibe Kanban Note:** Opens at `http://localhost:3000`. Runs agents with elevated permissions - always review changes before committing.
 
 ---
 

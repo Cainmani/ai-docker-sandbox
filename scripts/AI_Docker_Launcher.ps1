@@ -38,7 +38,7 @@ Write-AppLog "========================================" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.0.1"
+$script:AppVersion = "1.1.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -132,7 +132,7 @@ Write-AppLog "Final scriptPath: [$scriptPath]" "INFO"
 $form = New-Object System.Windows.Forms.Form
 $form.Text = ">>> AI CLI DOCKER MANAGER <<<"
 $form.Width = 600
-$form.Height = 590
+$form.Height = 690
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = $script:MatrixDarkGreen
 $form.ForeColor = $script:MatrixGreen
@@ -225,9 +225,31 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Button 3: Launch Vibe Kanban
+$btnVibeKanban = New-Object System.Windows.Forms.Button
+$btnVibeKanban.Text = "3. LAUNCH VIBE KANBAN"
+$btnVibeKanban.Left = 50; $btnVibeKanban.Top = 390
+$btnVibeKanban.Width = 500; $btnVibeKanban.Height = 60
+$btnVibeKanban.FlatStyle = 'Flat'
+$btnVibeKanban.FlatAppearance.BorderColor = $script:MatrixAccent
+$btnVibeKanban.FlatAppearance.BorderSize = 2
+$btnVibeKanban.BackColor = $script:MatrixMidGreen
+$btnVibeKanban.ForeColor = $script:MatrixGreen
+$btnVibeKanban.Font = New-Object System.Drawing.Font('Consolas', 12, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($btnVibeKanban)
+
+$lblVibeKanbanInfo = New-Object System.Windows.Forms.Label
+$lblVibeKanbanInfo.Left = 70; $lblVibeKanbanInfo.Top = 455
+$lblVibeKanbanInfo.Width = 460; $lblVibeKanbanInfo.Height = 20
+$lblVibeKanbanInfo.Text = "Orchestrate AI agents in parallel via web interface"
+$lblVibeKanbanInfo.ForeColor = $script:MatrixGreen
+$lblVibeKanbanInfo.BackColor = 'Transparent'
+$lblVibeKanbanInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
+$form.Controls.Add($lblVibeKanbanInfo)
+
 # Status label for loading feedback
 $lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Left = 20; $lblStatus.Top = 390
+$lblStatus.Left = 20; $lblStatus.Top = 485
 $lblStatus.Width = 560; $lblStatus.Height = 24
 $lblStatus.Text = ""
 $lblStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -238,7 +260,7 @@ $form.Controls.Add($lblStatus)
 
 # Separator line above Exit button
 $lblSeparator = New-Object System.Windows.Forms.Label
-$lblSeparator.Left = 20; $lblSeparator.Top = 420
+$lblSeparator.Left = 20; $lblSeparator.Top = 515
 $lblSeparator.Width = 560; $lblSeparator.Height = 20
 $lblSeparator.Text = "============================================================"
 $lblSeparator.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -247,10 +269,10 @@ $lblSeparator.BackColor = 'Transparent'
 $lblSeparator.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($lblSeparator)
 
-# Button 3: Exit
+# Button 4: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
-$btnExit.Left = 250; $btnExit.Top = 455
+$btnExit.Left = 250; $btnExit.Top = 550
 $btnExit.Width = 100; $btnExit.Height = 35
 $btnExit.FlatStyle = 'Flat'
 $btnExit.FlatAppearance.BorderColor = $script:MatrixAccent
@@ -262,7 +284,7 @@ $form.Controls.Add($btnExit)
 
 # Footer with version and Report Issue link
 $lblVersion = New-Object System.Windows.Forms.Label
-$lblVersion.Left = 20; $lblVersion.Top = 505
+$lblVersion.Left = 20; $lblVersion.Top = 600
 $lblVersion.Width = 280; $lblVersion.Height = 20
 $lblVersion.Text = "v$script:AppVersion"
 $lblVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -272,7 +294,7 @@ $lblVersion.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblVersion)
 
 $lblReportIssue = New-Object System.Windows.Forms.LinkLabel
-$lblReportIssue.Left = 300; $lblReportIssue.Top = 505
+$lblReportIssue.Left = 300; $lblReportIssue.Top = 600
 $lblReportIssue.Width = 280; $lblReportIssue.Height = 20
 $lblReportIssue.Text = "Report Issue"
 $lblReportIssue.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
@@ -332,10 +354,10 @@ $btnSetup.Add_Click({
             Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
             $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
         } else {
-            # NORMAL MODE: Show console (minimized) so user can see progress if needed
-            # This prevents the "nothing happening" experience when wizard takes time to load
-            Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
-            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
+            # NORMAL MODE: Hide console so the wizard GUI displays prominently
+            # The wizard form uses TopMost and BringToFront to ensure visibility
+            Write-AppLog "Normal mode: Launching with hidden console (GUI will be visible)" "DEBUG"
+            $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -Wait -PassThru
         }
         Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
 
@@ -453,6 +475,78 @@ $btnLaunch.Add_Click({
     } else {
         Write-AppLog "ERROR: Launch script not found at: [$launchScript]" "ERROR"
         [System.Windows.Forms.MessageBox]::Show("Error: launch_claude.ps1 not found in the same directory as this launcher.`n`nPath: $launchScript", "File Not Found", 'OK', 'Error')
+    }
+})
+
+$btnVibeKanban.Add_Click({
+    Write-AppLog "Launch Vibe Kanban button clicked" "INFO"
+
+    # Add error handling for path construction
+    Write-AppLog "Constructing Vibe Kanban launch script path..." "DEBUG"
+
+    try {
+        if (-not $scriptPath) {
+            Write-AppLog "ERROR: scriptPath is null!" "ERROR"
+            throw "Script path is null. Please restart the launcher."
+        }
+        $vibeKanbanScript = Join-Path $scriptPath "launch_vibe_kanban.ps1"
+        Write-AppLog "Vibe Kanban script path constructed: [$vibeKanbanScript]" "DEBUG"
+    } catch {
+        Write-AppLog "ERROR constructing Vibe Kanban script path: $($_.Exception.Message)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show("Error: Failed to locate scripts.`n`nDetails: $($_.Exception.Message)", "Path Error", 'OK', 'Error')
+        return
+    }
+
+    if (Test-Path $vibeKanbanScript) {
+        Write-AppLog "Vibe Kanban script found: [$vibeKanbanScript]" "INFO"
+
+        # Check for existing container
+        Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+
+        if ($existingContainer -eq "ai-cli") {
+            Write-AppLog "Container 'ai-cli' found - launching Vibe Kanban..." "INFO"
+
+            # Show loading feedback
+            $lblStatus.Text = ">>> LAUNCHING VIBE KANBAN... <<<"
+            $btnSetup.Enabled = $false
+            $btnLaunch.Enabled = $false
+            $btnVibeKanban.Enabled = $false
+            $btnExit.Enabled = $false
+            [System.Windows.Forms.Application]::DoEvents()
+
+            # Launch Vibe Kanban script
+            Write-AppLog "Starting launch_vibe_kanban.ps1 process..." "INFO"
+            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$vibeKanbanScript`"" -WindowStyle Hidden
+
+            # Brief wait then reset UI
+            Start-Sleep -Seconds 2
+            $lblStatus.Text = ""
+            $btnSetup.Enabled = $true
+            $btnLaunch.Enabled = $true
+            $btnVibeKanban.Enabled = $true
+            $btnExit.Enabled = $true
+
+            Write-AppLog "Vibe Kanban launch process started successfully" "INFO"
+        } else {
+            Write-AppLog "Container 'ai-cli' not found - setup required" "WARN"
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Setup has not been completed yet.`n`n" +
+                "No AI Docker container was found on your system.`n`n" +
+                "Would you like to run the First Time Setup now?",
+                "Setup Required",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to setup prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+        }
+    } else {
+        Write-AppLog "ERROR: Vibe Kanban script not found at: [$vibeKanbanScript]" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show("Error: launch_vibe_kanban.ps1 not found.`n`nPath: $vibeKanbanScript", "File Not Found", 'OK', 'Error')
     }
 })
 

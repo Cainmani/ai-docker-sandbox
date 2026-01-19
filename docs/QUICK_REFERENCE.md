@@ -16,12 +16,20 @@
 
 ## 💻 Daily Usage
 
-### Launch AI Workspace
+### Option A: Launch AI Workspace (Terminal)
 ```
 1. Double-click AI_Docker_Manager.exe
 2. Select "2. LAUNCH AI WORKSPACE"
 3. Terminal opens → type: claude (or any AI tool)
 4. Start working!
+```
+
+### Option B: Launch Vibe Kanban (Web UI)
+```
+1. Double-click AI_Docker_Manager.exe
+2. Select "3. LAUNCH VIBE KANBAN"
+3. Browser opens to http://localhost:3000
+4. Create tasks, assign AI agents, work in parallel!
 ```
 
 ### Essential Terminal Commands
@@ -34,6 +42,27 @@
 | `mkdir my-project` | Create project folder |
 | `cd my-project` | Enter project folder |
 | `exit` | Exit terminal |
+
+---
+
+## 🎛️ Vibe Kanban Quick Start
+
+Vibe Kanban lets you run multiple AI agents simultaneously through a visual web interface.
+
+⚠️ **SAFETY WARNING**: Vibe Kanban runs agents with `--dangerously-skip-permissions` by default. Agents have unrestricted access to execute code and commands. **Always review changes before committing!**
+
+| Step | Action |
+|------|--------|
+| 1. Authenticate first | Run `configure-tools` in terminal to set up Claude/Codex/Gemini |
+| 2. Launch Vibe Kanban | Click "3. LAUNCH VIBE KANBAN" in manager |
+| 3. Create project | Select a git repo from `/workspace` |
+| 4. Add tasks | Create tasks on the kanban board |
+| 5. Assign agent | Choose Claude, Codex, or Gemini for each task |
+| 6. Monitor | Watch agents work in parallel |
+| 7. Review | **Always review** with built-in diff tool before accepting |
+
+**URL**: http://localhost:3000 (opens automatically)
+**Custom Port**: Edit `.env` file → `VIBE_KANBAN_PORT=8080`
 
 ---
 
@@ -54,6 +83,8 @@ Files sync automatically both ways! Edit from Windows or from Claude - changes a
 | "claude: command not found" | Re-run First Time Setup |
 | "Permission denied" | Use `sudo` command (your password from setup) |
 | Can't find AI_Work folder | Check `.env` file for `WORKSPACE_PATH=` |
+| "Vibe Kanban binary not found" | Run First Time Setup with "Force Rebuild" checked |
+| Port 3000 already in use | Change port in `.env`: `VIBE_KANBAN_PORT=8080` |
 
 ---
 

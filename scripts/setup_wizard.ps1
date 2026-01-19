@@ -39,7 +39,7 @@ function Fix-LineEndings {
     param([string]$scriptPath)
 
     # Docker files location - detect if running from embedded exe or project directory
-    $dockerPath = if ($scriptPath -like '*AI_Docker_Manager*docker-files*') {
+    $dockerPath = if ($scriptPath -like '*AI-Docker-CLI*docker-files*') {
         # Running from embedded exe - docker files are in same folder
         $scriptPath
     } else {
@@ -603,9 +603,9 @@ if (Test-Path $script:envPath) {
 
 Write-Host "[INIT] Detecting Docker files location..." -ForegroundColor Yellow
 # Docker files location - detect if running from embedded exe or project directory
-# If running from AppData\AI_Docker_Manager\docker-files (embedded exe), use current directory
+# If running from AppData\AI-Docker-CLI\docker-files (embedded exe), use current directory
 # If running from project scripts folder, use ../docker
-$dockerPath = if ($PSScriptRoot -like '*AI_Docker_Manager*docker-files*') {
+$dockerPath = if ($PSScriptRoot -like '*AI-Docker-CLI*docker-files*') {
     # Running from embedded exe - docker files are in same folder
     $PSScriptRoot
 } else {
@@ -1639,7 +1639,26 @@ $btnNext.Add_Click({
                 Write-Host "[INFO] Building Docker image - this downloads Ubuntu and installs packages" -ForegroundColor Cyan
 
                 # Use --progress=plain for more readable output in terminal
-                $buildArgs = 'compose build --progress=plain'
+                # Add --no-cache when force rebuild is checked to ensure fresh build
+                if ($forceRebuild) {
+                    $buildArgs = 'compose build --no-cache --progress=plain'
+                    Write-Host "[INFO] Force rebuild enabled - using --no-cache" -ForegroundColor Yellow
+                    $script:buildTerminalBox.AppendText(">> Force rebuild: using --no-cache flag`r`n")
+
+                    # Add FORCE_CLI_REINSTALL to .env so entrypoint.sh will reinstall CLI tools
+                    # This is needed because the marker file persists in the home directory volume
+                    $envFilePath = Join-Path $dockerPath ".env"
+                    if (Test-Path $envFilePath) {
+                        $envContent = Get-Content $envFilePath -Raw
+                        if ($envContent -notmatch 'FORCE_CLI_REINSTALL') {
+                            Add-Content -Path $envFilePath -Value "FORCE_CLI_REINSTALL=1"
+                            Write-Host "[INFO] Added FORCE_CLI_REINSTALL=1 to .env" -ForegroundColor Yellow
+                            $script:buildTerminalBox.AppendText(">> Force rebuild: will reinstall all CLI tools`r`n")
+                        }
+                    }
+                } else {
+                    $buildArgs = 'compose build --progress=plain'
+                }
                 $r1 = Run-Process-WithTerminal -file 'docker' -arguments $buildArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Docker Build'
                 if (-not $r1.Ok) {
                     $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
@@ -1863,6 +1882,18 @@ $btnNext.Add_Click({
             }
 
             Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
+
+            # Clean up FORCE_CLI_REINSTALL from .env so it doesn't reinstall on every restart
+            $envFilePath = Join-Path $dockerPath ".env"
+            if (Test-Path $envFilePath) {
+                $envContent = Get-Content $envFilePath
+                $cleanedContent = $envContent | Where-Object { $_ -notmatch '^FORCE_CLI_REINSTALL=' }
+                if ($cleanedContent.Count -lt $envContent.Count) {
+                    $cleanedContent | Set-Content -Path $envFilePath -Encoding UTF8
+                    Write-Host "[INFO] Cleaned up FORCE_CLI_REINSTALL from .env" -ForegroundColor Cyan
+                }
+            }
+
             $status.Text = 'system ready'
             $script:current++; Show-Page $script:current
         }

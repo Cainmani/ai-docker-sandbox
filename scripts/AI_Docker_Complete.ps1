@@ -15,7 +15,7 @@ if (-not $env:LOCALAPPDATA) {
     $env:LOCALAPPDATA = [System.IO.Path]::GetTempPath()
 }
 
-$appDataDir = Join-Path $env:LOCALAPPDATA "AI_Docker_Manager"
+$appDataDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI"
 if (-not (Test-Path $appDataDir)) {
     New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
 }
@@ -61,7 +61,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.0.1"
+$script:AppVersion = "1.1.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -117,6 +117,7 @@ $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)
 $script:EmbeddedFiles = @{
     'setup_wizard.ps1' = 'SETUP_WIZARD_PS1_BASE64_HERE'
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
+    'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
@@ -271,7 +272,7 @@ function Extract-DockerFiles {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = ">>> AI CLI DOCKER MANAGER <<<"
 $form.Width = 600
-$form.Height = 590
+$form.Height = 690
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = $script:MatrixDarkGreen
 $form.ForeColor = $script:MatrixGreen
@@ -364,9 +365,31 @@ $lblLaunchInfo.BackColor = 'Transparent'
 $lblLaunchInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblLaunchInfo)
 
+# Button 3: Launch Vibe Kanban
+$btnVibeKanban = New-Object System.Windows.Forms.Button
+$btnVibeKanban.Text = "3. LAUNCH VIBE KANBAN"
+$btnVibeKanban.Left = 50; $btnVibeKanban.Top = 390
+$btnVibeKanban.Width = 500; $btnVibeKanban.Height = 60
+$btnVibeKanban.FlatStyle = 'Flat'
+$btnVibeKanban.FlatAppearance.BorderColor = $script:MatrixAccent
+$btnVibeKanban.FlatAppearance.BorderSize = 2
+$btnVibeKanban.BackColor = $script:MatrixMidGreen
+$btnVibeKanban.ForeColor = $script:MatrixGreen
+$btnVibeKanban.Font = New-Object System.Drawing.Font('Consolas', 12, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($btnVibeKanban)
+
+$lblVibeKanbanInfo = New-Object System.Windows.Forms.Label
+$lblVibeKanbanInfo.Left = 70; $lblVibeKanbanInfo.Top = 455
+$lblVibeKanbanInfo.Width = 460; $lblVibeKanbanInfo.Height = 20
+$lblVibeKanbanInfo.Text = "Opens AI agent orchestration web UI (http://localhost:3000)"
+$lblVibeKanbanInfo.ForeColor = $script:MatrixGreen
+$lblVibeKanbanInfo.BackColor = 'Transparent'
+$lblVibeKanbanInfo.Font = New-Object System.Drawing.Font('Consolas', 8)
+$form.Controls.Add($lblVibeKanbanInfo)
+
 # Status label for loading feedback
 $lblStatus = New-Object System.Windows.Forms.Label
-$lblStatus.Left = 20; $lblStatus.Top = 385
+$lblStatus.Left = 20; $lblStatus.Top = 485
 $lblStatus.Width = 560; $lblStatus.Height = 24
 $lblStatus.Text = ""
 $lblStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -377,7 +400,7 @@ $form.Controls.Add($lblStatus)
 
 # Status label showing where app data is stored
 $lblAppData = New-Object System.Windows.Forms.Label
-$lblAppData.Left = 20; $lblAppData.Top = 410
+$lblAppData.Left = 20; $lblAppData.Top = 510
 $lblAppData.Width = 560; $lblAppData.Height = 40
 $lblAppData.Text = "Configuration stored in:`n$appDataDir"
 $lblAppData.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
@@ -386,10 +409,10 @@ $lblAppData.BackColor = 'Transparent'
 $lblAppData.Font = New-Object System.Drawing.Font('Consolas', 7)
 $form.Controls.Add($lblAppData)
 
-# Button 3: Exit
+# Button 4: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
-$btnExit.Left = 250; $btnExit.Top = 455
+$btnExit.Left = 250; $btnExit.Top = 555
 $btnExit.Width = 100; $btnExit.Height = 35
 $btnExit.FlatStyle = 'Flat'
 $btnExit.FlatAppearance.BorderColor = $script:MatrixAccent
@@ -401,7 +424,7 @@ $form.Controls.Add($btnExit)
 
 # Footer with version and Report Issue link
 $lblVersion = New-Object System.Windows.Forms.Label
-$lblVersion.Left = 20; $lblVersion.Top = 505
+$lblVersion.Left = 20; $lblVersion.Top = 605
 $lblVersion.Width = 280; $lblVersion.Height = 20
 $lblVersion.Text = "v$script:AppVersion"
 $lblVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -411,7 +434,7 @@ $lblVersion.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblVersion)
 
 $lblReportIssue = New-Object System.Windows.Forms.LinkLabel
-$lblReportIssue.Left = 300; $lblReportIssue.Top = 505
+$lblReportIssue.Left = 300; $lblReportIssue.Top = 605
 $lblReportIssue.Width = 280; $lblReportIssue.Height = 20
 $lblReportIssue.Text = "Report Issue"
 $lblReportIssue.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
@@ -434,6 +457,7 @@ $btnSetup.Add_Click({
     $lblStatus.Text = ">>> LOADING SETUP WIZARD... <<<"
     $btnSetup.Enabled = $false
     $btnLaunch.Enabled = $false
+    $btnVibeKanban.Enabled = $false
     $btnExit.Enabled = $false
     [System.Windows.Forms.Application]::DoEvents()  # Force UI update
     Write-AppLog "Loading indicator shown, buttons disabled" "DEBUG"
@@ -462,8 +486,6 @@ $btnSetup.Add_Click({
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
                 [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 300  # Brief pause so user sees the status
-                $form.Hide()
 
                 # Check if SHIFT is held - enables DEV MODE (UI testing without destructive operations)
                 $devModeArg = ""
@@ -480,23 +502,53 @@ $btnSetup.Add_Click({
                     Write-AppLog "Launch arguments: $argList" "DEBUG"
                 }
 
-                # Show console window for progress visibility (helps users see what's happening)
+                # Start wizard process WITHOUT -Wait so we can keep showing status
                 Write-AppLog "Starting setup wizard process..." "INFO"
                 if ($devModeArg) {
-                    # DEV MODE: Normal console window for full debug visibility
                     Write-AppLog "DEV MODE: Launching with visible console for debug output" "INFO"
-                    $process = Start-Process powershell.exe -ArgumentList $argList -Wait -PassThru
+                    $process = Start-Process powershell.exe -ArgumentList $argList -PassThru
                 } else {
-                    # NORMAL MODE: Show console (minimized) so user can see progress if needed
                     Write-AppLog "Normal mode: Launching with minimized console (visible if needed)" "DEBUG"
-                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -Wait -PassThru
+                    $process = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Minimized -PassThru
                 }
+
+                # Keep menu visible with status while wizard loads
+                # Wait for wizard window to appear (poll for process to have a main window)
+                $lblStatus.Text = ">>> WAITING FOR WIZARD WINDOW... <<<"
+                [System.Windows.Forms.Application]::DoEvents()
+
+                $maxWaitMs = 5000  # Max 5 seconds
+                $waited = 0
+                while ($waited -lt $maxWaitMs -and -not $process.HasExited) {
+                    Start-Sleep -Milliseconds 100
+                    $waited += 100
+                    [System.Windows.Forms.Application]::DoEvents()
+
+                    # Check if process has a main window handle (wizard GUI is visible)
+                    try {
+                        $process.Refresh()
+                        if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                            Write-AppLog "Wizard window detected after ${waited}ms" "DEBUG"
+                            break
+                        }
+                    } catch {
+                        # Process may have exited, continue
+                    }
+                }
+
+                # Now hide the menu since wizard is visible (or timeout reached)
+                $form.Hide()
+                Write-AppLog "Menu hidden, waiting for wizard to complete..." "DEBUG"
+
+                # Wait for wizard process to complete
+                $process.WaitForExit()
                 Write-AppLog "Setup wizard process completed with exit code: $($process.ExitCode)" "INFO"
 
                 # Reset UI state
                 $lblStatus.Text = ""
                 $btnSetup.Enabled = $true
                 $btnLaunch.Enabled = $true
+                $btnVibeKanban.Enabled = $true
                 $btnExit.Enabled = $true
 
                 $form.Show()
@@ -541,6 +593,7 @@ $btnSetup.Add_Click({
             $lblStatus.Text = ""
             $btnSetup.Enabled = $true
             $btnLaunch.Enabled = $true
+            $btnVibeKanban.Enabled = $true
             $btnExit.Enabled = $true
             [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
         }
@@ -552,6 +605,7 @@ $btnSetup.Add_Click({
         $lblStatus.Text = ""
         $btnSetup.Enabled = $true
         $btnLaunch.Enabled = $true
+        $btnVibeKanban.Enabled = $true
         $btnExit.Enabled = $true
         [System.Windows.Forms.MessageBox]::Show(
             "An error occurred during setup:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
@@ -670,6 +724,91 @@ $btnLaunch.Add_Click({
         Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
         [System.Windows.Forms.MessageBox]::Show(
             "An error occurred while launching the workspace:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
+            "Launch Error",
+            'OK',
+            'Error'
+        )
+        $form.Show()
+    }
+})
+
+$btnVibeKanban.Add_Click({
+    Write-AppLog "Launch Vibe Kanban button clicked" "INFO"
+
+    try {
+        # Check for existing container
+        Write-AppLog "Checking for existing ai-cli container..." "DEBUG"
+        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+        Write-AppLog "Container check result: [$existingContainer]" "DEBUG"
+
+        if ($existingContainer -eq "ai-cli") {
+            Write-AppLog "Container 'ai-cli' found - launching Vibe Kanban..." "INFO"
+
+            # Ensure docker-files subfolder exists
+            if (-not (Test-Path $filesDir)) {
+                Write-AppLog "Creating docker-files directory: [$filesDir]" "DEBUG"
+                New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
+            }
+
+            # Copy .env if it exists
+            $envFileInSubfolder = Join-Path $filesDir ".env"
+            $envFileMain = Join-Path $appDataDir ".env"
+            if (Test-Path $envFileMain) {
+                Write-AppLog "Copying .env from [$envFileMain] to [$envFileInSubfolder]" "DEBUG"
+                Copy-Item $envFileMain $envFileInSubfolder -Force
+            }
+
+            # Re-extract Docker files if they were deleted
+            Write-AppLog "Re-extracting Docker files..." "DEBUG"
+            Extract-DockerFiles
+            Write-AppLog "Docker files extracted" "DEBUG"
+
+            # Get Vibe Kanban launch script content from memory
+            Write-AppLog "Loading Vibe Kanban launch script from embedded resources..." "DEBUG"
+            $vibeContent = Get-EmbeddedFileContent 'launch_vibe_kanban.ps1'
+            if ($vibeContent) {
+                Write-AppLog "Vibe Kanban launch script loaded successfully" "DEBUG"
+                # Extract launch script to subfolder
+                $vibeScript = Join-Path $filesDir "launch_vibe_kanban.ps1"
+                Write-AppLog "Writing Vibe Kanban script to: [$vibeScript]" "DEBUG"
+                [System.IO.File]::WriteAllText($vibeScript, $vibeContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
+
+                $form.Hide()
+                # Run the launch script
+                Write-AppLog "Starting launch_vibe_kanban.ps1 process..." "INFO"
+                Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$vibeScript`"" -WindowStyle Hidden
+                Write-AppLog "Vibe Kanban launch process started successfully" "INFO"
+
+                # Wait a moment, then close the main form
+                Start-Sleep -Milliseconds 500
+                Write-AppLog "Closing main form" "INFO"
+                $form.Close()
+            } else {
+                Write-AppLog "ERROR: Failed to load Vibe Kanban launch script from embedded resources" "ERROR"
+                [System.Windows.Forms.MessageBox]::Show("Error: Vibe Kanban launch script could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
+                $form.Show()
+            }
+        } else {
+            Write-AppLog "Container 'ai-cli' not found" "WARN"
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "Setup has not been completed yet.`n`n" +
+                "No AI Docker container was found on your system.`n`n" +
+                "Would you like to run the First Time Setup now?",
+                "Setup Required",
+                'YesNo',
+                'Warning'
+            )
+            Write-AppLog "User response to setup prompt: $result" "INFO"
+            if ($result -eq 'Yes') {
+                $btnSetup.PerformClick()
+            }
+        }
+    } catch {
+        Write-AppLog "ERROR: Exception in Launch Vibe Kanban: $($_.Exception.Message)" "ERROR"
+        Write-AppLog "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        [System.Windows.Forms.MessageBox]::Show(
+            "An error occurred while launching Vibe Kanban:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",
             "Launch Error",
             'OK',
             'Error'
