@@ -338,6 +338,44 @@ configure_codeium() {
 configure_codex() {
     print_header "Configure OpenAI Codex CLI"
 
+    # Ensure ~/.codex directory exists
+    mkdir -p "${HOME}/.codex"
+
+    # Create or update config.toml to use modern Responses API
+    # The deprecated "chat" wire_api causes connection errors and will be removed Feb 2026
+    local config_file="${HOME}/.codex/config.toml"
+    if [ ! -f "$config_file" ]; then
+        print_status "Creating default Codex config.toml..."
+        cat > "$config_file" << 'TOML'
+# Codex CLI Configuration
+# See: https://developers.openai.com/codex/config-reference/
+
+# Model settings
+model = "gpt-5.2-codex"
+model_provider = "openai"
+
+# Safety settings
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Environment variables to forward to shell
+[shell_environment_policy]
+include_only = ["PATH", "HOME", "USER", "TERM"]
+
+# Features
+[features]
+shell_tool = true
+web_search_request = true
+TOML
+        print_success "Created config.toml with modern Responses API"
+    elif grep -q 'wire_api.*=.*"chat"' "$config_file" 2>/dev/null; then
+        # Migrate deprecated chat API to responses API
+        print_warning "Detected deprecated wire_api = \"chat\" in config.toml"
+        print_status "Updating to wire_api = \"responses\"..."
+        sed -i 's/wire_api.*=.*"chat"/wire_api = "responses"/g' "$config_file"
+        print_success "Updated config.toml to use modern Responses API"
+    fi
+
     # Check if already authenticated via OAuth (auth.json exists)
     if [ -f "${HOME}/.codex/auth.json" ]; then
         print_success "Codex CLI is authenticated (using subscription login)"
@@ -347,7 +385,7 @@ configure_codex() {
     fi
 
     # Check if API key is configured as fallback
-    if [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
+    if [ -n "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
         print_success "Codex CLI can use OPENAI_API_KEY (API credits)"
         print_warning "Note: API key uses pay-per-use credits, not your subscription."
         echo ""

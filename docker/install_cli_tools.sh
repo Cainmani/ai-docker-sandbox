@@ -54,6 +54,66 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to install npm package with retry logic
+# Handles ECONNRESET and other transient network errors that occur with large packages
+# See: https://github.com/npm/cli/issues/5166
+npm_install_with_retry() {
+    local package=$1
+    local log_file=$2
+    local max_attempts=3
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        print_status "Installing $package (attempt $attempt/$max_attempts)..."
+
+        if npm install -g "$package" 2>&1 | tee "$log_file"; then
+            return 0
+        fi
+
+        print_warning "Attempt $attempt failed for $package"
+
+        if [ $attempt -lt $max_attempts ]; then
+            print_status "Clearing npm cache and retrying in 3 seconds..."
+            npm cache clean --force 2>/dev/null || true
+            sleep 3
+        fi
+
+        ((attempt++))
+    done
+
+    print_error "Failed to install $package after $max_attempts attempts"
+    cat "$log_file"
+    return 1
+}
+
+# Function to install pip package with retry logic
+pip_install_with_retry() {
+    local package=$1
+    local max_attempts=3
+    local attempt=1
+    local extra_args="${2:-}"
+
+    while [ $attempt -le $max_attempts ]; do
+        print_status "Installing $package via pip (attempt $attempt/$max_attempts)..."
+
+        if pip3 install $extra_args "$package" --quiet 2>&1; then
+            return 0
+        fi
+
+        print_warning "Attempt $attempt failed for $package"
+
+        if [ $attempt -lt $max_attempts ]; then
+            print_status "Retrying in 3 seconds..."
+            sleep 3
+        fi
+
+        ((attempt++))
+    done
+
+    print_error "Failed to install $package after $max_attempts attempts"
+    return 1
+}
+
 # Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
 # NOTE: Parallel implementation exists in scripts/setup_wizard.ps1 (Test-NpmFunctional)
 #       for Windows host. Keep both in sync when making changes.
@@ -203,13 +263,10 @@ install_cli_tools() {
 
     # 2. Install/Update Claude Code CLI
     update_install_status "Claude Code CLI" "npm"
-    print_status "Installing/Updating Claude Code CLI..."
-    if npm install -g @anthropic-ai/claude-code@latest 2>&1 | tee /tmp/claude_install.log; then
+    if npm_install_with_retry "@anthropic-ai/claude-code@latest" "/tmp/claude_install.log"; then
         print_success "Claude Code CLI installed/updated successfully"
     else
-        print_error "Failed to install Claude Code CLI"
-        cat /tmp/claude_install.log
-        # Continue with other installations
+        print_warning "Claude Code CLI installation failed - continuing with other tools"
     fi
 
     # 3. Install Google Gemini CLI (official)
@@ -217,14 +274,12 @@ install_cli_tools() {
     print_status "Installing Google Gemini CLI..."
     if npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Found @google/gemini-cli in npm registry"
-        if npm install -g @google/gemini-cli@latest 2>&1 | tee /tmp/gemini_install.log; then
+        if npm_install_with_retry "@google/gemini-cli@latest" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
-            print_error "Failed to install Gemini CLI"
-            cat /tmp/gemini_install.log
             # Try community version as fallback
-            print_status "Attempting community version as fallback..."
-            if pip3 install --user gemini-cli --quiet; then
+            print_status "Attempting community pip version as fallback..."
+            if pip_install_with_retry "gemini-cli" "--user"; then
                 print_success "Gemini CLI (community) installed as fallback"
             else
                 print_warning "Could not install any Gemini CLI version"
@@ -237,7 +292,7 @@ install_cli_tools() {
             print_status "Gemini CLI (community) already installed"
         else
             print_status "Installing Gemini CLI (community version)..."
-            if pip3 install --user gemini-cli --quiet; then
+            if pip_install_with_retry "gemini-cli" "--user"; then
                 print_success "Gemini CLI (community) installed"
             else
                 print_warning "Failed to install community Gemini CLI"
@@ -254,7 +309,7 @@ install_cli_tools() {
     # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
     # which uses PEP 668 to prevent accidental system package modifications on host systems.
     if ! pip3 show openai >/dev/null 2>&1; then
-        if pip3 install --break-system-packages openai --quiet; then
+        if pip_install_with_retry "openai" "--break-system-packages"; then
             print_success "OpenAI Python SDK installed"
         else
             print_warning "Failed to install OpenAI Python SDK"
@@ -264,14 +319,15 @@ install_cli_tools() {
     fi
 
     # Install OpenAI Codex CLI (official package)
+    # Note: This is a large package (~100MB) that can fail with ECONNRESET on flaky networks
+    # The retry logic handles this by clearing cache and retrying
     update_install_status "OpenAI Codex CLI" "npm"
     print_status "Installing OpenAI Codex CLI..."
     if npm view @openai/codex version >/dev/null 2>&1; then
-        if npm install -g @openai/codex@latest 2>&1 | tee /tmp/codex_install.log; then
+        if npm_install_with_retry "@openai/codex@latest" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
-            print_error "Failed to install OpenAI Codex CLI"
-            cat /tmp/codex_install.log
+            print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
         fi
     else
         print_warning "OpenAI Codex CLI (@openai/codex) not available in npm registry"
@@ -283,15 +339,12 @@ install_cli_tools() {
 
     # 5. Install Vibe Kanban (AI agent orchestration tool)
     update_install_status "Vibe Kanban" "npm"
-    print_status "Installing Vibe Kanban (AI agent orchestration)..."
-    if npm install -g vibe-kanban@latest 2>&1 | tee /tmp/vibe_kanban_install.log; then
+    if npm_install_with_retry "vibe-kanban@latest" "/tmp/vibe_kanban_install.log"; then
         print_success "Vibe Kanban installed successfully"
         # Create .vibe-kanban directory for data persistence
         mkdir -p "${HOME}/.vibe-kanban"
     else
-        print_error "Failed to install Vibe Kanban"
-        cat /tmp/vibe_kanban_install.log
-        # Continue with other installations
+        print_warning "Vibe Kanban installation failed - can be installed manually with: npm install -g vibe-kanban"
     fi
 
     # Save versions to file

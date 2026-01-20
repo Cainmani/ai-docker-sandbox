@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2025-01-20
+
+### Changed
+- Removed Codex OAuth workaround (Page 6 in setup wizard) - OpenAI fixed native Docker OAuth support ([#2798](https://github.com/openai/codex/issues/2798))
+- Removed Codex auth auto-sync from launch script - no longer needed
+- Users can now authenticate Codex directly in container with `codex auth login`
+
+### Added
+- Retry logic with cache clearing for npm package installations
+- Handles ECONNRESET errors for large packages like @openai/codex (~100MB)
+- 3 retry attempts with npm cache clean between failures
+- Retry logic for pip package installations
+- Versioning requirements documentation in CLAUDE.md
+
+### Fixed
+- Codex CLI installation failures due to transient network errors during first-time setup
+
+## [1.1.0] - 2025-01-17
+
+### Added
+- Vibe Kanban integration for parallel AI agent orchestration
+- "Launch Vibe Kanban" button in main menu
+- Vibe Kanban auto-installation during first-time setup
+- Port 5173 exposure for Vibe Kanban web interface
+- Diagnostic logging for Vibe Kanban startup
+
+### Changed
+- Improved UI flow and button layout
+- Consolidated AppData folders into single AI-Docker-CLI directory
+
+### Fixed
+- First Time Setup page minimization on startup
+- Force rebuild now uses --no-cache flag
+- Error handling for missing .env file
+
 ## [1.0.1] - 2025-12-11
 
 ### Added
@@ -55,9 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.1.1 | 2025-01-20 | Remove Codex OAuth workaround, add install retry logic |
+| 1.1.0 | 2025-01-17 | Vibe Kanban integration |
 | 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Cainmani/ai-docker-cli-setup/releases/tag/v1.0.0
