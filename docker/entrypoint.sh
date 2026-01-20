@@ -72,8 +72,11 @@ alias grep='grep --color=auto'
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # CLI tools aliases
-alias update-tools='/usr/local/bin/auto_update.sh'
-alias check-updates='/usr/local/bin/auto_update.sh --check'
+# Note: These commands update container CLI tools only, not the Windows launcher app
+alias update-container-tools='/usr/local/bin/auto_update.sh'
+alias update-tools='/usr/local/bin/auto_update.sh'  # Legacy alias for compatibility
+alias check-container-updates='/usr/local/bin/auto_update.sh --check'
+alias check-updates='/usr/local/bin/auto_update.sh --check'  # Legacy alias for compatibility
 alias configure-tools='/usr/local/bin/configure_tools.sh'
 alias config-status='/usr/local/bin/configure_tools.sh --status'
 
@@ -92,10 +95,13 @@ if [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|   * python3      - OpenAI Python SDK (import openai)        |"
   echo "|                                                             |"
   echo "| Management Commands:                                        |"
-  echo "|   * configure-tools  - Set up API keys and authentication   |"
-  echo "|   * config-status    - Check configuration status           |"
-  echo "|   * update-tools     - Update all CLI tools                 |"
-  echo "|   * check-updates    - Check for available updates          |"
+  echo "|   * configure-tools        - Set up API keys/authentication |"
+  echo "|   * config-status          - Check configuration status     |"
+  echo "|   * update-container-tools - Update CLI tools in container  |"
+  echo "|   * check-container-updates - Check for tool updates        |"
+  echo "+--------------------------------------------------------------+"
+  echo "| NOTE: These commands update container tools only.           |"
+  echo "|       To update the launcher app, download from GitHub.     |"
   echo "+==============================================================+"
   echo ""
   echo "First time? Run 'configure-tools' to set up your API keys!"

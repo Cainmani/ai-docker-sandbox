@@ -1,8 +1,12 @@
 #!/bin/bash
 
-# Auto-update script for CLI tools
+# Auto-update script for CLI tools inside the Docker container
 # This script checks for updates and installs them automatically
 # Can be run via cron or manually
+#
+# IMPORTANT: This script updates CLI tools INSIDE the container only.
+# It does NOT update the AI Docker Manager launcher app on Windows.
+# To update the launcher app, download the latest release from GitHub.
 
 # Note: We do NOT use "set -e" because we want to continue updating other tools
 # even if one tool fails to update.
@@ -54,8 +58,8 @@ check_updates() {
 
     log_message "${BLUE}[INFO]${NC} Checking for available updates..."
 
-    # Check npm updates
-    npm_outdated=$(npm outdated -g 2>/dev/null | grep -E "@anthropic-ai/claude-code|continue|tldr|vibe-kanban" || true)
+    # Check ALL global npm packages for updates (dynamic, not hardcoded)
+    npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 || true)
     if [ ! -z "$npm_outdated" ]; then
         log_message "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
         echo "$npm_outdated" | while read line; do
@@ -64,8 +68,8 @@ check_updates() {
         updates_available=1
     fi
 
-    # Check pip updates
-    pip_outdated=$(pip3 list --user --outdated 2>/dev/null | grep -E "openai|shell-gpt|aider-chat|gemini-cli" || true)
+    # Check ALL user pip packages for updates (dynamic, not hardcoded)
+    pip_outdated=$(pip3 list --user --outdated 2>/dev/null | tail -n +3 || true)
     if [ ! -z "$pip_outdated" ]; then
         log_message "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
         echo "$pip_outdated" | while read line; do
@@ -74,7 +78,7 @@ check_updates() {
         updates_available=1
     fi
 
-    # Check apt updates
+    # Check apt updates for known CLI tools
     sudo apt-get update -qq
     apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "gh|azure-cli|google-cloud-sdk|bat|ripgrep|fd-find|fzf|httpie|jq" || true)
     if [ ! -z "$apt_updates" ]; then
@@ -90,24 +94,55 @@ check_updates() {
 
 # Function to apply updates
 apply_updates() {
-    log_message "${BLUE}[INFO]${NC} Applying updates..."
+    log_message "${BLUE}[INFO]${NC} Applying updates to container CLI tools..."
+    log_message ""
+    log_message "${YELLOW}NOTE:${NC} This updates tools INSIDE the Docker container only."
+    log_message "      To update the AI Docker Manager launcher app, download from:"
+    log_message "      https://github.com/Cainmani/ai-docker-cli-setup/releases/latest"
+    log_message ""
 
-    # Update npm packages
+    # Update ALL global npm packages (dynamic)
     log_message "Updating npm packages..."
-    updated_npm=$(npm update -g 2>&1 | grep -E "added|updated|changed" || echo "No npm updates applied")
-    log_message "$updated_npm"
+    npm_output=$(npm update -g 2>&1)
+    npm_exit_code=$?
+    if [ $npm_exit_code -eq 0 ]; then
+        echo "$npm_output" | grep -E "added|updated|changed" | while read line; do log_message "  $line"; done
+        if ! echo "$npm_output" | grep -qE "added|updated|changed"; then
+            log_message "  No npm updates applied"
+        fi
+    else
+        log_message "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
+        echo "$npm_output" | while read line; do log_message "  $line"; done
+    fi
 
-    # Update pip packages
+    # Update ALL user pip packages (dynamic)
     log_message "Updating Python packages..."
-    pip3 install --user --upgrade openai shell-gpt aider-chat gemini-cli 2>&1 | \
-        grep -E "Successfully installed|Requirement already satisfied" | \
-        while read line; do log_message "  $line"; done
+    outdated_packages=$(pip3 list --user --outdated --format=freeze 2>/dev/null | cut -d= -f1 || true)
+    if [ ! -z "$outdated_packages" ]; then
+        pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade 2>&1)
+        pip_exit_code=$?
+        if [ $pip_exit_code -eq 0 ]; then
+            echo "$pip_output" | grep -E "Successfully installed" | while read line; do log_message "  ${GREEN}$line${NC}"; done
+        else
+            log_message "${RED}[ERROR]${NC} Some pip packages failed to update (exit code: $pip_exit_code)"
+            # Log both successes and failures for visibility
+            echo "$pip_output" | grep -E "Successfully installed" | while read line; do log_message "  ${GREEN}$line${NC}"; done
+            echo "$pip_output" | grep -iE "error|failed|could not" | while read line; do log_message "  ${RED}$line${NC}"; done
+        fi
+    else
+        log_message "  All Python packages are up to date"
+    fi
 
-    # Update apt packages
+    # Update apt packages (keeping specific list for safety)
     log_message "Updating system packages..."
-    sudo apt-get upgrade -y -qq gh azure-cli google-cloud-sdk bat ripgrep fd-find fzf httpie jq 2>&1 | \
-        grep -E "upgraded|newly installed" | \
-        while read line; do log_message "  $line"; done
+    apt_output=$(sudo apt-get upgrade -y -qq gh azure-cli google-cloud-sdk bat ripgrep fd-find fzf httpie jq 2>&1)
+    apt_exit_code=$?
+    if [ $apt_exit_code -eq 0 ]; then
+        echo "$apt_output" | grep -E "upgraded|newly installed" | while read line; do log_message "  $line"; done
+    else
+        log_message "${RED}[ERROR]${NC} apt upgrade failed (exit code: $apt_exit_code)"
+        echo "$apt_output" | while read line; do log_message "  $line"; done
+    fi
 
     # Update AWS CLI if installed
     if command -v aws >/dev/null 2>&1; then
@@ -205,6 +240,13 @@ case "$1" in
         ;;
     --help|-h)
         echo "Usage: $0 [OPTIONS]"
+        echo ""
+        echo "Update CLI tools inside the Docker container."
+        echo ""
+        echo "NOTE: This updates container tools only (Claude CLI, Codex, gh, etc.)."
+        echo "      It does NOT update the AI Docker Manager launcher app."
+        echo "      To update the launcher, download from GitHub releases."
+        echo ""
         echo "Options:"
         echo "  --check, -c     Check for available updates"
         echo "  --apply, -a     Apply available updates"
