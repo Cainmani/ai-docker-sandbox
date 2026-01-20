@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2025-01-20
+
+### Changed
+- Renamed `update-tools` to `update-container-tools` for clarity (old alias still works)
+- Renamed `check-updates` to `check-container-updates` for clarity (old alias still works)
+- Update commands now dynamically update ALL installed npm/pip packages instead of hardcoded list
+- Login banner now shows NOTE clarifying that commands update container tools only
+
+### Added
+- Clear messaging in update script explaining scope (container tools vs launcher app)
+- Help text clarifies that launcher app updates must be downloaded from GitHub
+
+### Fixed
+- Confusion between container tool updates and launcher app updates
+
 ## [1.1.1] - 2025-01-20
 
 ### Changed
@@ -90,12 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.1.2 | 2025-01-20 | Clarify update-tools scope, dynamic package updates |
 | 1.1.1 | 2025-01-20 | Remove Codex OAuth workaround, add install retry logic |
 | 1.1.0 | 2025-01-17 | Vibe Kanban integration |
 | 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.0...v1.0.1
