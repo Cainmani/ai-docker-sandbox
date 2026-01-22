@@ -10,7 +10,8 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
-export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+# Include: npm global, pip local, and Claude native installer paths
+export PATH="${HOME}/.claude/bin:${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -195,7 +196,7 @@ get_version() {
             gh --version 2>/dev/null | head -n1 | cut -d' ' -f3 || echo "not installed"
             ;;
         claude)
-            npm list -g @anthropic-ai/claude-code 2>/dev/null | grep '@anthropic-ai/claude-code' | cut -d'@' -f3 || echo "not installed"
+            claude --version 2>/dev/null | head -n1 || echo "not installed"
             ;;
         gemini)
             gemini --version 2>/dev/null | head -n1 || echo "not installed"
@@ -261,12 +262,44 @@ install_cli_tools() {
         print_status "GitHub CLI already installed ($(get_version gh))"
     fi
 
-    # 2. Install/Update Claude Code CLI
-    update_install_status "Claude Code CLI" "npm"
-    if npm_install_with_retry "@anthropic-ai/claude-code@latest" "/tmp/claude_install.log"; then
-        print_success "Claude Code CLI installed/updated successfully"
+    # 2. Install/Update Claude Code CLI (using native installer - npm is deprecated)
+    # Native installation auto-updates in the background, so we only need to install once
+    # See: https://code.claude.com/docs/en/getting-started
+    update_install_status "Claude Code CLI" "native"
+
+    # Check if Claude is installed and determine installation type
+    claude_path=$(which claude 2>/dev/null || true)
+    is_npm_install=false
+
+    if [ -n "$claude_path" ] && echo "$claude_path" | grep -q "\.npm-global"; then
+        is_npm_install=true
+        print_status "Detected Claude Code installed via npm (deprecated)"
+        print_status "Migrating to native installer for auto-update support..."
+    fi
+
+    if ! command_exists claude || [ "$is_npm_install" = true ]; then
+        print_status "Installing Claude Code CLI via native installer..."
+        if curl -fsSL https://claude.ai/install.sh | bash; then
+            # Ensure claude is in PATH for this session (native path takes priority)
+            export PATH="${HOME}/.claude/bin:${PATH}"
+            print_success "Claude Code CLI installed successfully via native installer"
+
+            # If migrating from npm, remove the old npm package to avoid confusion
+            if [ "$is_npm_install" = true ]; then
+                print_status "Removing old npm installation..."
+                npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
+                print_success "Migration from npm to native installer complete"
+            fi
+        else
+            print_warning "Claude Code CLI installation failed - continuing with other tools"
+            # If migration failed but npm version exists, it will still work
+            if [ "$is_npm_install" = true ]; then
+                print_warning "Keeping existing npm installation as fallback"
+            fi
+        fi
     else
-        print_warning "Claude Code CLI installation failed - continuing with other tools"
+        print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
+        print_status "Note: Claude Code auto-updates in the background"
     fi
 
     # 3. Install Google Gemini CLI (official)

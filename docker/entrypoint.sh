@@ -68,8 +68,8 @@ alias la='ls -A'
 alias l='ls -CF'
 alias grep='grep --color=auto'
 
-# Add npm global and local bin to PATH
-export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+# Add Claude native installer, npm global, and local bin to PATH
+export PATH="$HOME/.claude/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # CLI tools aliases
 # Note: These commands update container CLI tools only, not the Windows launcher app
@@ -110,11 +110,11 @@ fi
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
 else
-  # .bashrc already exists, ensure npm PATH is added
-  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.bashrc"; then
+  # .bashrc already exists, ensure PATH includes Claude, npm global, and local bin
+  if ! grep -q "\.claude/bin" "/home/$USER_NAME/.bashrc"; then
     echo "" >> "/home/$USER_NAME/.bashrc"
-    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.bashrc"
-    echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.bashrc"
+    echo "# Add Claude native installer, npm global, and local bin to PATH" >> "/home/$USER_NAME/.bashrc"
+    echo 'export PATH="$HOME/.claude/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.bashrc"
     chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
   fi
 fi
@@ -124,8 +124,8 @@ if [ ! -f "/home/$USER_NAME/.profile" ]; then
   cat > "/home/$USER_NAME/.profile" << 'EOF'
 # ~/.profile: executed by the command interpreter for login shells.
 
-# Add npm global and local bin to PATH
-export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+# Add Claude native installer, npm global, and local bin to PATH
+export PATH="$HOME/.claude/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # If running bash, source .bashrc
 if [ -n "$BASH_VERSION" ]; then
@@ -136,11 +136,11 @@ fi
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
 else
-  # .profile already exists, ensure npm PATH is added
-  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.profile"; then
+  # .profile already exists, ensure PATH includes Claude, npm global, and local bin
+  if ! grep -q "\.claude/bin" "/home/$USER_NAME/.profile"; then
     echo "" >> "/home/$USER_NAME/.profile"
-    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.profile"
-    echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.profile"
+    echo "# Add Claude native installer, npm global, and local bin to PATH" >> "/home/$USER_NAME/.profile"
+    echo 'export PATH="$HOME/.claude/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.profile"
     chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
   fi
 fi
