@@ -6,7 +6,8 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
-export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+# Include: Claude native installer, npm global, and local bin paths
+export PATH="${HOME}/.claude/bin:${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -50,6 +51,10 @@ is_configured() {
     local tool=$1
     case $tool in
         claude)
+            # First verify Claude binary actually works (catches broken installations)
+            if ! claude --version >/dev/null 2>&1; then
+                return 1  # Claude is broken or not installed
+            fi
             # Check for ANTHROPIC_API_KEY environment variable
             if [ -n "$ANTHROPIC_API_KEY" ]; then
                 return 0

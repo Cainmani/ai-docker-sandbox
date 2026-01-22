@@ -3,7 +3,7 @@
 **Date:** 2026-01-22
 **Branch:** `fix/claude-native-installer`
 **Issue:** #26 - [Migration]: Update Claude Code installation from npm to native installer
-**Status:** Testing in progress
+**Status:** Testing Round 2
 
 ## Background
 
@@ -18,14 +18,14 @@ Claude Code has officially deprecated npm installation in favor of a native inst
 | Node.js required | Yes | No |
 | Binary location | `~/.npm-global/bin/claude` | `~/.claude/bin/claude` |
 
-## Changes Made
+## Files Modified
 
 ### 1. `docker/install_cli_tools.sh`
 - Replaced npm installation with native curl installer
-- Added migration logic to detect existing npm installations
-- Migrates npm users to native installer automatically
-- Removes old npm package after successful migration
-- Falls back to npm if native install fails
+- Added robust detection logic that verifies Claude **actually works** (not just exists)
+- Detects ANY npm installation path: `.npm-global`, `/usr/local/`, `node_modules`
+- Added `cleanup_old_installations()` function for `--force` flag
+- Cleanup removes: npm packages, system wrappers, entire `~/.claude` directory
 - Updated `get_version()` to use `claude --version`
 - Added `~/.claude/bin` to PATH
 
@@ -37,67 +37,97 @@ Claude Code has officially deprecated npm installation in favor of a native inst
 ### 3. `docker/entrypoint.sh`
 - Updated `.bashrc` template to include `~/.claude/bin` in PATH
 - Updated `.profile` template to include `~/.claude/bin` in PATH
-- Updated existing file update logic to check for `.claude/bin`
 
-## Testing Completed
+### 4. `docker/configure_tools.sh`
+- Added `~/.claude/bin` to PATH
+- `is_configured claude` now verifies binary works BEFORE checking config files
 
-- [x] Shell script syntax validation (all pass)
-- [x] Install URL reachability check (redirects to GCS correctly)
-- [x] npm detection logic test (correctly identifies `.npm-global` path)
+## Testing Round 1 - FAILED
 
-## Testing In Progress
+**Issue discovered:** Script detected Claude as "already installed via native installer" when it was actually a broken system-wide npm installation.
 
-- [ ] **Force Rebuild test** - User running First Time Setup with Force Rebuild
-  - Should detect existing npm installation
-  - Should install native version
-  - Should remove old npm package
-  - Should result in `which claude` showing `~/.claude/bin/claude`
+**Root cause:**
+1. `/usr/local/bin/claude` existed (broken wrapper from previous `sudo npm install`)
+2. Detection logic only checked for `.npm-global` path, missing `/usr/local/` installations
+3. `command_exists` returned true for broken symlink/wrapper
+4. Script skipped installation entirely
+5. `config-status` returned "Configured" because config files existed (even though binary was broken)
 
-## Expected Output During Rebuild
+## Fixes Applied for Round 2
 
+1. Detection now checks if Claude **actually works** (executes `claude --version`)
+2. Detection checks for ANY npm path: `.npm-global`, `/usr/local/`, `node_modules`
+3. Broken installations trigger fresh native install
+4. Script removes broken `/usr/local/bin/claude` wrappers
+5. `config-status` now verifies Claude binary works before checking config
+6. **`--force` now runs comprehensive cleanup before install:**
+   - `npm uninstall -g @anthropic-ai/claude-code`
+   - `sudo rm -f /usr/local/bin/claude`
+   - `rm -rf ~/.claude` (entire directory - auth doesn't carry over anyway)
+   - Removes other npm CLI packages (Gemini, Codex, vibe-kanban)
+   - `npm cache clean --force`
+7. Marker file now verifies Claude works, not just exists
+
+## Testing Round 2 - IN PROGRESS
+
+User running Force Rebuild to test fixes.
+
+**Expected behavior:**
+1. Cleanup runs first, removing all old installations
+2. Native installer runs: `curl -fsSL https://claude.ai/install.sh | bash`
+3. Claude binary installed at `~/.claude/bin/claude`
+4. User needs to re-authenticate with `claude` command
+
+**Expected log output:**
 ```
-[INFO] Detected Claude Code installed via npm (deprecated)
-[INFO] Migrating to native installer for auto-update support...
+[INFO] Cleaning up old CLI installations...
+[INFO] Removing old Claude Code installations...
+[INFO] Removing ~/.claude directory (you will need to re-authenticate)...
+[INFO] Removing old npm CLI packages...
+[SUCCESS] Cleanup complete
+...
 [INFO] Installing Claude Code CLI via native installer...
 [SUCCESS] Claude Code CLI installed successfully via native installer
-[INFO] Removing old npm installation...
-[SUCCESS] Migration from npm to native installer complete
 ```
 
-## Verification Commands (After Rebuild)
-
+**Verification after rebuild:**
 ```bash
-# Check Claude binary location (should be native, not npm)
 which claude
 # Expected: /home/<user>/.claude/bin/claude
 
-# Check version works
 claude --version
+# Expected: Shows version
 
-# Verify npm package is removed
-npm list -g @anthropic-ai/claude-code
-# Expected: empty/not found
+config-status
+# Expected: Claude shows as "Not configured" until you run 'claude' and authenticate
 ```
-
-## Next Steps
-
-1. Complete Force Rebuild test
-2. Verify migration worked correctly
-3. Create PR for the changes
-4. Review and merge
-
-## Related PRs
-
-- PR #24 (open) - DEV_MODE feature - unrelated, left open for future testing
 
 ## Commit History
 
 ```
+a3e7cbe fix: Improve Claude detection and add comprehensive cleanup for --force
+b09fda1 docs: Add work in progress context for Claude native installer migration
 229c968 fix: Migrate Claude Code from npm to native installer
 ```
+
+## If Test Passes - Next Steps
+
+1. Create PR for the branch
+2. Review changes
+3. Merge to main
+4. Remove this WIP document
+
+## If Test Fails - Debug Steps
+
+1. Check which claude binary is being found: `which claude`
+2. Check if it works: `claude --version`
+3. Check PATH: `echo $PATH`
+4. Check for leftover files: `ls -la ~/.claude/ /usr/local/bin/claude 2>/dev/null`
+5. Check install log in terminal output for errors
 
 ## References
 
 - [Claude Code Getting Started](https://code.claude.com/docs/en/getting-started)
 - [Claude Code Setup](https://code.claude.com/docs/en/setup)
 - Issue #26: https://github.com/Cainmani/ai-docker-cli-setup/issues/26
+- Branch: https://github.com/Cainmani/ai-docker-cli-setup/tree/fix/claude-native-installer
