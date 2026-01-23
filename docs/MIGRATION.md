@@ -4,7 +4,7 @@ This guide covers breaking changes between versions and how to upgrade.
 
 ---
 
-## v1.1.0 - Claude Code Native Installer Migration
+## v1.1.3 - Claude Code Native Installer Migration
 
 ### What Changed
 
@@ -114,5 +114,5 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
-| v1.1.0 | 2025-01 | Claude Code migrated to native installer (requires force rebuild + re-auth for all tools) |
+| v1.1.3 | 2026-01 | Claude Code migrated to native installer (requires force rebuild + re-auth for all tools) |
 | v1.0.0 | 2024-12 | Initial release |
