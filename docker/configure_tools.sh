@@ -176,27 +176,10 @@ configure_github() {
     else
         print_status "GitHub CLI requires authentication"
         echo ""
-        echo "Choose authentication method:"
-        echo "1. Web browser (recommended)"
-        echo "2. Authentication token"
+        echo "You'll be prompted to choose your sign-in method."
         echo ""
         read -rp "Press Enter to configure GitHub now, or Ctrl+C to skip..."
-        echo ""
-        read -rp "Select option (1 or 2): " auth_method
-
-        case "$auth_method" in
-            1)
-                gh auth login --web
-                ;;
-            2)
-                echo "Generate a token at: https://github.com/settings/tokens"
-                echo "Required scopes: repo, read:org, workflow"
-                gh auth login
-                ;;
-            *)
-                print_warning "Invalid option, skipping GitHub CLI configuration"
-                ;;
-        esac
+        gh auth login
     fi
 }
 
