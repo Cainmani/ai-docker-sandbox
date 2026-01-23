@@ -49,22 +49,34 @@ print_error() {
 # Function to check if a tool is configured
 is_configured() {
     local tool=$1
+    local install_marker="${HOME}/.cli_tools_installed"
+
     case $tool in
         claude)
             # First verify Claude binary actually works (catches broken installations)
             if ! claude --version >/dev/null 2>&1; then
                 return 1  # Claude is broken or not installed
             fi
-            # Check for ANTHROPIC_API_KEY environment variable
+            # Check for ANTHROPIC_API_KEY environment variable (doesn't need rebuild check)
             if [ -n "$ANTHROPIC_API_KEY" ]; then
                 return 0
             fi
-            # Check for Claude config files (OAuth authentication creates files in ~/.claude/)
-            if [ -f "${HOME}/.claude/config.json" ] || \
-               [ -f "${HOME}/.claude/settings.json" ] || \
-               [ -f "${HOME}/.claude/.credentials.json" ] || \
-               [ -f "${HOME}/.claude/credentials.json" ]; then
-                return 0
+            # Check for Claude OAuth credentials with rebuild detection
+            # If container was rebuilt after auth, credentials are stale and need re-auth
+            local creds_file="${HOME}/.claude/.credentials.json"
+            if [ -f "$creds_file" ]; then
+                # If install marker exists, compare timestamps
+                if [ -f "$install_marker" ]; then
+                    # If credentials are NEWER than install marker, auth happened after rebuild
+                    if [ "$creds_file" -nt "$install_marker" ]; then
+                        return 0  # Authenticated after this rebuild
+                    else
+                        return 1  # Rebuild happened after auth - needs re-auth
+                    fi
+                else
+                    # No install marker (shouldn't happen), assume configured
+                    return 0
+                fi
             fi
             ;;
         gh)
