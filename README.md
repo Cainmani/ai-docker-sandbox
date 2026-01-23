@@ -121,7 +121,22 @@ sgpt "explain this code"  # Use Shell GPT
 | **[CLI Tools Guide](docs/CLI_TOOLS_GUIDE.md)** | Reference for all AI tools |
 | **[Quick Reference](docs/QUICK_REFERENCE.md)** | One-page cheatsheet |
 | **[Troubleshooting](docs/LOGGING.md)** | Logging and debugging guide |
+| **[Migration Guide](docs/MIGRATION.md)** | Upgrading between versions |
 | **[Development Guide](docs/DEVELOPMENT.md)** | For contributors |
+
+---
+
+## ⬆️ Upgrading
+
+### From v1.0.x to v1.1.x
+
+**Breaking change:** Claude Code has been migrated from npm to the native installer.
+
+**Existing users must:**
+1. Run "First Time Setup" with **Force Rebuild** checked
+2. Re-authenticate **all** tools (Claude, GitHub CLI, etc.)
+
+Your Claude conversation history will be preserved. See the **[Migration Guide](docs/MIGRATION.md)** for details.
 
 ---
 

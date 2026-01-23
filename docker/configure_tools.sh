@@ -6,6 +6,7 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
@@ -48,18 +49,34 @@ print_error() {
 # Function to check if a tool is configured
 is_configured() {
     local tool=$1
+    local install_marker="${HOME}/.cli_tools_installed"
+
     case $tool in
         claude)
-            # Check for ANTHROPIC_API_KEY environment variable
+            # First verify Claude binary actually works (catches broken installations)
+            if ! claude --version >/dev/null 2>&1; then
+                return 1  # Claude is broken or not installed
+            fi
+            # Check for ANTHROPIC_API_KEY environment variable (doesn't need rebuild check)
             if [ -n "$ANTHROPIC_API_KEY" ]; then
                 return 0
             fi
-            # Check for Claude config files (OAuth authentication creates files in ~/.claude/)
-            if [ -f "${HOME}/.claude/config.json" ] || \
-               [ -f "${HOME}/.claude/settings.json" ] || \
-               [ -f "${HOME}/.claude/.credentials.json" ] || \
-               [ -f "${HOME}/.claude/credentials.json" ]; then
-                return 0
+            # Check for Claude OAuth credentials with rebuild detection
+            # If container was rebuilt after auth, credentials are stale and need re-auth
+            local creds_file="${HOME}/.claude/.credentials.json"
+            if [ -f "$creds_file" ]; then
+                # If install marker exists, compare timestamps
+                if [ -f "$install_marker" ]; then
+                    # If credentials are NEWER than install marker, auth happened after rebuild
+                    if [ "$creds_file" -nt "$install_marker" ]; then
+                        return 0  # Authenticated after this rebuild
+                    else
+                        return 1  # Rebuild happened after auth - needs re-auth
+                    fi
+                else
+                    # No install marker (shouldn't happen), assume configured
+                    return 0
+                fi
             fi
             ;;
         gh)
@@ -113,19 +130,37 @@ is_configured() {
 configure_claude() {
     print_header "Configure Claude Code CLI"
 
+    # Check if claude is installed (check PATH and common locations)
+    local claude_cmd=""
+    if command -v claude &> /dev/null; then
+        claude_cmd="claude"
+    elif [ -x "${HOME}/.local/bin/claude" ]; then
+        claude_cmd="${HOME}/.local/bin/claude"
+    elif [ -x "/usr/local/bin/claude" ]; then
+        claude_cmd="/usr/local/bin/claude"
+    fi
+
+    if [ -z "$claude_cmd" ]; then
+        print_error "Claude Code CLI is not installed"
+        echo ""
+        echo "Install with: curl -fsSL https://claude.ai/install.sh | sh"
+        echo ""
+        read -rp "Press Enter to continue..." _
+        return 1
+    fi
+
     if is_configured claude; then
         print_success "Claude Code is already configured"
-        echo "To reconfigure, run: claude auth logout && claude auth login"
+        echo "To reconfigure, run: claude"
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "Claude Code requires authentication"
         echo ""
-        echo "To get started:"
-        echo "1. Run: claude auth login"
-        echo "2. Follow the browser authentication flow"
-        echo "3. Your credentials will be saved in ~/.claude/"
+        echo "You'll be prompted to sign in with your Anthropic account."
         echo ""
-        read -p "Press Enter to configure Claude now, or Ctrl+C to skip..."
-        claude auth login
+        read -rp "Press Enter to configure Claude now, or Ctrl+C to skip..."
+        "$claude_cmd"
     fi
 }
 
@@ -136,6 +171,8 @@ configure_github() {
     if is_configured gh; then
         print_success "GitHub CLI is already authenticated"
         gh auth status
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "GitHub CLI requires authentication"
         echo ""
@@ -143,9 +180,11 @@ configure_github() {
         echo "1. Web browser (recommended)"
         echo "2. Authentication token"
         echo ""
-        read -p "Select option (1 or 2): " auth_method
+        read -rp "Press Enter to configure GitHub now, or Ctrl+C to skip..."
+        echo ""
+        read -rp "Select option (1 or 2): " auth_method
 
-        case $auth_method in
+        case "$auth_method" in
             1)
                 gh auth login --web
                 ;;
@@ -167,37 +206,43 @@ configure_openai() {
 
     if is_configured openai; then
         print_success "OpenAI API is already configured"
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "OpenAI tools require an API key"
         echo ""
         echo "Get your API key from: https://platform.openai.com/api-keys"
         echo ""
-        read -sp "Enter your OpenAI API key (input hidden): " api_key
+        read -rsp "Enter your OpenAI API key (input hidden): " api_key
         echo ""
 
-        if [ ! -z "$api_key" ]; then
-            # Save to config file
+        if [ -n "$api_key" ]; then
+            # Save to config file (secure storage)
             mkdir -p "${HOME}/.config/openai"
-            echo "$api_key" > "${HOME}/.config/openai/api_key"
+            printf '%s' "$api_key" > "${HOME}/.config/openai/api_key"
             chmod 600 "${HOME}/.config/openai/api_key"
 
-            # Add to bashrc
+            # Add to bashrc - read from secure file instead of embedding key directly
             if ! grep -q "OPENAI_API_KEY" "${HOME}/.bashrc"; then
-                echo "" >> "${HOME}/.bashrc"
-                echo "# OpenAI API Configuration" >> "${HOME}/.bashrc"
-                echo "export OPENAI_API_KEY='$api_key'" >> "${HOME}/.bashrc"
+                cat >> "${HOME}/.bashrc" << 'BASHRC_EOF'
+
+# OpenAI API Configuration (reads from secure config file)
+if [ -f "${HOME}/.config/openai/api_key" ]; then
+    export OPENAI_API_KEY="$(cat "${HOME}/.config/openai/api_key")"
+fi
+BASHRC_EOF
             fi
 
-            # Configure shell-gpt
+            # Configure shell-gpt (write key safely using printf)
             mkdir -p "${HOME}/.config/shell_gpt"
-            cat > "${HOME}/.config/shell_gpt/.sgptrc" << EOF
+            cat > "${HOME}/.config/shell_gpt/.sgptrc" << 'SGPT_EOF'
 DEFAULT_MODEL=gpt-4
-OPENAI_API_KEY=$api_key
 CHAT_CACHE_PATH=/tmp/sgpt_cache
 CHAT_CACHE_LENGTH=100
 REQUEST_TIMEOUT=60
 DEFAULT_COLOR=magenta
-EOF
+SGPT_EOF
+            printf 'OPENAI_API_KEY=%s\n' "$api_key" >> "${HOME}/.config/shell_gpt/.sgptrc"
             chmod 600 "${HOME}/.config/shell_gpt/.sgptrc"
 
             export OPENAI_API_KEY="$api_key"
@@ -211,36 +256,41 @@ EOF
 
 # Function to configure Google Gemini
 configure_gemini() {
-    print_header "Configure Google Gemini"
+    print_header "Configure Google Gemini CLI"
+
+    # Check if gemini is installed (check PATH and common locations)
+    local gemini_cmd=""
+    if command -v gemini &> /dev/null; then
+        gemini_cmd="gemini"
+    elif [ -x "/usr/local/bin/gemini" ]; then
+        gemini_cmd="/usr/local/bin/gemini"
+    elif [ -x "${HOME}/.npm-global/bin/gemini" ]; then
+        gemini_cmd="${HOME}/.npm-global/bin/gemini"
+    elif [ -x "/usr/bin/gemini" ]; then
+        gemini_cmd="/usr/bin/gemini"
+    fi
+
+    if [ -z "$gemini_cmd" ]; then
+        print_error "Gemini CLI is not installed"
+        echo ""
+        echo "Install with: npm install -g @google/gemini-cli"
+        echo ""
+        read -rp "Press Enter to continue..." _
+        return 1
+    fi
 
     if is_configured gemini; then
-        print_success "Gemini API is already configured"
+        print_success "Gemini CLI is already configured"
+        echo "To reconfigure, run: gemini"
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
-        print_status "Gemini requires an API key"
+        print_status "Gemini CLI requires authentication"
         echo ""
-        echo "Get your API key from: https://makersuite.google.com/app/apikey"
+        echo "You'll be prompted to sign in with your Google account."
         echo ""
-        read -sp "Enter your Gemini API key (input hidden): " api_key
-        echo ""
-
-        if [ ! -z "$api_key" ]; then
-            # Save to config file
-            mkdir -p "${HOME}/.config/gemini"
-            echo "$api_key" > "${HOME}/.config/gemini/api_key"
-            chmod 600 "${HOME}/.config/gemini/api_key"
-
-            # Add to bashrc
-            if ! grep -q "GEMINI_API_KEY" "${HOME}/.bashrc"; then
-                echo "" >> "${HOME}/.bashrc"
-                echo "# Gemini API Configuration" >> "${HOME}/.bashrc"
-                echo "export GEMINI_API_KEY='$api_key'" >> "${HOME}/.bashrc"
-            fi
-
-            export GEMINI_API_KEY="$api_key"
-            print_success "Gemini API configured successfully"
-        else
-            print_warning "No API key provided, skipping Gemini configuration"
-        fi
+        read -rp "Press Enter to configure Gemini now, or Ctrl+C to skip..."
+        "$gemini_cmd"
     fi
 }
 
@@ -251,6 +301,8 @@ configure_aws() {
     if is_configured aws; then
         print_success "AWS CLI is already configured"
         aws configure list
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "AWS CLI requires credentials"
         echo ""
@@ -259,7 +311,7 @@ configure_aws() {
         echo "- AWS Secret Access Key"
         echo "- Default region (e.g., us-east-1)"
         echo ""
-        read -p "Press Enter to configure AWS CLI, or Ctrl+C to skip..."
+        read -rp "Press Enter to configure AWS CLI, or Ctrl+C to skip..."
         aws configure
     fi
 }
@@ -271,6 +323,8 @@ configure_azure() {
     if is_configured azure; then
         print_success "Azure CLI is already authenticated"
         az account show
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "Azure CLI requires authentication"
         echo ""
@@ -279,9 +333,11 @@ configure_azure() {
         echo "2. Device code"
         echo "3. Service principal"
         echo ""
-        read -p "Select option (1, 2, or 3): " auth_method
+        read -rp "Press Enter to configure Azure now, or Ctrl+C to skip..."
+        echo ""
+        read -rp "Select option (1, 2, or 3): " auth_method
 
-        case $auth_method in
+        case "$auth_method" in
             1)
                 az login
                 ;;
@@ -290,7 +346,7 @@ configure_azure() {
                 ;;
             3)
                 echo "You'll need: tenant ID, app ID, and password/certificate"
-                read -p "Press Enter to continue..."
+                read -rp "Press Enter to continue..." _
                 az login --service-principal
                 ;;
             *)
@@ -307,12 +363,21 @@ configure_gcloud() {
     if is_configured gcloud; then
         print_success "Google Cloud CLI is already authenticated"
         gcloud auth list
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "Google Cloud CLI requires authentication"
         echo ""
-        read -p "Press Enter to authenticate with Google Cloud, or Ctrl+C to skip..."
+        read -rp "Press Enter to authenticate with Google Cloud, or Ctrl+C to skip..."
         gcloud auth login
-        gcloud config set project $(gcloud projects list --limit=1 --format="value(projectId)")
+        # Set default project if available
+        local project_id
+        project_id="$(gcloud projects list --limit=1 --format='value(projectId)' 2>/dev/null)"
+        if [ -n "$project_id" ]; then
+            gcloud config set project "$project_id"
+        else
+            print_warning "No GCP projects found. Set a project manually with: gcloud config set project PROJECT_ID"
+        fi
     fi
 }
 
@@ -322,14 +387,14 @@ configure_codeium() {
 
     if is_configured codeium; then
         print_success "Codeium is already configured"
+        echo ""
+        read -rp "Press Enter to continue..." _
     else
         print_status "Codeium requires authentication"
         echo ""
-        echo "To get started:"
-        echo "1. Run: codeium auth"
-        echo "2. Follow the browser authentication flow"
+        echo "You'll be prompted to sign in with your Codeium account."
         echo ""
-        read -p "Press Enter to configure Codeium now, or Ctrl+C to skip..."
+        read -rp "Press Enter to configure Codeium now, or Ctrl+C to skip..."
         codeium auth
     fi
 }
@@ -376,50 +441,42 @@ TOML
         print_success "Updated config.toml to use modern Responses API"
     fi
 
-    # Check if already authenticated via OAuth (auth.json exists)
-    if [ -f "${HOME}/.codex/auth.json" ]; then
-        print_success "Codex CLI is authenticated (using subscription login)"
-        echo ""
-        echo "Test with: codex --help"
-        return 0
+    # Check if codex is installed (check PATH and common npm locations)
+    local codex_cmd=""
+    if command -v codex &> /dev/null; then
+        codex_cmd="codex"
+    elif [ -x "/usr/local/bin/codex" ]; then
+        codex_cmd="/usr/local/bin/codex"
+    elif [ -x "${HOME}/.npm-global/bin/codex" ]; then
+        codex_cmd="${HOME}/.npm-global/bin/codex"
+    elif [ -x "/usr/bin/codex" ]; then
+        codex_cmd="/usr/bin/codex"
     fi
 
-    # Check if API key is configured as fallback
-    if [ -n "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
-        print_success "Codex CLI can use OPENAI_API_KEY (API credits)"
-        print_warning "Note: API key uses pay-per-use credits, not your subscription."
+    if [ -z "$codex_cmd" ]; then
+        print_error "Codex CLI is not installed"
         echo ""
-        echo "To use your ChatGPT Plus/Pro subscription instead, see Option 1 below."
+        echo "Install with: npm install -g @openai/codex"
         echo ""
+        read -rp "Press Enter to continue..." _
+        return 1
     fi
 
-    print_status "Codex CLI Authentication Options"
-    echo ""
-    print_warning "KNOWN ISSUE: Browser-based OAuth does not work inside Docker containers."
-    echo "See: https://github.com/openai/codex/issues/2798"
-    echo ""
-    echo -e "${CYAN}=== OPTION 1: Use Your Subscription (Recommended) ===${NC}"
-    echo ""
-    echo "To use your ChatGPT Plus/Pro subscription (no API credits needed):"
-    echo ""
-    echo "  1. On your Windows host (outside Docker), install Codex:"
-    echo "     npm install -g @openai/codex"
-    echo ""
-    echo "  2. Run 'codex' on Windows and complete the browser login"
-    echo ""
-    echo -e "  3. ${GREEN}AUTO-SYNC: Next time you 'Launch AI Workspace', your auth${NC}"
-    echo -e "     ${GREEN}will be automatically copied into the container!${NC}"
-    echo ""
-    echo "     (Manual copy if needed: docker cp \"\$env:USERPROFILE\\.codex\\auth.json\" ai-cli:/home/\$USER/.codex/)"
-    echo ""
-    echo -e "${CYAN}=== OPTION 2: Use API Key (Pay-per-use Credits) ===${NC}"
-    echo ""
-    echo "If you prefer to use API credits instead of your subscription:"
-    echo "  - Get your API key from: https://platform.openai.com/api-keys"
-    echo "  - Run: configure-tools --openai"
-    echo ""
-    echo -e "${YELLOW}Note: API key billing is separate from your ChatGPT subscription.${NC}"
-    echo ""
+    if is_configured codex; then
+        print_success "Codex CLI is already configured"
+        echo "To reconfigure, run: codex"
+        echo ""
+        read -rp "Press Enter to continue..." _
+    else
+        print_status "Codex CLI requires authentication"
+        echo ""
+        echo "You'll be prompted to choose your sign-in method:"
+        echo "  - ChatGPT subscription (Plus/Pro) - no API credits needed"
+        echo "  - API key - uses pay-per-use credits"
+        echo ""
+        read -rp "Press Enter to configure Codex now, or Ctrl+C to skip..."
+        "$codex_cmd"
+    fi
 }
 
 # Function to show configuration status
@@ -477,7 +534,7 @@ interactive_configure() {
     echo "0. Exit"
     echo ""
 
-    read -p "Enter your choice (0-9, A): " choice
+    read -rp "Enter your choice (0-9, A): " choice
 
     case $choice in
         1) configure_claude; interactive_configure ;;

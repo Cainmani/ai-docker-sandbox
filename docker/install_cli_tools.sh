@@ -10,6 +10,7 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
@@ -195,7 +196,7 @@ get_version() {
             gh --version 2>/dev/null | head -n1 | cut -d' ' -f3 || echo "not installed"
             ;;
         claude)
-            npm list -g @anthropic-ai/claude-code 2>/dev/null | grep '@anthropic-ai/claude-code' | cut -d'@' -f3 || echo "not installed"
+            claude --version 2>/dev/null | head -n1 || echo "not installed"
             ;;
         gemini)
             gemini --version 2>/dev/null | head -n1 || echo "not installed"
@@ -261,12 +262,87 @@ install_cli_tools() {
         print_status "GitHub CLI already installed ($(get_version gh))"
     fi
 
-    # 2. Install/Update Claude Code CLI
-    update_install_status "Claude Code CLI" "npm"
-    if npm_install_with_retry "@anthropic-ai/claude-code@latest" "/tmp/claude_install.log"; then
-        print_success "Claude Code CLI installed/updated successfully"
+    # 2. Install/Update Claude Code CLI (using native installer - npm is deprecated)
+    # Native installation auto-updates in the background, so we only need to install once
+    # See: https://docs.anthropic.com/en/docs/claude-code/getting-started
+    update_install_status "Claude Code CLI" "native"
+
+    # Determine Claude installation status:
+    # - Check if native install exists at ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/X.Y.Z)
+    # - Check if Claude command works (not just exists - catches broken symlinks)
+    # - Detect npm installations (user ~/.npm-global OR system /usr/local)
+    claude_native_path="${HOME}/.local/bin/claude"
+    claude_works=false
+    is_npm_install=false
+    needs_install=false
+
+    # First, check if native installation exists and works
+    if [ -x "$claude_native_path" ] && "$claude_native_path" --version >/dev/null 2>&1; then
+        claude_works=true
+        print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
+        print_status "Note: Claude Code auto-updates in the background"
     else
-        print_warning "Claude Code CLI installation failed - continuing with other tools"
+        # Check if any claude command exists
+        claude_path=$(which claude 2>/dev/null || true)
+        if [ -n "$claude_path" ]; then
+            # Check if it actually works
+            if claude --version >/dev/null 2>&1; then
+                # It works - check if it's npm (user or system-wide)
+                if echo "$claude_path" | grep -qE '(/\.npm-global/bin/|^/usr/local/(lib/node_modules|bin)/|/node_modules/.bin/)'; then
+                    is_npm_install=true
+                    print_status "Detected Claude Code installed via npm at: $claude_path"
+                    print_status "Migrating to native installer for auto-update support..."
+                    needs_install=true
+                else
+                    # Check if it's a native installation (at ~/.local/bin or ~/.local/share/claude)
+                    if echo "$claude_path" | grep -qE '(/.local/bin/|/.local/share/claude/)'; then
+                        claude_works=true
+                        print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
+                        print_status "Note: Claude Code auto-updates in the background"
+                    else
+                        # Unknown installation type that works - leave it alone
+                        claude_works=true
+                        print_status "Claude Code CLI found at: $claude_path ($(get_version claude))"
+                    fi
+                fi
+            else
+                # Command exists but doesn't work (broken symlink/wrapper)
+                print_warning "Found broken Claude installation at: $claude_path"
+                print_status "Will install fresh via native installer..."
+                needs_install=true
+                # Clean up broken system-wide installation if it exists
+                if [ -f "/usr/local/bin/claude" ]; then
+                    print_status "Removing broken system wrapper at /usr/local/bin/claude..."
+                    sudo rm -f /usr/local/bin/claude 2>/dev/null || true
+                fi
+            fi
+        else
+            # No claude found at all
+            needs_install=true
+        fi
+    fi
+
+    # Install native version if needed
+    if [ "$needs_install" = true ]; then
+        print_status "Installing Claude Code CLI via native installer..."
+        if curl -fsSL https://claude.ai/install.sh | bash; then
+            # Ensure claude is in PATH for this session
+            export PATH="${HOME}/.local/bin:${PATH}"
+            print_success "Claude Code CLI installed successfully via native installer"
+
+            # If migrating from npm, remove the old npm package to avoid confusion
+            if [ "$is_npm_install" = true ]; then
+                print_status "Removing old npm installation..."
+                npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
+                # Also remove any system-wide npm wrapper
+                if [ -f "/usr/local/bin/claude" ]; then
+                    sudo rm -f /usr/local/bin/claude 2>/dev/null || true
+                fi
+                print_success "Migration from npm to native installer complete"
+            fi
+        else
+            print_warning "Claude Code CLI installation failed - continuing with other tools"
+        fi
     fi
 
     # 3. Install Google Gemini CLI (official)
@@ -361,11 +437,11 @@ create_marker_file() {
     echo "npm version: $(npm --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
     echo "Python version: $(python3 --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
 
-    # Record which tools succeeded
-    if command_exists claude; then
-        echo "[OK] Claude CLI: installed" >> "$INSTALL_MARKER"
+    # Record which tools succeeded (verify they actually work, not just exist)
+    if claude --version >/dev/null 2>&1; then
+        echo "[OK] Claude CLI: installed ($(claude --version 2>/dev/null | head -n1))" >> "$INSTALL_MARKER"
     else
-        echo "[ERROR] Claude CLI: failed" >> "$INSTALL_MARKER"
+        echo "[ERROR] Claude CLI: failed or broken" >> "$INSTALL_MARKER"
     fi
 
     if command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1; then
@@ -434,6 +510,47 @@ update_cli_tools() {
 # Trap to ensure marker file is created even if script fails
 trap 'create_marker_file' EXIT
 
+# Function to clean up old CLI installations before fresh install
+# Called during --force to ensure a clean slate
+cleanup_old_installations() {
+    print_status "Cleaning up old CLI installations..."
+
+    # Clean up Claude installations (preserves ~/.claude config/data for conversation history)
+    print_status "Removing old Claude Code installations..."
+    # Remove npm global installation (user)
+    npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
+    # Remove broken system-wide wrapper (from sudo npm install)
+    if [ -f "/usr/local/bin/claude" ]; then
+        sudo rm -f /usr/local/bin/claude 2>/dev/null || true
+    fi
+    # Remove native installer binary versions (e.g. ~/.local/share/claude/versions/X.Y.Z)
+    if [ -d "${HOME}/.local/share/claude" ]; then
+        print_status "Removing ~/.local/share/claude (native Claude binaries)..."
+        rm -rf "${HOME}/.local/share/claude" 2>/dev/null || true
+    fi
+    # Remove native installer launcher symlink
+    if [ -f "${HOME}/.local/bin/claude" ]; then
+        print_status "Removing ~/.local/bin/claude launcher..."
+        rm -f "${HOME}/.local/bin/claude" 2>/dev/null || true
+    fi
+    # PRESERVE ~/.claude directory - contains conversation history, settings, and auth
+    # Auth may or may not persist between npm/native installs, but we try to keep it
+    if [ -d "${HOME}/.claude" ]; then
+        print_status "Preserving ~/.claude directory (conversation history, settings, auth)"
+    fi
+
+    # Clean up other npm packages that will be reinstalled
+    print_status "Removing old npm CLI packages..."
+    npm uninstall -g @google/gemini-cli 2>/dev/null || true
+    npm uninstall -g @openai/codex 2>/dev/null || true
+    npm uninstall -g vibe-kanban 2>/dev/null || true
+
+    # Clear npm cache to avoid stale package issues
+    npm cache clean --force 2>/dev/null || true
+
+    print_success "Cleanup complete"
+}
+
 # Check if this is first run or update request
 if [ "$1" == "--update" ] || [ "$1" == "-u" ]; then
     update_cli_tools
@@ -441,6 +558,7 @@ if [ "$1" == "--update" ] || [ "$1" == "-u" ]; then
     trap - EXIT
 elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
     rm -f "$INSTALL_MARKER"
+    cleanup_old_installations
     install_cli_tools
     # Marker will be created by trap
 elif [ -f "$INSTALL_MARKER" ]; then

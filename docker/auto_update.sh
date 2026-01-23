@@ -14,6 +14,7 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Log file location
@@ -101,7 +102,15 @@ apply_updates() {
     log_message "      https://github.com/Cainmani/ai-docker-cli-setup/releases/latest"
     log_message ""
 
+    # Note: Claude Code uses native installer and auto-updates in the background
+    # No manual update needed - just log current version for visibility
+    if command -v claude >/dev/null 2>&1; then
+        claude_version=$(claude --version 2>/dev/null | head -n1 || echo "unknown")
+        log_message "Claude Code: $claude_version (auto-updates in background)"
+    fi
+
     # Update ALL global npm packages (dynamic)
+    # Note: Claude Code is no longer installed via npm (uses native installer)
     log_message "Updating npm packages..."
     npm_output=$(npm update -g 2>&1)
     npm_exit_code=$?

@@ -68,7 +68,7 @@ alias la='ls -A'
 alias l='ls -CF'
 alias grep='grep --color=auto'
 
-# Add npm global and local bin to PATH
+# Add npm global and local bin to PATH (Claude native installer uses ~/.local/bin)
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # CLI tools aliases
@@ -110,10 +110,10 @@ fi
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
 else
-  # .bashrc already exists, ensure npm PATH is added
-  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.bashrc"; then
+  # .bashrc already exists, ensure PATH includes npm global and local bin
+  if ! grep -q "\.local/bin" "/home/$USER_NAME/.bashrc"; then
     echo "" >> "/home/$USER_NAME/.bashrc"
-    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.bashrc"
+    echo "# Add npm global and local bin to PATH (Claude native installer uses ~/.local/bin)" >> "/home/$USER_NAME/.bashrc"
     echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.bashrc"
     chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
   fi
@@ -124,7 +124,7 @@ if [ ! -f "/home/$USER_NAME/.profile" ]; then
   cat > "/home/$USER_NAME/.profile" << 'EOF'
 # ~/.profile: executed by the command interpreter for login shells.
 
-# Add npm global and local bin to PATH
+# Add npm global and local bin to PATH (Claude native installer uses ~/.local/bin)
 export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 # If running bash, source .bashrc
@@ -136,10 +136,10 @@ fi
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
 else
-  # .profile already exists, ensure npm PATH is added
-  if ! grep -q "\.npm-global/bin" "/home/$USER_NAME/.profile"; then
+  # .profile already exists, ensure PATH includes npm global and local bin
+  if ! grep -q "\.local/bin" "/home/$USER_NAME/.profile"; then
     echo "" >> "/home/$USER_NAME/.profile"
-    echo "# Add npm global and local bin to PATH" >> "/home/$USER_NAME/.profile"
+    echo "# Add npm global and local bin to PATH (Claude native installer uses ~/.local/bin)" >> "/home/$USER_NAME/.profile"
     echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.profile"
     chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.profile"
   fi
