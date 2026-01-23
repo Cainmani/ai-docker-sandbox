@@ -6,8 +6,8 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
-# Include: Claude native installer, npm global, and local bin paths
-export PATH="${HOME}/.claude/bin:${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
 RED='\033[0;31m'

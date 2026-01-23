@@ -14,8 +14,8 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
-# Include: npm global, pip local, and Claude native installer paths
-export PATH="${HOME}/.claude/bin:${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Log file location
 # Use $HOME instead of USER_NAME since cron doesn't pass USER_NAME

@@ -10,8 +10,8 @@
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
-# Include: npm global, pip local, and Claude native installer paths
-export PATH="${HOME}/.claude/bin:${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -264,14 +264,14 @@ install_cli_tools() {
 
     # 2. Install/Update Claude Code CLI (using native installer - npm is deprecated)
     # Native installation auto-updates in the background, so we only need to install once
-    # See: https://code.claude.com/docs/en/getting-started
+    # See: https://docs.anthropic.com/en/docs/claude-code/getting-started
     update_install_status "Claude Code CLI" "native"
 
     # Determine Claude installation status:
-    # - Check if native install exists at ~/.claude/bin/claude
+    # - Check if native install exists at ~/.local/bin/claude (symlink to ~/.local/share/claude/versions/X.Y.Z)
     # - Check if Claude command works (not just exists - catches broken symlinks)
     # - Detect npm installations (user ~/.npm-global OR system /usr/local)
-    claude_native_path="${HOME}/.claude/bin/claude"
+    claude_native_path="${HOME}/.local/bin/claude"
     claude_works=false
     is_npm_install=false
     needs_install=false
@@ -288,15 +288,22 @@ install_cli_tools() {
             # Check if it actually works
             if claude --version >/dev/null 2>&1; then
                 # It works - check if it's npm (user or system-wide)
-                if echo "$claude_path" | grep -qE "(\.npm-global|/usr/local/|node_modules)"; then
+                if echo "$claude_path" | grep -qE '(/\.npm-global/bin/|^/usr/local/(lib/node_modules|bin)/|/node_modules/.bin/)'; then
                     is_npm_install=true
                     print_status "Detected Claude Code installed via npm at: $claude_path"
                     print_status "Migrating to native installer for auto-update support..."
                     needs_install=true
                 else
-                    # Unknown installation type that works - leave it alone
-                    claude_works=true
-                    print_status "Claude Code CLI found at: $claude_path ($(get_version claude))"
+                    # Check if it's a native installation (at ~/.local/bin or ~/.local/share/claude)
+                    if echo "$claude_path" | grep -qE '(/.local/bin/|/.local/share/claude/)'; then
+                        claude_works=true
+                        print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
+                        print_status "Note: Claude Code auto-updates in the background"
+                    else
+                        # Unknown installation type that works - leave it alone
+                        claude_works=true
+                        print_status "Claude Code CLI found at: $claude_path ($(get_version claude))"
+                    fi
                 fi
             else
                 # Command exists but doesn't work (broken symlink/wrapper)
@@ -319,8 +326,8 @@ install_cli_tools() {
     if [ "$needs_install" = true ]; then
         print_status "Installing Claude Code CLI via native installer..."
         if curl -fsSL https://claude.ai/install.sh | bash; then
-            # Ensure claude is in PATH for this session (native path takes priority)
-            export PATH="${HOME}/.claude/bin:${PATH}"
+            # Ensure claude is in PATH for this session
+            export PATH="${HOME}/.local/bin:${PATH}"
             print_success "Claude Code CLI installed successfully via native installer"
 
             # If migrating from npm, remove the old npm package to avoid confusion
@@ -508,7 +515,7 @@ trap 'create_marker_file' EXIT
 cleanup_old_installations() {
     print_status "Cleaning up old CLI installations..."
 
-    # Clean up Claude installations completely
+    # Clean up Claude installations (preserves ~/.claude config/data for conversation history)
     print_status "Removing old Claude Code installations..."
     # Remove npm global installation (user)
     npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
@@ -516,11 +523,20 @@ cleanup_old_installations() {
     if [ -f "/usr/local/bin/claude" ]; then
         sudo rm -f /usr/local/bin/claude 2>/dev/null || true
     fi
-    # Remove entire native installation directory (including config)
-    # Auth doesn't carry over between npm/native installs, so clean slate is better
+    # Remove native installer binary versions (e.g. ~/.local/share/claude/versions/X.Y.Z)
+    if [ -d "${HOME}/.local/share/claude" ]; then
+        print_status "Removing ~/.local/share/claude (native Claude binaries)..."
+        rm -rf "${HOME}/.local/share/claude" 2>/dev/null || true
+    fi
+    # Remove native installer launcher symlink
+    if [ -f "${HOME}/.local/bin/claude" ]; then
+        print_status "Removing ~/.local/bin/claude launcher..."
+        rm -f "${HOME}/.local/bin/claude" 2>/dev/null || true
+    fi
+    # PRESERVE ~/.claude directory - contains conversation history, settings, and auth
+    # Auth may or may not persist between npm/native installs, but we try to keep it
     if [ -d "${HOME}/.claude" ]; then
-        print_status "Removing ~/.claude directory (you will need to re-authenticate)..."
-        rm -rf "${HOME}/.claude" 2>/dev/null || true
+        print_status "Preserving ~/.claude directory (conversation history, settings, auth)"
     fi
 
     # Clean up other npm packages that will be reinstalled
