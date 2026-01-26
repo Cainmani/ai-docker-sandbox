@@ -63,29 +63,36 @@ body:
     validations:
       required: false
 
+  - type: markdown
+    attributes:
+      value: |
+        ## Log Files
+
+        **Easiest method:** Click "Report Issue" in the app - it opens the logs folder so you can drag-and-drop files here.
+
+        🔒 **Logs are pre-sanitized** - API keys, passwords, and usernames are automatically redacted, so they're safe to share publicly.
+
   - type: textarea
     id: logs
     attributes:
-      label: Log File Contents
+      label: Log Files (drag and drop files here)
       description: |
-        **IMPORTANT**: Please attach log files from one or both locations:
+        Drag and drop your log files directly into this box, or paste the contents.
 
-        **Windows Launcher Logs:**
-        `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log`
-
-        **Container Logs (in your workspace):**
-        `<workspace>\.ai-docker-cli\logs\` (e.g., `C:\Users\YourName\AI_Work\.ai-docker-cli\logs\`)
-        - `install.log` - Installation issues
-        - `entrypoint.log` - Startup issues
-        - `update.log` - Update issues
-        - `configure.log` - Configuration issues
-
-        **Note:** Logs are automatically sanitized and safe to share - API keys and credentials are redacted at write time.
-
-        **Tip:** Clicking "Report Issue" in the app opens the logs folder for easy attachment.
+        **Log locations:**
+        | Log Type | Location |
+        |----------|----------|
+        | Windows launcher | `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log` |
+        | Installation | `<your-workspace>\.ai-docker-cli\logs\install.log` |
+        | Container startup | `<your-workspace>\.ai-docker-cli\logs\entrypoint.log` |
+        | Updates | `<your-workspace>\.ai-docker-cli\logs\update.log` |
+        | Configuration | `<your-workspace>\.ai-docker-cli\logs\configure.log` |
       placeholder: |
-        [2025-01-24 14:32:15.123] [INFO] [LAUNCHER] First Time Setup button clicked
-        [2025-01-24 14:32:15.234] [ERROR] [LAUNCHER] ...
+        Drag and drop log files here, or paste log contents...
+
+        Example:
+        [2026-01-26 14:32:15.123] [INFO] [INSTALL] Installing Claude Code CLI...
+        [2026-01-26 14:32:16.456] [ERROR] [INSTALL] npm install failed...
       render: text
     validations:
       required: false
@@ -105,7 +112,9 @@ body:
       options:
         - label: I have searched existing issues to make sure this is not a duplicate
           required: true
-        - label: I have included the log file or relevant log entries
+        - label: I have attached log files or pasted relevant log entries
           required: false
         - label: Docker Desktop is installed and running
+          required: false
+        - label: I clicked "Report Issue" in the app to access logs easily
           required: false
