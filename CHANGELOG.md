@@ -5,7 +5,17 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.3] - 2026-01-26
+
+### Added
+- Container-side logging with automatic log rotation (10MB trigger, 3 compressed backups)
+- Log files: `install.log`, `entrypoint.log`, `update.log`, `configure.log`
+- Logs stored in `<workspace>/.ai-docker-cli/logs/` for easy access from Windows
+- Logs are sanitized at write time for privacy (API keys, passwords, tokens redacted)
+- "Report Issue" button now opens the logs folder for easy attachment to bug reports
+
+### Changed
+- Updated bug report template with container logs location and sanitization note
 
 ## [1.1.2] - 2025-01-20
 

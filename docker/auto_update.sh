@@ -17,9 +17,24 @@ npm config set prefix "${HOME}/.npm-global"
 # Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
-# Log file location
-# Use $HOME instead of USER_NAME since cron doesn't pass USER_NAME
-LOG_FILE="${HOME}/.cli_tools_update.log"
+# Source logging library
+if [ -f "/usr/local/lib/logging.sh" ]; then
+    source "/usr/local/lib/logging.sh"
+    LOG_FILE=$(init_logging "UPDATE" "update")
+    LOGGING_LIBRARY_AVAILABLE=1
+else
+    # Fallback to old location if library not available
+    LOG_FILE="${HOME}/.cli_tools_update.log"
+    LOGGING_LIBRARY_AVAILABLE=0
+fi
+
+# Migrate old log file if exists
+OLD_LOG="${HOME}/.cli_tools_update.log"
+if [ -f "$OLD_LOG" ] && [ "$LOG_FILE" != "$OLD_LOG" ]; then
+    cat "$OLD_LOG" >> "$LOG_FILE"
+    rm "$OLD_LOG"
+fi
+
 UPDATE_CHECK_FILE="${HOME}/.last_update_check"
 UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 
@@ -31,9 +46,17 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to log with timestamp
+# Uses the shared logging library if available, otherwise falls back to simple logging
 log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-    echo -e "$1"
+    local msg="$1"
+    if [ "$LOGGING_LIBRARY_AVAILABLE" = "1" ]; then
+        # Use the shared logging library
+        log_info "UPDATE" "$msg" "$LOG_FILE"
+    else
+        # Fallback to simple logging
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$LOG_FILE"
+        echo -e "$msg"
+    fi
 }
 
 # Function to check if update is needed

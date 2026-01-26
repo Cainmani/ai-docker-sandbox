@@ -9,6 +9,22 @@ npm config set prefix "${HOME}/.npm-global"
 # Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
+# Source logging library
+if [ -f "/usr/local/lib/logging.sh" ]; then
+    source "/usr/local/lib/logging.sh"
+    LOG_FILE=$(init_logging "CONFIGURE" "configure")
+fi
+
+# Helper function for logging (only logs if library is available)
+# IMPORTANT: Never log API keys, tokens, or credentials - only log that configuration happened
+config_log() {
+    local level="$1"
+    local message="$2"
+    if [ -n "$LOG_FILE" ]; then
+        log_message "CONFIGURE" "$level" "$message" "$LOG_FILE"
+    fi
+}
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -129,6 +145,7 @@ is_configured() {
 # Function to configure Claude Code
 configure_claude() {
     print_header "Configure Claude Code CLI"
+    config_log "INFO" "User initiated Claude Code CLI configuration"
 
     # Check if claude is installed (check PATH and common locations)
     local claude_cmd=""
@@ -151,6 +168,7 @@ configure_claude() {
 
     if is_configured claude; then
         print_success "Claude Code is already configured"
+        config_log "INFO" "Claude Code CLI: already configured"
         echo "To reconfigure, run: claude"
         echo ""
         read -rp "Press Enter to continue..." _
@@ -160,16 +178,20 @@ configure_claude() {
         echo "You'll be prompted to sign in with your Anthropic account."
         echo ""
         read -rp "Press Enter to configure Claude now, or Ctrl+C to skip..."
+        config_log "INFO" "Claude Code CLI: authentication started"
         "$claude_cmd"
+        config_log "INFO" "Claude Code CLI: authentication completed"
     fi
 }
 
 # Function to configure GitHub CLI
 configure_github() {
     print_header "Configure GitHub CLI"
+    config_log "INFO" "User initiated GitHub CLI configuration"
 
     if is_configured gh; then
         print_success "GitHub CLI is already authenticated"
+        config_log "INFO" "GitHub CLI: already authenticated"
         gh auth status
         echo ""
         read -rp "Press Enter to continue..." _
@@ -179,16 +201,20 @@ configure_github() {
         echo "You'll be prompted to choose your sign-in method."
         echo ""
         read -rp "Press Enter to configure GitHub now, or Ctrl+C to skip..."
+        config_log "INFO" "GitHub CLI: authentication started"
         gh auth login
+        config_log "INFO" "GitHub CLI: authentication completed"
     fi
 }
 
 # Function to configure OpenAI/GPT
 configure_openai() {
     print_header "Configure OpenAI/GPT Tools"
+    config_log "INFO" "User initiated OpenAI/GPT configuration"
 
     if is_configured openai; then
         print_success "OpenAI API is already configured"
+        config_log "INFO" "OpenAI: already configured"
         echo ""
         read -rp "Press Enter to continue..." _
     else
@@ -230,9 +256,11 @@ SGPT_EOF
 
             export OPENAI_API_KEY="$api_key"
             print_success "OpenAI API configured successfully"
+            config_log "INFO" "OpenAI: API key configured"
             echo "You can now use: sgpt, aider, and other OpenAI-based tools"
         else
             print_warning "No API key provided, skipping OpenAI configuration"
+            config_log "WARN" "OpenAI: configuration skipped (no API key provided)"
         fi
     fi
 }
@@ -240,6 +268,7 @@ SGPT_EOF
 # Function to configure Google Gemini
 configure_gemini() {
     print_header "Configure Google Gemini CLI"
+    config_log "INFO" "User initiated Google Gemini CLI configuration"
 
     # Check if gemini is installed (check PATH and common locations)
     local gemini_cmd=""
@@ -264,6 +293,7 @@ configure_gemini() {
 
     if is_configured gemini; then
         print_success "Gemini CLI is already configured"
+        config_log "INFO" "Gemini CLI: already configured"
         echo "To reconfigure, run: gemini"
         echo ""
         read -rp "Press Enter to continue..." _
@@ -273,16 +303,20 @@ configure_gemini() {
         echo "You'll be prompted to sign in with your Google account."
         echo ""
         read -rp "Press Enter to configure Gemini now, or Ctrl+C to skip..."
+        config_log "INFO" "Gemini CLI: authentication started"
         "$gemini_cmd"
+        config_log "INFO" "Gemini CLI: authentication completed"
     fi
 }
 
 # Function to configure AWS CLI
 configure_aws() {
     print_header "Configure AWS CLI"
+    config_log "INFO" "User initiated AWS CLI configuration"
 
     if is_configured aws; then
         print_success "AWS CLI is already configured"
+        config_log "INFO" "AWS CLI: already configured"
         aws configure list
         echo ""
         read -rp "Press Enter to continue..." _
@@ -295,16 +329,20 @@ configure_aws() {
         echo "- Default region (e.g., us-east-1)"
         echo ""
         read -rp "Press Enter to configure AWS CLI, or Ctrl+C to skip..."
+        config_log "INFO" "AWS CLI: configuration started"
         aws configure
+        config_log "INFO" "AWS CLI: credentials configured"
     fi
 }
 
 # Function to configure Azure CLI
 configure_azure() {
     print_header "Configure Azure CLI"
+    config_log "INFO" "User initiated Azure CLI configuration"
 
     if is_configured azure; then
         print_success "Azure CLI is already authenticated"
+        config_log "INFO" "Azure CLI: already authenticated"
         az account show
         echo ""
         read -rp "Press Enter to continue..." _
@@ -322,18 +360,25 @@ configure_azure() {
 
         case "$auth_method" in
             1)
+                config_log "INFO" "Azure CLI: web browser authentication started"
                 az login
+                config_log "INFO" "Azure CLI: authentication completed"
                 ;;
             2)
+                config_log "INFO" "Azure CLI: device code authentication started"
                 az login --use-device-code
+                config_log "INFO" "Azure CLI: authentication completed"
                 ;;
             3)
                 echo "You'll need: tenant ID, app ID, and password/certificate"
                 read -rp "Press Enter to continue..." _
+                config_log "INFO" "Azure CLI: service principal authentication started"
                 az login --service-principal
+                config_log "INFO" "Azure CLI: authentication completed"
                 ;;
             *)
                 print_warning "Invalid option, skipping Azure CLI configuration"
+                config_log "WARN" "Azure CLI: configuration skipped (invalid option)"
                 ;;
         esac
     fi
@@ -342,9 +387,11 @@ configure_azure() {
 # Function to configure Google Cloud CLI
 configure_gcloud() {
     print_header "Configure Google Cloud CLI"
+    config_log "INFO" "User initiated Google Cloud CLI configuration"
 
     if is_configured gcloud; then
         print_success "Google Cloud CLI is already authenticated"
+        config_log "INFO" "Google Cloud CLI: already authenticated"
         gcloud auth list
         echo ""
         read -rp "Press Enter to continue..." _
@@ -352,14 +399,18 @@ configure_gcloud() {
         print_status "Google Cloud CLI requires authentication"
         echo ""
         read -rp "Press Enter to authenticate with Google Cloud, or Ctrl+C to skip..."
+        config_log "INFO" "Google Cloud CLI: authentication started"
         gcloud auth login
+        config_log "INFO" "Google Cloud CLI: authentication completed"
         # Set default project if available
         local project_id
         project_id="$(gcloud projects list --limit=1 --format='value(projectId)' 2>/dev/null)"
         if [ -n "$project_id" ]; then
             gcloud config set project "$project_id"
+            config_log "INFO" "Google Cloud CLI: default project set"
         else
             print_warning "No GCP projects found. Set a project manually with: gcloud config set project PROJECT_ID"
+            config_log "WARN" "Google Cloud CLI: no projects found, skipped default project"
         fi
     fi
 }
@@ -367,9 +418,11 @@ configure_gcloud() {
 # Function to configure Codeium
 configure_codeium() {
     print_header "Configure Codeium"
+    config_log "INFO" "User initiated Codeium configuration"
 
     if is_configured codeium; then
         print_success "Codeium is already configured"
+        config_log "INFO" "Codeium: already configured"
         echo ""
         read -rp "Press Enter to continue..." _
     else
@@ -378,13 +431,16 @@ configure_codeium() {
         echo "You'll be prompted to sign in with your Codeium account."
         echo ""
         read -rp "Press Enter to configure Codeium now, or Ctrl+C to skip..."
+        config_log "INFO" "Codeium: authentication started"
         codeium auth
+        config_log "INFO" "Codeium: authentication completed"
     fi
 }
 
 # Function to configure OpenAI Codex CLI
 configure_codex() {
     print_header "Configure OpenAI Codex CLI"
+    config_log "INFO" "User initiated OpenAI Codex CLI configuration"
 
     # Ensure ~/.codex directory exists
     mkdir -p "${HOME}/.codex"
@@ -447,6 +503,7 @@ TOML
 
     if is_configured codex; then
         print_success "Codex CLI is already configured"
+        config_log "INFO" "Codex CLI: already configured"
         echo "To reconfigure, run: codex"
         echo ""
         read -rp "Press Enter to continue..." _
@@ -458,7 +515,9 @@ TOML
         echo "  - API key - uses pay-per-use credits"
         echo ""
         read -rp "Press Enter to configure Codex now, or Ctrl+C to skip..."
+        config_log "INFO" "Codex CLI: authentication started"
         "$codex_cmd"
+        config_log "INFO" "Codex CLI: authentication completed"
     fi
 }
 

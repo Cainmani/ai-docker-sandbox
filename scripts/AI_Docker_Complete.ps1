@@ -38,14 +38,55 @@ if (-not (Test-Path $script:LogDir)) {
     New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
+function Sanitize-LogMessage {
+    param([string]$Message)
+
+    # Sanitize Windows username in paths
+    $username = $env:USERNAME
+    if ($username) {
+        $Message = $Message -replace "\\$username\\", "\<USER>\"
+        $Message = $Message -replace "/$username/", "/<USER>/"
+    }
+
+    # Sanitize API keys (OpenAI sk-proj-... and sk-... patterns)
+    $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
+    $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
+    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
+
+    # Sanitize GitHub tokens
+    $Message = $Message -replace "gh[pousr]_[a-zA-Z0-9]{36,}", "<REDACTED_TOKEN>"
+
+    # Sanitize generic tokens/secrets/passwords
+    $Message = $Message -replace "([Tt]oken)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
+    $Message = $Message -replace "([Ss]ecret)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
+    $Message = $Message -replace "([Pp]assword)[=:]\s*[^\s]+", "`$1=<REDACTED>"
+
+    # Sanitize AWS keys
+    $Message = $Message -replace "AKIA[A-Z0-9]{16}", "<REDACTED_AWS_KEY>"
+
+    # Sanitize Google Cloud API keys
+    $Message = $Message -replace "AIza[a-zA-Z0-9_-]{35}", "<REDACTED_GCP_KEY>"
+
+    # Sanitize Bearer tokens
+    $Message = $Message -replace "Bearer [a-zA-Z0-9_.-]{20,}", "Bearer <REDACTED>"
+
+    # Sanitize JWT tokens
+    $Message = $Message -replace "eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*", "<REDACTED_JWT>"
+
+    return $Message
+}
+
 function Write-AppLog {
     param(
         [string]$Message,
-        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
+        [string]$Level = "INFO"
     )
     try {
+        # Sanitize BEFORE writing
+        $sanitizedMessage = Sanitize-LogMessage -Message $Message
+
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-        $logEntry = "[$timestamp] [$Level] [COMPLETE] $Message"
+        $logEntry = "[$timestamp] [$Level] [COMPLETE] $sanitizedMessage"
         Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
     } catch {
         # Silently fail if logging doesn't work - don't break the app
@@ -61,7 +102,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.1.2"
+$script:AppVersion = "1.1.3"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -126,6 +167,7 @@ $script:EmbeddedFiles = @{
     'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
     'auto_update.sh' = 'AUTO_UPDATE_SH_BASE64_HERE'
     'configure_tools.sh' = 'CONFIGURE_TOOLS_SH_BASE64_HERE'
+    'lib/logging.sh' = 'LOGGING_SH_BASE64_HERE'
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
     '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
     'README.md' = 'README_MD_BASE64_HERE'
@@ -193,7 +235,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -201,7 +243,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'lib/logging.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
@@ -250,9 +292,20 @@ function Extract-DockerFiles {
         }
     }
 
+    # Create lib subdirectory for logging library
+    $libDir = Join-Path $filesDir "lib"
+    if (-not (Test-Path $libDir)) {
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    }
+
     # Always extract files to ensure they're up-to-date (overwrites existing)
     foreach ($fileName in $dockerFiles) {
         $filePath = Join-Path $filesDir $fileName
+        # Ensure parent directory exists for nested paths like lib/logging.sh
+        $parentDir = Split-Path $filePath -Parent
+        if (-not (Test-Path $parentDir)) {
+            New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+        }
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
@@ -445,6 +498,23 @@ $lblReportIssue.BackColor = 'Transparent'
 $lblReportIssue.Font = New-Object System.Drawing.Font('Consolas', 8)
 $lblReportIssue.Add_LinkClicked({
     Write-AppLog "Report Issue link clicked" "INFO"
+
+    # Open Windows Explorer to logs folder
+    Start-Process "explorer.exe" -ArgumentList $script:LogDir
+
+    # Show instructions
+    [System.Windows.Forms.MessageBox]::Show(
+        "The logs folder has been opened.`n`n" +
+        "To report an issue:`n" +
+        "1. Drag and drop the log files into the GitHub issue form`n" +
+        "2. Describe your issue`n`n" +
+        "Log files are already sanitized - safe to share publicly.",
+        "Report Issue",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+
+    # Open GitHub issue template
     Start-Process "https://github.com/$script:GitHubRepo/issues/new?template=bug_report.yml"
 })
 $form.Controls.Add($lblReportIssue)

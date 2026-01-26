@@ -29,6 +29,7 @@ $filesToEmbed = @(
    "..\..\docker\install_cli_tools.sh",
    "..\..\docker\auto_update.sh",
    "..\..\docker\configure_tools.sh",
+   "..\..\docker\lib\logging.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",
    "..\..\README.md",
