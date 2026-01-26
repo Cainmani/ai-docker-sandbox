@@ -260,5 +260,82 @@ Select-String -Path "$env:LOCALAPPDATA\AI-Docker-CLI\logs\ai-docker.log" -Patter
 
 ---
 
-**Last Updated:** 2025-01-24
-**Version:** 1.0
+## Container-Side Logging
+
+In addition to the Windows-side application logs, the container also maintains its own logs for operations that occur inside the Docker environment.
+
+### Log File Location
+
+Container logs are stored in your workspace directory:
+
+**Windows Location:**
+```
+<workspace>\.ai-docker-cli\logs\
+```
+
+**Full Path Example:**
+```
+C:\Users\YourUsername\AI_Work\.ai-docker-cli\logs\
+```
+
+### Log Files Created
+
+| File | Purpose |
+|------|---------|
+| `install.log` | Records initial CLI tools installation during first-time setup |
+| `entrypoint.log` | Records container startup operations and initialization |
+| `update.log` | Records tool update operations (manual and automatic) |
+| `configure.log` | Records tool configuration and authentication operations |
+
+### How to View Container Logs
+
+#### Method 1: From Windows File Explorer
+1. Navigate to your workspace folder (e.g., `C:\Users\YourUsername\AI_Work\`)
+2. Open the `.ai-docker-cli\logs\` folder
+3. Open any log file with Notepad or your preferred text editor
+
+#### Method 2: From Inside the Container
+```bash
+# View the last 50 lines of a log file
+tail -50 /workspace/.ai-docker-cli/logs/install.log
+
+# Follow a log file in real-time
+tail -f /workspace/.ai-docker-cli/logs/entrypoint.log
+
+# View all log files
+ls -la /workspace/.ai-docker-cli/logs/
+```
+
+### Log Rotation
+
+Container logs are automatically rotated to prevent excessive disk usage:
+
+- **Trigger:** When a log file exceeds 10MB
+- **Backups:** 3 compressed backups are kept (`.gz` format)
+- **Naming:** Rotated logs are named `<logname>.log.1.gz`, `<logname>.log.2.gz`, etc.
+- **Oldest:** The oldest backup is automatically deleted when a new rotation occurs
+
+### Privacy & Sanitization
+
+Container logs are **sanitized at write time** for your privacy and security:
+
+- **API keys** are redacted (replaced with `[REDACTED]`)
+- **Passwords** are redacted
+- **Authentication tokens** are redacted
+- **Personal paths** containing usernames are preserved (needed for debugging)
+
+**Safe to Share:** Because logs are sanitized when written, they are safe to attach to bug reports without manual review. You can share them directly with support or include them in GitHub issues.
+
+### What's Logged
+
+- Tool installation progress and errors
+- Container startup sequence
+- Configuration changes
+- Update operations and results
+- Authentication status (success/failure, not credentials)
+- Error messages and stack traces
+
+---
+
+**Last Updated:** 2025-01-26
+**Version:** 1.1

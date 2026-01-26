@@ -13,6 +13,19 @@ npm config set prefix "${HOME}/.npm-global"
 # Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
 export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
+# Source logging library
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+if [ -f "${SCRIPT_DIR}/lib/logging.sh" ]; then
+    source "${SCRIPT_DIR}/lib/logging.sh"
+elif [ -f "/usr/local/lib/logging.sh" ]; then
+    source "/usr/local/lib/logging.sh"
+fi
+
+# Initialize logging (if library available)
+if type init_logging >/dev/null 2>&1; then
+    LOG_FILE=$(init_logging "INSTALL" "install")
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,18 +49,34 @@ update_install_status() {
 # Function to print colored output
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
+    # Also log to file if logging is available
+    if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+        log_info "INSTALL" "$1" "$LOG_FILE"
+    fi
 }
 
 print_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
+    # Also log to file if logging is available
+    if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+        log_info "INSTALL" "[SUCCESS] $1" "$LOG_FILE"
+    fi
 }
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+    # Also log to file if logging is available
+    if [ -n "$LOG_FILE" ] && type log_error >/dev/null 2>&1; then
+        log_error "INSTALL" "$1" "$LOG_FILE"
+    fi
 }
 
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
+    # Also log to file if logging is available
+    if [ -n "$LOG_FILE" ] && type log_warn >/dev/null 2>&1; then
+        log_warn "INSTALL" "$1" "$LOG_FILE"
+    fi
 }
 
 # Function to check if a command exists
@@ -60,14 +89,31 @@ command_exists() {
 # See: https://github.com/npm/cli/issues/5166
 npm_install_with_retry() {
     local package=$1
-    local log_file=$2
+    local npm_log_file=$2
     local max_attempts=3
     local attempt=1
 
     while [ $attempt -le $max_attempts ]; do
         print_status "Installing $package (attempt $attempt/$max_attempts)..."
 
-        if npm install -g "$package" 2>&1 | tee "$log_file"; then
+        # Capture npm output and log it
+        local npm_output
+        npm_output=$(npm install -g "$package" 2>&1)
+        local npm_exit_code=$?
+
+        # Write to npm log file
+        echo "$npm_output" > "$npm_log_file"
+
+        # Log npm output to main log file if logging is available
+        if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+            while IFS= read -r line; do
+                if [ -n "$line" ]; then
+                    log_info "INSTALL" "  npm: $line" "$LOG_FILE"
+                fi
+            done <<< "$npm_output"
+        fi
+
+        if [ $npm_exit_code -eq 0 ]; then
             return 0
         fi
 
@@ -83,7 +129,7 @@ npm_install_with_retry() {
     done
 
     print_error "Failed to install $package after $max_attempts attempts"
-    cat "$log_file"
+    cat "$npm_log_file"
     return 1
 }
 

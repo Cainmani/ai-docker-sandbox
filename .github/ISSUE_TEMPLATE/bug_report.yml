@@ -68,14 +68,21 @@ body:
     attributes:
       label: Log File Contents
       description: |
-        **IMPORTANT**: Please attach the log file from:
+        **IMPORTANT**: Please attach log files from one or both locations:
+
+        **Windows Launcher Logs:**
         `%LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log`
 
-        You can find this by:
-        1. Press Win+R
-        2. Type: `%LOCALAPPDATA%\AI-Docker-CLI\logs`
-        3. Open `ai-docker.log` in Notepad
-        4. Copy and paste the relevant sections here
+        **Container Logs (in your workspace):**
+        `<workspace>\.ai-docker-cli\logs\` (e.g., `C:\Users\YourName\AI_Work\.ai-docker-cli\logs\`)
+        - `install.log` - Installation issues
+        - `entrypoint.log` - Startup issues
+        - `update.log` - Update issues
+        - `configure.log` - Configuration issues
+
+        **Note:** Logs are automatically sanitized and safe to share - API keys and credentials are redacted at write time.
+
+        **Tip:** Clicking "Report Issue" in the app opens the logs folder for easy attachment.
       placeholder: |
         [2025-01-24 14:32:15.123] [INFO] [LAUNCHER] First Time Setup button clicked
         [2025-01-24 14:32:15.234] [ERROR] [LAUNCHER] ...
