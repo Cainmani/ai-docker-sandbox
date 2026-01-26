@@ -102,7 +102,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.1.2"
+$script:AppVersion = "1.2.0"
 $script:GitHubRepo = "Cainmani/ai-docker-cli-setup"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -167,6 +167,7 @@ $script:EmbeddedFiles = @{
     'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
     'auto_update.sh' = 'AUTO_UPDATE_SH_BASE64_HERE'
     'configure_tools.sh' = 'CONFIGURE_TOOLS_SH_BASE64_HERE'
+    'lib/logging.sh' = 'LIB_LOGGING_SH_BASE64_HERE'
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
     '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
     'README.md' = 'README_MD_BASE64_HERE'
@@ -234,7 +235,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -242,7 +243,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'lib/logging.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
@@ -291,9 +292,20 @@ function Extract-DockerFiles {
         }
     }
 
+    # Create lib subdirectory for logging library
+    $libDir = Join-Path $filesDir "lib"
+    if (-not (Test-Path $libDir)) {
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    }
+
     # Always extract files to ensure they're up-to-date (overwrites existing)
     foreach ($fileName in $dockerFiles) {
         $filePath = Join-Path $filesDir $fileName
+        # Ensure parent directory exists for nested paths like lib/logging.sh
+        $parentDir = Split-Path $filePath -Parent
+        if (-not (Test-Path $parentDir)) {
+            New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+        }
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             [System.IO.File]::WriteAllText($filePath, $content, [System.Text.UTF8Encoding]::new($false))
