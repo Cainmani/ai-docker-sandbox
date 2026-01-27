@@ -194,6 +194,9 @@ if [ -f "$HOME/.cli_tools_installed" ]; then
   echo "Phone access? Run 'setup-remote-connection' for guided setup!"
   echo ""
 fi
+
+# Auto-change to workspace directory on login
+cd /workspace 2>/dev/null || true
 EOF
   chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
 else

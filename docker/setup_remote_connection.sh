@@ -15,52 +15,34 @@ NC='\033[0m'
 
 print_header() {
     echo ""
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}================================================================${NC}"
     echo -e "  ${BOLD}$1${NC}"
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}================================================================${NC}"
     echo ""
 }
 
 print_step() {
-    echo -e "\n${GREEN}▶ STEP $1:${NC} ${BOLD}$2${NC}\n"
+    echo -e "\n${GREEN}>> STEP $1:${NC} ${BOLD}$2${NC}\n"
 }
 
 print_info() {
-    echo -e "  ${BLUE}ℹ${NC} $1"
+    echo -e "  ${BLUE}[i]${NC} $1"
 }
 
 print_success() {
-    echo -e "  ${GREEN}✓${NC} $1"
+    echo -e "  ${GREEN}[OK]${NC} $1"
 }
 
 print_warning() {
-    echo -e "  ${YELLOW}⚠${NC} $1"
+    echo -e "  ${YELLOW}[!]${NC} $1"
 }
 
 print_error() {
-    echo -e "  ${RED}✗${NC} $1"
+    echo -e "  ${RED}[X]${NC} $1"
 }
 
 print_cmd() {
     echo -e "    ${CYAN}$1${NC}"
-}
-
-# Check Tailscale status
-check_tailscale() {
-    if ! command -v tailscale &> /dev/null; then
-        return 1
-    fi
-    if tailscale status &> /dev/null; then
-        return 0
-    fi
-    return 1
-}
-
-# Get Tailscale info
-get_tailscale_info() {
-    local ts_ip=$(tailscale ip -4 2>/dev/null || echo "")
-    local ts_hostname=$(tailscale status --self --json 2>/dev/null | grep -o '"DNSName":"[^"]*"' | cut -d'"' -f4 | sed 's/\.$//' 2>/dev/null || echo "")
-    echo "$ts_ip|$ts_hostname"
 }
 
 # Main wizard
@@ -80,37 +62,20 @@ main() {
 
     read -p "  Press Enter to continue..."
 
-    # Step 1: Check/Setup Tailscale on container
-    print_step "1" "Container Tailscale Status"
+    # Step 1: Tailscale on Windows
+    print_step "1" "Install Tailscale on Windows"
 
-    if check_tailscale; then
-        local info=$(get_tailscale_info)
-        local ts_ip=$(echo "$info" | cut -d'|' -f1)
-        local ts_hostname=$(echo "$info" | cut -d'|' -f2)
+    echo -e "  ${BOLD}Do you have Tailscale installed on your Windows PC?${NC}"
+    echo ""
+    echo -e "  If not, download it from:"
+    echo ""
+    echo -e "    ${CYAN}https://tailscale.com/download${NC}"
+    echo ""
+    print_info "Install it, sign in, and make sure it's connected."
+    print_info "You'll see the Tailscale icon in your system tray."
+    echo ""
 
-        print_success "Tailscale is connected!"
-        echo ""
-        echo -e "  IP Address: ${GREEN}$ts_ip${NC}"
-        if [ -n "$ts_hostname" ]; then
-            echo -e "  Hostname:   ${GREEN}$ts_hostname${NC}"
-        fi
-    else
-        print_warning "Tailscale is not connected in this container."
-        echo ""
-        print_info "Run this command to connect:"
-        print_cmd "sudo tailscale up"
-        echo ""
-        print_info "You'll get a URL to authenticate - open it in your browser."
-        echo ""
-        read -p "  Press Enter after you've connected Tailscale..."
-
-        if check_tailscale; then
-            print_success "Tailscale connected!"
-        else
-            print_error "Tailscale still not connected. Please run 'sudo tailscale up' first."
-            exit 1
-        fi
-    fi
+    read -p "  Press Enter when Tailscale is running on Windows..."
 
     # Step 2: Tailscale on phone
     print_step "2" "Install Tailscale on Your Phone"
@@ -120,14 +85,34 @@ main() {
     echo -e "  ${BOLD}iPhone:${NC}  Search 'Tailscale' in App Store"
     echo -e "  ${BOLD}Android:${NC} Search 'Tailscale' in Play Store"
     echo ""
-    print_info "Sign in with the SAME account you used for this container."
-    print_info "Your phone will join the same private network."
+    print_info "Sign in with the SAME account you used on Windows."
+    print_info "Both devices will join your private Tailscale network."
     echo ""
 
     read -p "  Press Enter when Tailscale is installed on your phone..."
 
-    # Step 3: Add SSH key
-    print_step "3" "Add Your Phone's SSH Key"
+    # Step 3: Get Windows Tailscale IP
+    print_step "3" "Get Your Windows Tailscale Address"
+
+    echo -e "  On your Windows PC, find your Tailscale address:"
+    echo ""
+    echo -e "  ${BOLD}Option A - From Tailscale app:${NC}"
+    print_info "Click Tailscale icon in system tray"
+    print_info "Your address looks like: 100.x.x.x or pc-name.tailnet-name.ts.net"
+    echo ""
+    echo -e "  ${BOLD}Option B - From PowerShell:${NC}"
+    print_cmd "tailscale ip"
+    echo ""
+
+    read -p "  Enter your Windows Tailscale IP or hostname: " windows_ts_address
+
+    if [ -z "$windows_ts_address" ]; then
+        print_warning "No address entered - you can add it later when connecting."
+        windows_ts_address="<your-windows-tailscale-address>"
+    fi
+
+    # Step 4: Add SSH key
+    print_step "4" "Add Your Phone's SSH Key"
 
     echo -e "  ${BOLD}On your phone's terminal app (Termius, Blink Shell, etc.):${NC}"
     echo ""
@@ -143,76 +128,56 @@ main() {
     read -p "  Paste your SSH public key here: " ssh_key
 
     if [ -z "$ssh_key" ]; then
-        print_warning "No key entered - skipping. You can add it later with 'add-ssh-key'"
+        print_warning "No key entered - you can add it later with: add-ssh-key \"your-key\""
     else
         echo ""
-        if /usr/local/bin/add_ssh_key.sh "$ssh_key"; then
+        if /usr/local/bin/add-ssh-key "$ssh_key" 2>/dev/null || echo "$ssh_key" >> ~/.ssh/authorized_keys 2>/dev/null; then
             print_success "SSH key added!"
         else
-            print_error "Failed to add key. You can try again with 'add-ssh-key \"your-key\"'"
+            print_warning "Could not add key automatically. Try: add-ssh-key \"your-key\""
         fi
     fi
 
-    # Step 4: Show connection info
-    print_step "4" "Connect from Your Phone"
+    # Step 5: Show connection info
+    print_step "5" "Connect from Your Phone!"
 
-    local info=$(get_tailscale_info)
-    local ts_ip=$(echo "$info" | cut -d'|' -f1)
-    local ts_hostname=$(echo "$info" | cut -d'|' -f2)
     local username=$(whoami)
 
-    echo -e "  ${BOLD}Your connection details:${NC}"
-    echo ""
-    if [ -n "$ts_hostname" ]; then
-        echo -e "  Hostname: ${GREEN}$ts_hostname${NC}"
-    fi
-    echo -e "  Tailscale IP: ${GREEN}$ts_ip${NC}"
-    echo -e "  Username: ${GREEN}$username${NC}"
-    echo -e "  Port: ${GREEN}2222${NC}"
+    print_header "Your Connection Details"
+
+    echo -e "  ${BOLD}Windows Tailscale Address:${NC} ${GREEN}$windows_ts_address${NC}"
+    echo -e "  ${BOLD}Username:${NC} ${GREEN}$username${NC}"
+    echo -e "  ${BOLD}Port:${NC} ${GREEN}2222${NC}"
     echo ""
 
-    echo -e "  ${BOLD}Connect using (from your phone):${NC}"
+    echo -e "  ${BOLD}Connect from your phone terminal:${NC}"
     echo ""
-    if [ -n "$ts_hostname" ]; then
-        print_cmd "ssh -p 2222 $username@$ts_hostname"
-        echo ""
-        echo -e "  Or with Mosh (better for mobile):"
-        print_cmd "mosh --ssh=\"ssh -p 2222\" $username@$ts_hostname"
-    else
-        print_cmd "ssh -p 2222 $username@$ts_ip"
-        echo ""
-        echo -e "  Or with Mosh (better for mobile):"
-        print_cmd "mosh --ssh=\"ssh -p 2222\" $username@$ts_ip"
-    fi
+    print_cmd "ssh -p 2222 $username@$windows_ts_address"
+    echo ""
+    echo -e "  ${BOLD}Or with Mosh (better for mobile):${NC}"
+    echo ""
+    print_cmd "mosh --ssh=\"ssh -p 2222\" $username@$windows_ts_address"
     echo ""
 
     echo -e "  ${BOLD}In Termius app:${NC}"
     echo ""
-    echo -e "  1. Create new Host"
-    if [ -n "$ts_hostname" ]; then
-        echo -e "  2. Address: ${CYAN}$ts_hostname${NC}"
-    else
-        echo -e "  2. Address: ${CYAN}$ts_ip${NC}"
-    fi
+    echo "  1. Tap + to create new Host"
+    echo -e "  2. Hostname: ${CYAN}$windows_ts_address${NC}"
     echo -e "  3. Port: ${CYAN}2222${NC}"
     echo -e "  4. Username: ${CYAN}$username${NC}"
-    echo -e "  5. Authentication: Use your SSH key"
+    echo "  5. Use SSH Key authentication"
     echo ""
 
     print_header "Setup Complete!"
 
-    echo -e "  You can now connect from your phone using Tailscale."
-    echo -e "  Your connection is encrypted end-to-end and never"
-    echo -e "  exposed to the public internet."
+    echo -e "  Your connection is secured by Tailscale's encryption."
+    echo -e "  No ports are exposed to the public internet."
     echo ""
     echo -e "  ${BOLD}Useful commands:${NC}"
-    echo -e "    ${CYAN}add-ssh-key \"key\"${NC}  - Add another SSH key"
-    echo -e "    ${CYAN}add-ssh-key --list${NC} - List all keys"
-    echo -e "    ${CYAN}tailscale status${NC}   - Check Tailscale connection"
+    echo -e "    ${CYAN}add-ssh-key \"key\"${NC}   - Add another SSH key"
+    echo -e "    ${CYAN}add-ssh-key --list${NC}  - List all keys"
     echo ""
 }
 
-# Run if called directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+# Run
+main "$@"
