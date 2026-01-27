@@ -40,6 +40,9 @@ RUN locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
+# Install Tailscale (secure remote access - no exposed ports)
+RUN curl -fsSL https://tailscale.com/install.sh | sh
+
 # Install Node.js 20.x from NodeSource (required for Gemini CLI)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
@@ -68,6 +71,7 @@ COPY claude_wrapper.sh /usr/local/bin/claude
 # Copy mobile access scripts and configuration
 COPY setup_mobile_access.sh /usr/local/bin/setup_mobile_access.sh
 COPY add_ssh_key.sh /usr/local/bin/add-ssh-key
+COPY setup_remote_connection.sh /usr/local/bin/setup-remote-connection
 COPY tmux.conf /etc/tmux.conf
 
 # Copy and set up entrypoint script
@@ -81,6 +85,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \
+    /usr/local/bin/setup-remote-connection \
     /usr/local/lib/logging.sh \
     /etc/tmux.conf
 
@@ -92,6 +97,7 @@ RUN chmod +x /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \
+    /usr/local/bin/setup-remote-connection \
     && chmod 644 /usr/local/lib/logging.sh \
     && chmod 644 /etc/tmux.conf
 

@@ -169,6 +169,7 @@ $script:EmbeddedFiles = @{
     'configure_tools.sh' = 'CONFIGURE_TOOLS_SH_BASE64_HERE'
     'setup_mobile_access.sh' = 'SETUP_MOBILE_ACCESS_SH_BASE64_HERE'
     'add_ssh_key.sh' = 'ADD_SSH_KEY_SH_BASE64_HERE'
+    'setup_remote_connection.sh' = 'SETUP_REMOTE_CONNECTION_SH_BASE64_HERE'
     'tmux.conf' = 'TMUX_CONF_BASE64_HERE'
     'lib/logging.sh' = 'LOGGING_SH_BASE64_HERE'
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
@@ -239,7 +240,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'tmux.conf', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -247,7 +248,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'tmux.conf', 'lib/logging.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'lib/logging.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
