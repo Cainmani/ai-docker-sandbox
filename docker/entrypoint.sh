@@ -18,31 +18,81 @@ entrypoint_log() {
     fi
 }
 
+# =============================================================================
+# SECURITY: Docker Secrets Password Handling
+# =============================================================================
+# Password is read from Docker Secret (tmpfs) at /run/secrets/user_password
+# This is more secure than environment variables because:
+# 1. Secrets are stored in memory (tmpfs), not on disk
+# 2. Secrets are not visible in 'docker inspect' output
+# 3. Secrets are not exposed in /proc/*/environ
+# =============================================================================
+
+# Function to read password from Docker Secret
+get_password_from_secret() {
+    local secret_file="/run/secrets/user_password"
+    if [ -f "$secret_file" ]; then
+        # Read password, trim whitespace
+        cat "$secret_file" | tr -d '\n\r'
+        return 0
+    fi
+    return 1
+}
+
+# Function to clean up sensitive environment variables after use
+cleanup_credentials() {
+    entrypoint_log "INFO" "Cleaning up credential environment variables..."
+    # Unset any password-related environment variables that might have been set
+    unset USER_PASSWORD_PLAIN 2>/dev/null || true
+    unset USER_PASSWORD_HASH 2>/dev/null || true
+    unset PASSWORD 2>/dev/null || true
+    entrypoint_log "INFO" "Credential cleanup complete"
+}
+
 # Required: USER_NAME from environment (.env or compose)
-# Password can be provided as hash (USER_PASSWORD_HASH) or plain text (USER_PASSWORD_PLAIN)
 : "${USER_NAME:?Set USER_NAME env}"
 
-# Validate that at least one password form is provided
-if [ -z "${USER_PASSWORD_HASH:-}" ] && [ -z "${USER_PASSWORD_PLAIN:-}" ]; then
-  entrypoint_log "ERROR" "Set either USER_PASSWORD_HASH or USER_PASSWORD_PLAIN env"
-  exit 1
+# Get password from Docker Secret (preferred) or fall back to environment variables
+USER_PASSWORD=""
+if USER_PASSWORD=$(get_password_from_secret); then
+    entrypoint_log "INFO" "Password loaded from Docker Secret (secure method)"
+else
+    # Fallback to environment variables for backwards compatibility
+    if [ -n "${USER_PASSWORD_PLAIN:-}" ]; then
+        USER_PASSWORD="$USER_PASSWORD_PLAIN"
+        entrypoint_log "WARN" "Using password from environment variable (less secure - consider using Docker Secrets)"
+    elif [ -n "${USER_PASSWORD_HASH:-}" ]; then
+        # Special handling for pre-hashed passwords
+        USER_PASSWORD="HASH:$USER_PASSWORD_HASH"
+        entrypoint_log "WARN" "Using pre-hashed password from environment variable"
+    fi
 fi
 
 # Create user if missing
 if ! id -u "$USER_NAME" >/dev/null 2>&1; then
+  # Password is ONLY required when creating a new user
+  # After initial setup, the password file is replaced with "SETUP_COMPLETE" placeholder
+  # This allows container restarts without needing the original password
+  if [ -z "$USER_PASSWORD" ] || [ "$USER_PASSWORD" = "SETUP_COMPLETE" ]; then
+      entrypoint_log "ERROR" "No valid password provided for new user creation."
+      entrypoint_log "ERROR" "Use Docker Secret at /run/secrets/user_password or set USER_PASSWORD_PLAIN env"
+      exit 1
+  fi
+
   entrypoint_log "INFO" "Creating user: $USER_NAME"
   useradd -m -s /bin/bash "$USER_NAME"
 
-  # Set password: prefer hash, fallback to plain text
+  # Set password
   entrypoint_log "INFO" "Setting up password for user: $USER_NAME"
-  if [ -n "${USER_PASSWORD_HASH:-}" ]; then
+  if [[ "$USER_PASSWORD" == HASH:* ]]; then
     # Use pre-hashed password (SHA-512 format: $6$salt$hash)
-    echo "$USER_NAME:$USER_PASSWORD_HASH" | chpasswd -e
+    local_hash="${USER_PASSWORD#HASH:}"
+    echo "$USER_NAME:$local_hash" | chpasswd -e
     entrypoint_log "INFO" "Password set using pre-hashed value"
   else
     # Hash the plain text password
-    echo "$USER_NAME:$USER_PASSWORD_PLAIN" | chpasswd
-    entrypoint_log "INFO" "Password set using plain text value"
+    echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+    entrypoint_log "INFO" "Password set successfully"
   fi
 
   usermod -aG sudo "$USER_NAME"
@@ -55,6 +105,10 @@ if ! id -u "$USER_NAME" >/dev/null 2>&1; then
 else
   entrypoint_log "INFO" "User $USER_NAME already exists, skipping creation"
 fi
+
+# SECURITY: Clean up password variables immediately after use
+unset USER_PASSWORD
+cleanup_credentials
 
 # Give user ownership of workspace
 entrypoint_log "INFO" "Setting ownership of /workspace to $USER_NAME"
@@ -205,6 +259,18 @@ else
 fi
 
 entrypoint_log "INFO" "Entrypoint initialization complete"
+
+# Mobile Access Setup (optional - enabled via ENABLE_MOBILE_ACCESS=1)
+if [ "${ENABLE_MOBILE_ACCESS:-0}" = "1" ]; then
+    entrypoint_log "INFO" "Mobile access enabled - starting SSH/Mosh/tmux setup..."
+    if /usr/local/bin/setup_mobile_access.sh "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+        entrypoint_log "INFO" "Mobile access setup completed successfully"
+    else
+        entrypoint_log "WARN" "Mobile access setup completed with warnings"
+    fi
+else
+    entrypoint_log "DEBUG" "Mobile access not enabled (set ENABLE_MOBILE_ACCESS=1 to enable)"
+fi
 
 # Keep container running
 exec tail -f /dev/null

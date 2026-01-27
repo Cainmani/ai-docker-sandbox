@@ -12,8 +12,10 @@
 5. [Using Vibe Kanban](#using-vibe-kanban)
 6. [First Time Authentication](#first-time-authentication)
 7. [Common Tasks](#common-tasks)
-8. [Troubleshooting](#troubleshooting)
-9. [Important Notes](#important-notes)
+8. [Mobile Phone Access (Advanced)](#mobile-phone-access-advanced)
+9. [Security Features](#security-features)
+10. [Troubleshooting](#troubleshooting)
+11. [Important Notes](#important-notes)
 
 ---
 
@@ -318,6 +320,127 @@ exit
 ### Task 4: Restart Claude
 
 Just launch AI_Docker_Manager.exe again and select "Launch AI Workspace"!
+
+---
+
+## Mobile Phone Access (Advanced)
+
+You can access Claude Code from your mobile phone (iPhone or Android) using SSH, Mosh, and tmux. This is an optional feature for advanced users.
+
+### Why Use Mobile Access?
+
+- **Work from anywhere**: Use Claude on your phone when away from your computer
+- **Seamless roaming**: Mosh maintains your connection when switching between WiFi and cellular
+- **Session persistence**: tmux keeps your session alive even if you disconnect
+
+### Quick Setup
+
+1. **Enable mobile access** - Add to your `.env` file:
+   ```
+   ENABLE_MOBILE_ACCESS=1
+   ```
+
+2. **Rebuild container** - Run First Time Setup again or restart the container
+
+3. **Generate SSH key on mobile** - In your mobile terminal app:
+   ```bash
+   ssh-keygen -t ed25519 -C "my-phone"
+   cat ~/.ssh/id_ed25519.pub
+   ```
+
+4. **Add your public key to the container**:
+   ```bash
+   docker exec ai-cli bash -c 'echo "YOUR_PUBLIC_KEY" >> ~/.ssh/authorized_keys'
+   ```
+
+5. **Connect via VPN** - Use Tailscale, WireGuard, or similar to access your network
+
+6. **Connect via Mosh**:
+   ```bash
+   mosh --ssh="ssh -p 2222" username@your-host-ip
+   ```
+
+7. **Start tmux** (required for scrollback):
+   ```bash
+   tmux new -s mobile
+   ```
+
+### Recommended Mobile Apps
+
+| Platform | App | Notes |
+|----------|-----|-------|
+| **iOS** | Blink Shell | Best Mosh support ($19.99) |
+| **iOS** | Termius | Free tier available |
+| **Android** | Termius | Cross-platform |
+| **Android** | Termux + mosh | Free, power users |
+
+### Basic tmux Commands
+
+| Action | Keys |
+|--------|------|
+| Prefix key | `Ctrl+A` |
+| Detach | `Ctrl+A` then `d` |
+| New window | `Ctrl+A` then `c` |
+| Next window | `Ctrl+A` then `n` |
+| Enter scroll mode | `Ctrl+A` then `[` |
+| Exit scroll mode | `q` |
+
+### Important Security Note
+
+- **Always use a VPN** - Never expose SSH/Mosh ports directly to the internet
+- **SSH keys only** - Password authentication is disabled for security
+- The default SSH port is 2222 (not the standard 22)
+
+For complete setup instructions, troubleshooting, and security best practices, see:
+**[Remote Access Guide](REMOTE_ACCESS.md)**
+
+---
+
+## Security Features
+
+AI Docker Manager implements enterprise-level security practices to protect your credentials and data.
+
+### Password Security (Docker Secrets)
+
+Your container password is handled securely using Docker Secrets:
+
+- **Never stored on disk**: Password is written to a temporary file that is securely deleted after the container starts
+- **Not visible in docker inspect**: Unlike environment variables, Docker Secrets are not exposed in container inspection
+- **Memory-only storage**: The password file is mounted as tmpfs (RAM) inside the container
+- **Automatic cleanup**: Password environment variables are unset immediately after use
+
+**What this means for you:**
+- Your password cannot be recovered from logs or configuration files
+- Even if someone gains access to your Docker host, they cannot extract your password
+- If you need to reset your password, you must recreate the container
+
+### SSH Key Management
+
+For mobile access, the container includes the `add-ssh-key` command for easy key management:
+
+```bash
+# Add a new SSH key
+add-ssh-key "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... my-phone"
+
+# List all authorized keys
+add-ssh-key --list
+
+# Remove a key
+add-ssh-key --remove 1
+```
+
+**Security features:**
+- Password authentication is disabled (SSH keys only)
+- Non-standard port (2222) reduces exposure to automated attacks
+- Root login is disabled
+- Only your container user can connect
+
+### Best Practices
+
+1. **Use a VPN** when accessing from outside your home network (e.g., Tailscale)
+2. **Use Ed25519 keys** - they're more secure and faster than RSA
+3. **Rotate keys periodically** if you suspect compromise
+4. **Never share your private key** - only share the `.pub` (public) file
 
 ---
 
