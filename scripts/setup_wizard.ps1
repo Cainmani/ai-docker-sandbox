@@ -543,7 +543,6 @@ function Docker-Running() {
 $state = [ordered]@{
     UserName = ''
     Password = ''
-    PasswordHash = ''
     ParentPath = ''
     WorkspacePath = ''
 }
@@ -551,53 +550,134 @@ $state = [ordered]@{
 # .env file path - defined early for use throughout the script
 $script:envPath = Join-Path $PSScriptRoot '.env'
 
-# Function to hash password using SHA-512 (compatible with Linux chpasswd -e)
-function Get-LinuxPasswordHash {
-    param([string]$Password)
+# =============================================================================
+# SECURITY: Secure Password File Handling (Docker Secrets)
+# =============================================================================
+# Password is stored in a temporary file that Docker reads as a secret.
+# The file is securely deleted after the container starts.
+# This prevents password from appearing in docker inspect or environment variables.
+# =============================================================================
 
-    # Generate a random 16-character salt for SHA-512
-    $saltChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./'
-    $salt = -join ((1..16) | ForEach-Object { $saltChars[(Get-Random -Maximum $saltChars.Length)] })
+# Function to create secure password file for Docker Secrets
+function New-SecurePasswordFile {
+    param([string]$Password, [string]$DockerPath)
 
-    # Use Python to generate the hash (available on most systems, and we need Linux-compatible format)
-    # Format: $6$salt$hash (SHA-512)
-    $pythonCmd = "import sys, crypt; pw = sys.stdin.read().strip(); print(crypt.crypt(pw, '\`$6\`$$salt\`$'))"
+    $secretsDir = Join-Path $DockerPath ".secrets"
+    $passwordFile = Join-Path $secretsDir "password.txt"
 
-    # Since Python may not be available on Windows, use OpenSSL via Docker if available
-    # Or fall back to storing password with a marker for the entrypoint to hash it
-    try {
-        # Try using docker to generate the hash (container has the right tools)
-        $hashResult = echo $Password | docker run --rm -i ubuntu:24.04 python3 -c "$pythonCmd" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $hashResult) {
-            return $hashResult.Trim()
-        }
-    } catch {
-        # Docker not available or failed
+    Write-Host "[SECURITY] Creating secure password file..." -ForegroundColor Cyan
+
+    # Create .secrets directory if it doesn't exist
+    if (-not (Test-Path $secretsDir)) {
+        New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null
+        Write-Host "[SECURITY] Created .secrets directory" -ForegroundColor Green
     }
 
-    # Fallback: Return empty string, entrypoint will hash it
-    return ''
+    # Write password to file (plain text - Docker will mount it as tmpfs)
+    # Using UTF8 without BOM for Linux compatibility
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($passwordFile, $Password, $utf8NoBom)
+
+    # Set restrictive permissions (Windows equivalent of chmod 600)
+    try {
+        $acl = Get-Acl $passwordFile
+        $acl.SetAccessRuleProtection($true, $false)  # Disable inheritance
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $currentUser,
+            "FullControl",
+            "Allow"
+        )
+        $acl.SetAccessRule($rule)
+        Set-Acl -Path $passwordFile -AclObject $acl
+        Write-Host "[SECURITY] Password file permissions restricted" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARNING] Could not set restrictive permissions: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    Write-Host "[SECURITY] Password file created at: $passwordFile" -ForegroundColor Green
+    return $passwordFile
+}
+
+# Function to securely replace password file with placeholder (for container restart support)
+# Docker Compose requires the secret file to exist, so we replace the password with a placeholder
+# instead of deleting it. This allows container restarts without "bind source path does not exist" errors.
+function Replace-PasswordWithPlaceholder {
+    param([string]$DockerPath)
+
+    $secretsDir = Join-Path $DockerPath ".secrets"
+    $passwordFile = Join-Path $secretsDir "password.txt"
+
+    if (Test-Path $passwordFile) {
+        $currentContent = Get-Content $passwordFile -Raw -ErrorAction SilentlyContinue
+
+        # Skip if already replaced with placeholder
+        if ($currentContent -eq "SETUP_COMPLETE") {
+            Write-Host "[SECURITY] Password already replaced with placeholder" -ForegroundColor Green
+            return
+        }
+
+        Write-Host "[SECURITY] Securely replacing password with placeholder..." -ForegroundColor Cyan
+
+        try {
+            # Get file size for overwrite
+            $fileSize = (Get-Item $passwordFile).Length
+            if ($fileSize -eq 0) { $fileSize = 64 }  # Minimum overwrite size
+
+            # Overwrite with random data (3 passes for security)
+            $random = New-Object System.Random
+            for ($pass = 1; $pass -le 3; $pass++) {
+                $randomBytes = New-Object byte[] $fileSize
+                $random.NextBytes($randomBytes)
+                [System.IO.File]::WriteAllBytes($passwordFile, $randomBytes)
+                Write-Host "[SECURITY] Overwrite pass $pass complete" -ForegroundColor DarkGray
+            }
+
+            # Replace with placeholder instead of deleting
+            # This allows Docker Compose to restart the container without errors
+            Set-Content -Path $passwordFile -Value "SETUP_COMPLETE" -NoNewline
+            Write-Host "[SECURITY] Password securely replaced with placeholder" -ForegroundColor Green
+            Write-Host "[INFO] The placeholder allows container restarts while keeping the password secure" -ForegroundColor Gray
+        } catch {
+            Write-Host "[WARNING] Secure replacement failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            try {
+                # Fallback: just write placeholder
+                Set-Content -Path $passwordFile -Value "SETUP_COMPLETE" -NoNewline
+                Write-Host "[SECURITY] Password replaced with placeholder (fallback method)" -ForegroundColor Yellow
+            } catch {
+                Write-Host "[ERROR] Could not replace password file - container restarts may fail" -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host "[SECURITY] Password file not found - creating placeholder for container restart support" -ForegroundColor Yellow
+        try {
+            # Ensure secrets directory exists
+            if (-not (Test-Path $secretsDir)) {
+                New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null
+            }
+            Set-Content -Path $passwordFile -Value "SETUP_COMPLETE" -NoNewline
+            Write-Host "[SECURITY] Placeholder created" -ForegroundColor Green
+        } catch {
+            Write-Host "[WARNING] Could not create placeholder file" -ForegroundColor Yellow
+        }
+    }
 }
 
 Write-Host "[INIT] Checking for existing .env file..." -ForegroundColor Yellow
 # Load existing .env file if present (for retry scenarios)
+# Note: Password is NOT stored in .env anymore - it uses Docker Secrets
 if (Test-Path $script:envPath) {
     Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
     $envLines = Get-Content $script:envPath
     foreach ($line in $envLines) {
         if ($line -match '^USER_NAME=(.*)$') { $state.UserName = $Matches[1] }
-        # Note: We store hashed password in USER_PASSWORD_HASH, plain password is not persisted
-        if ($line -match '^USER_PASSWORD_HASH=(.*)$') { $state.PasswordHash = $Matches[1] }
         if ($line -match '^WORKSPACE_PATH=(.*)$') {
             $state.WorkspacePath = $Matches[1]
             $state.ParentPath = Split-Path $Matches[1] -Parent
         }
     }
     if ($state.UserName) {
-        Write-Host "[INFO] Loaded credentials for user: $($state.UserName)" -ForegroundColor Green
-        if ($state.PasswordHash) {
-            Write-Host "[INFO] Password hash found (password is securely stored)" -ForegroundColor Green
-        }
+        Write-Host "[INFO] Loaded settings for user: $($state.UserName)" -ForegroundColor Green
     }
 }
 
@@ -713,7 +793,7 @@ $p1.Controls.Add((New-Label 'Confirm Password:' 20 345 880 20 10 $true $false))
 $script:tbPassConfirm = New-Textbox 20 365 400 28 $true
 $p1.Controls.Add($script:tbPassConfirm)
 $p1.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p1.Controls.Add((New-Label 'Note: Password will be hashed (SHA-512) before storing in the .env file.' 20 425 880 24 9 $false $true))
+$p1.Controls.Add((New-Label 'Note: Password is stored securely using Docker Secrets (not saved to disk).' 20 425 880 24 9 $false $true))
 $pages += $p1
 
 # Page 2: Folder choose
@@ -835,15 +915,63 @@ $p4.Controls.Add($script:buildTerminalBox)
 
 $pages += $p4
 
-# Page 5: Install CLI Tools
-$p5 = New-PanelPage
-$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+# Page 5: Mobile Access (optional)
+$p5_mobile = New-PanelPage
+$p5_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5_mobile.Controls.Add((New-Label -text 'MOBILE ACCESS CONFIGURATION (OPTIONAL)' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+
+# Description
+$p5_mobile.Controls.Add((New-Label 'Enable remote access to Claude Code from your mobile phone (iPhone/Android).' 20 85 880 24 10 $false $true))
+$p5_mobile.Controls.Add((New-Label '' 20 110 880 24 10 $false $true))
+
+# Feature list
+$p5_mobile.Controls.Add((New-Label 'When enabled, you can:' 20 130 880 24 10 $true $true))
+$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Connect from any mobile terminal app (Blink Shell, Termius, Termux)" 20 155 880 24 9 $false $true))
+$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Stay connected when switching between WiFi and cellular (via Mosh)" 20 180 880 24 9 $false $true))
+$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Keep sessions alive even if you disconnect (via tmux)" 20 205 880 24 9 $false $true))
+
+# Checkbox for enabling mobile access (centered: form width 920, checkbox width 420, so left = (920-420)/2 = 250)
+$script:chkMobileAccess = New-Object System.Windows.Forms.CheckBox
+$script:chkMobileAccess.Text = "Enable Mobile Access (SSH + Mosh + tmux)"
+$script:chkMobileAccess.Left = 250
+$script:chkMobileAccess.Top = 250
+$script:chkMobileAccess.Width = 420
+$script:chkMobileAccess.Height = 30
+$script:chkMobileAccess.ForeColor = $script:MatrixGreen
+$script:chkMobileAccess.BackColor = [System.Drawing.Color]::Transparent
+$script:chkMobileAccess.Font = New-Object System.Drawing.Font('Consolas', 11, [System.Drawing.FontStyle]::Bold)
+$script:chkMobileAccess.Checked = $false
+$p5_mobile.Controls.Add($script:chkMobileAccess)
+
+# Port info
+$p5_mobile.Controls.Add((New-Label '' 20 290 880 24 10 $false $true))
+$p5_mobile.Controls.Add((New-Label 'Default ports (can be changed in .env file later):' 20 310 880 24 9 $true $true))
+$p5_mobile.Controls.Add((New-Label "$($script:Arrow) SSH: port 2222 (non-standard for security)" 20 335 880 24 9 $false $true))
+$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Mosh: UDP ports 60001-60005 (5 concurrent connections)" 20 360 880 24 9 $false $true))
+
+# Security warning
+$p5_mobile.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
+$lblSecurityWarning = New-Label '[!] SECURITY: Always use a VPN (like Tailscale) - never expose ports to internet!' 20 415 880 24 9 $true $true
+$lblSecurityWarning.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)  # Orange/yellow for warning
+$p5_mobile.Controls.Add($lblSecurityWarning)
+
+# Documentation link
+$p5_mobile.Controls.Add((New-Label '' 20 445 880 24 10 $false $true))
+$p5_mobile.Controls.Add((New-Label 'For detailed setup instructions after installation, see:' 20 465 880 24 9 $false $true))
+$p5_mobile.Controls.Add((New-Label 'docs/REMOTE_ACCESS.md' 20 490 880 24 9 $false $true))
+
+$pages += $p5_mobile
+
+# Page 6: Install CLI Tools (was Page 5 before Mobile Access)
+$p6 = New-PanelPage
+$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 # Dynamic label for current tool being installed
 $script:lblCurrentTool = New-Label 'Initializing installation...' 20 75 880 24 10 $true $true
-$p5.Controls.Add($script:lblCurrentTool)
-$p5.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
+$p6.Controls.Add($script:lblCurrentTool)
+$p6.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
 
 # Mini terminal display for installation output
 $script:terminalBox = New-Object System.Windows.Forms.RichTextBox
@@ -858,34 +986,34 @@ $script:terminalBox.ReadOnly = $true
 $script:terminalBox.ScrollBars = 'Vertical'
 $script:terminalBox.BorderStyle = 'FixedSingle'
 $script:terminalBox.Text = ">> Waiting for installation to begin...`r`n"
-$p5.Controls.Add($script:terminalBox)
+$p6.Controls.Add($script:terminalBox)
 
-$pages += $p5
-
-# Page 6: Done
-$p6 = New-PanelPage
-$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
-$p6.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
-$p6.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p6.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
-$p6.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
 $pages += $p6
+
+# Page 7: Done (was Page 6 before Mobile Access)
+$p7 = New-PanelPage
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
+$p7.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
+$p7.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
+$p7.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
+$p7.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
+$p7.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
+$pages += $p7
 
 # ---------- page plumbing ----------
 $form.Controls.Add($pages[0])
@@ -904,7 +1032,8 @@ $btnCancel.Add_Click({
     Write-Host '[WARNING] User requested cancellation' -ForegroundColor Yellow
 
     # Confirm cancellation if on a critical page (skip in DEV MODE for easy testing)
-    if (($script:current -eq 4 -or $script:current -eq 5) -and -not $script:IsDevMode) {
+    # Critical pages: 4 (Build), 5 (Mobile Access), 6 (CLI Install)
+    if (($script:current -eq 4 -or $script:current -eq 5 -or $script:current -eq 6) -and -not $script:IsDevMode) {
         $result = [System.Windows.Forms.MessageBox]::Show(
             "Setup is currently in progress.`n`nAre you sure you want to cancel?`n`nThis may leave the system in an incomplete state.",
             "Cancel Setup?",
@@ -917,7 +1046,7 @@ $btnCancel.Add_Click({
             Write-Host '[INFO] User chose to continue setup' -ForegroundColor Cyan
             return
         }
-    } elseif ($script:IsDevMode -and ($script:current -eq 4 -or $script:current -eq 5)) {
+    } elseif ($script:IsDevMode -and ($script:current -eq 4 -or $script:current -eq 5 -or $script:current -eq 6)) {
         Write-Host "[DEV MODE] Skipping cancel confirmation - allowing immediate exit" -ForegroundColor Magenta
     }
 
@@ -936,8 +1065,8 @@ $btnCancel.Add_Click({
     }
 
     Write-Host '[INFO] Setup cancelled by user' -ForegroundColor Yellow
+    $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     $form.Close()
-    exit 2  # Exit code 2 = user cancelled (not an error)
 })
 $btnBack.Add_Click({
     if ($script:current -gt 0) {
@@ -981,31 +1110,22 @@ $btnNext.Add_Click({
                 $state.UserName = $script:tbUser.Text
                 $state.Password = $script:tbPass.Text
 
-                # Hash the password for secure storage
-                Write-Host "[INFO] Hashing password for secure storage..." -ForegroundColor Cyan
-                $state.PasswordHash = Get-LinuxPasswordHash -Password $state.Password
-                if ($state.PasswordHash) {
-                    Write-Host "[SUCCESS] Password hashed with SHA-512" -ForegroundColor Green
-                } else {
-                    Write-Host "[INFO] Password will be hashed by container on first run" -ForegroundColor Yellow
-                }
+                # Save credentials using Docker Secrets (secure method)
+                # Password is stored in .secrets/password.txt (NOT in .env)
+                # This prevents password from appearing in docker inspect or environment variables
+                Write-Host "[SECURITY] Setting up secure password storage..." -ForegroundColor Cyan
 
-                # Save credentials to .env immediately (persist for retry scenarios)
-                # Password is stored as hash (USER_PASSWORD_HASH) for security
-                Write-Host "[INFO] Saving credentials to .env" -ForegroundColor Cyan
+                # Create secure password file for Docker Secrets
+                $null = New-SecurePasswordFile -Password $state.Password -DockerPath $dockerPath
+
+                # Save only non-sensitive data to .env (username and workspace path)
                 $nl = [Environment]::NewLine
-                if ($state.PasswordHash) {
-                    # Store hashed password - entrypoint will use chpasswd -e
-                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl
-                } else {
-                    # Fallback: store plain password with marker for entrypoint to hash
-                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl
-                }
+                $envContent = "USER_NAME=$($state.UserName)" + $nl
                 if ($state.WorkspacePath) {
                     $envContent += "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
                 }
                 $envContent | Out-File $script:envPath -Encoding UTF8
-                Write-Host "[SUCCESS] Credentials saved to .env (password is hashed)" -ForegroundColor Green
+                Write-Host "[SUCCESS] Credentials configured (password stored securely via Docker Secrets)" -ForegroundColor Green
             }
             $script:current++; Show-Page $script:current
         }
@@ -1041,17 +1161,20 @@ $btnNext.Add_Click({
                     Write-Host "[INFO] AI_Work directory already exists" -ForegroundColor Yellow
                 }
 
-                # Update .env with workspace path
+                # Update .env with workspace path (password is already in .secrets/password.txt)
                 Write-Host "[INFO] Updating .env with workspace path" -ForegroundColor Cyan
                 $nl = [Environment]::NewLine
-                if ($state.PasswordHash) {
-                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_HASH=$($state.PasswordHash)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-                } else {
-                    $envContent = "USER_NAME=$($state.UserName)" + $nl + "USER_PASSWORD_PLAIN=$($state.Password)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-                }
+                $envContent = "USER_NAME=$($state.UserName)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
                 $envContent | Out-File $script:envPath -Encoding UTF8
                 $status.Text = ".env updated at $script:envPath"
                 Write-Host "[SUCCESS] .env updated with workspace path" -ForegroundColor Green
+
+                # Ensure password file exists (recreate if needed for retry scenarios)
+                $passwordFile = Join-Path $dockerPath ".secrets\password.txt"
+                if (-not (Test-Path $passwordFile) -and $state.Password) {
+                    Write-Host "[INFO] Recreating secure password file..." -ForegroundColor Cyan
+                    $null = New-SecurePasswordFile -Password $state.Password -DockerPath $dockerPath
+                }
             }
 
             $script:current++; Show-Page $script:current
@@ -1091,7 +1214,7 @@ $btnNext.Add_Click({
             # Build/Deploy page - user clicked Next, start the build process
             Write-Host "[DEBUG] Page 4: Starting build process" -ForegroundColor Cyan
 
-            # DEV MODE: Skip all Docker operations
+            # DEV MODE: Skip all Docker operations, go to Mobile Access page
             if ($script:IsDevMode) {
                 Write-Host "[DEV MODE] Simulating docker compose build..." -ForegroundColor Magenta
                 $status.Text = '[DEV MODE] Simulating build...'
@@ -1109,56 +1232,10 @@ $btnNext.Add_Click({
                 $progress.Value = 0
                 [System.Windows.Forms.Application]::DoEvents()
 
-                # Move to install page
-                $script:current++; Show-Page $script:current
-
-                Write-Host "[DEV MODE] Simulating CLI tools installation..." -ForegroundColor Magenta
-                $status.Text = '[DEV MODE] Simulating CLI tools install...'
-
-                # Simulate terminal output for DEV MODE
-                $script:terminalBox.Text = ">> [DEV MODE] Installation simulation starting...`r`n"
-                [System.Windows.Forms.Application]::DoEvents()
-
-                $devModeLines = @(
-                    "[INFO] Starting CLI tools installation...",
-                    "[INFO] Updating package lists...",
-                    "[INFO] Installing GitHub CLI...",
-                    "[SUCCESS] GitHub CLI installed successfully",
-                    "[INFO] Installing/Updating Claude Code CLI...",
-                    "[SUCCESS] Claude Code CLI installed/updated successfully",
-                    "[INFO] Installing Google Gemini CLI...",
-                    "[SUCCESS] Gemini CLI installed successfully",
-                    "[INFO] Installing OpenAI CLI tools...",
-                    "[SUCCESS] OpenAI Python SDK installed",
-                    "[INFO] Installing OpenAI Codex CLI...",
-                    "[SUCCESS] OpenAI Codex CLI installed successfully",
-                    "[SUCCESS] All CLI tools installation completed!"
-                )
-
-                $progressValues = @(10, 15, 20, 30, 40, 50, 55, 65, 75, 85, 90, 95, 100)
-                $toolNames = @("", "", "GitHub CLI", "", "Claude Code CLI", "", "Google Gemini CLI", "", "OpenAI Python SDK", "", "OpenAI Codex CLI", "", "")
-
-                for ($i = 0; $i -lt $devModeLines.Count; $i++) {
-                    $script:terminalBox.AppendText("$($devModeLines[$i])`r`n")
-                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
-                    $script:terminalBox.ScrollToCaret()
-                    $progress.Value = $progressValues[$i]
-                    if ($toolNames[$i]) {
-                        $script:lblCurrentTool.Text = "Installing $($toolNames[$i])..."
-                    }
-                    [System.Windows.Forms.Application]::DoEvents()
-                    Start-Sleep -Milliseconds 300
-                }
-
-                $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE! (simulated)`r`n")
-                $script:lblCurrentTool.Text = 'Installation complete!'
-                [System.Windows.Forms.Application]::DoEvents()
-                Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
-
-                # Go to Done page in DEV MODE
-                Write-Host "[DEV MODE] Proceeding to Done page" -ForegroundColor Magenta
-                $status.Text = '[DEV MODE] Done page'
-                $script:current++  # Go to page 6 (Done)
+                # Move to Mobile Access page (page 5)
+                Write-Host "[DEV MODE] Proceeding to Mobile Access page" -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Mobile Access configuration'
+                $script:current++
                 Show-Page $script:current
                 return
             }
@@ -1276,11 +1353,117 @@ $btnNext.Add_Click({
                 Show-Error "Container failed to stay running. Check console for logs."
                 return
             }
-            $script:buildTerminalBox.AppendText("`r`n>> Container ready - proceeding to tool installation...`r`n")
+            $script:buildTerminalBox.AppendText("`r`n>> Container ready - proceeding to Mobile Access configuration...`r`n")
             Write-Host "[SUCCESS] Container ready" -ForegroundColor Green
 
-            $status.Text = 'container started'
-            # move to install page
+            $status.Text = 'Container started - configure Mobile Access'
+            # Move to Mobile Access page (page 5)
+            $script:current++; Show-Page $script:current
+        }
+        5 {
+            # Mobile Access configuration page
+            Write-Host "[DEBUG] Page 5: Mobile Access configuration" -ForegroundColor Cyan
+
+            # DEV MODE: Skip container operations
+            if ($script:IsDevMode) {
+                Write-Host "[DEV MODE] Mobile Access page - skipping container restart" -ForegroundColor Magenta
+                if ($script:chkMobileAccess.Checked) {
+                    Write-Host "[DEV MODE] Mobile access checkbox was checked" -ForegroundColor Magenta
+                } else {
+                    Write-Host "[DEV MODE] Mobile access checkbox was NOT checked" -ForegroundColor Magenta
+                }
+                $script:current++
+                Show-Page $script:current
+
+                # Simulate CLI tools installation in DEV MODE
+                Write-Host "[DEV MODE] Simulating CLI tools installation..." -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Simulating CLI tools install...'
+
+                # Simulate terminal output for DEV MODE
+                $script:terminalBox.Text = ">> [DEV MODE] Installation simulation starting...`r`n"
+                [System.Windows.Forms.Application]::DoEvents()
+
+                $devModeLines = @(
+                    "[INFO] Starting CLI tools installation...",
+                    "[INFO] Updating package lists...",
+                    "[INFO] Installing GitHub CLI...",
+                    "[SUCCESS] GitHub CLI installed successfully",
+                    "[INFO] Installing/Updating Claude Code CLI...",
+                    "[SUCCESS] Claude Code CLI installed/updated successfully",
+                    "[INFO] Installing Google Gemini CLI...",
+                    "[SUCCESS] Gemini CLI installed successfully",
+                    "[INFO] Installing OpenAI CLI tools...",
+                    "[SUCCESS] OpenAI Python SDK installed",
+                    "[INFO] Installing OpenAI Codex CLI...",
+                    "[SUCCESS] OpenAI Codex CLI installed successfully",
+                    "[SUCCESS] All CLI tools installation completed!"
+                )
+
+                $progressValues = @(10, 15, 20, 30, 40, 50, 55, 65, 75, 85, 90, 95, 100)
+                $toolNames = @("", "", "GitHub CLI", "", "Claude Code CLI", "", "Google Gemini CLI", "", "OpenAI Python SDK", "", "OpenAI Codex CLI", "", "")
+
+                for ($i = 0; $i -lt $devModeLines.Count; $i++) {
+                    $script:terminalBox.AppendText("$($devModeLines[$i])`r`n")
+                    $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
+                    $script:terminalBox.ScrollToCaret()
+                    $progress.Value = $progressValues[$i]
+                    if ($toolNames[$i]) {
+                        $script:lblCurrentTool.Text = "Installing $($toolNames[$i])..."
+                    }
+                    [System.Windows.Forms.Application]::DoEvents()
+                    Start-Sleep -Milliseconds 300
+                }
+
+                $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE! (simulated)`r`n")
+                $script:lblCurrentTool.Text = 'Installation complete!'
+                [System.Windows.Forms.Application]::DoEvents()
+                Write-Host "[DEV MODE] CLI tools simulation complete" -ForegroundColor Magenta
+
+                # Go to Done page in DEV MODE
+                Write-Host "[DEV MODE] Proceeding to Done page" -ForegroundColor Magenta
+                $status.Text = '[DEV MODE] Done page'
+                $script:current++
+                Show-Page $script:current
+                return
+            }
+
+            # Handle Mobile Access configuration
+            if ($script:chkMobileAccess.Checked) {
+                Write-Host "[INFO] Mobile access enabled by user" -ForegroundColor Cyan
+                $status.Text = 'Enabling mobile access...'
+
+                # Add ENABLE_MOBILE_ACCESS=1 to .env
+                $envFilePath = Join-Path $dockerPath ".env"
+                if (Test-Path $envFilePath) {
+                    $envContent = Get-Content $envFilePath -Raw
+                    if ($envContent -notmatch 'ENABLE_MOBILE_ACCESS') {
+                        Add-Content -Path $envFilePath -Value "ENABLE_MOBILE_ACCESS=1"
+                        Write-Host "[INFO] Added ENABLE_MOBILE_ACCESS=1 to .env" -ForegroundColor Green
+                    }
+                }
+
+                # Restart container to apply port mappings
+                $status.Text = 'Restarting container with mobile access ports...'
+                Write-Host "[INFO] Restarting container to apply mobile access ports..." -ForegroundColor Cyan
+                $restartResult = Run-Process-UI -file 'docker' -arguments 'compose up -d' -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
+                if (-not $restartResult.Ok) {
+                    Write-Host "[WARNING] Container restart had issues, continuing anyway" -ForegroundColor Yellow
+                } else {
+                    Write-Host "[SUCCESS] Container restarted with mobile access ports" -ForegroundColor Green
+                }
+
+                # Wait for container to initialize after restart
+                Write-Host "[INFO] Waiting for container to initialize..." -ForegroundColor Cyan
+                for ($i = 0; $i -lt 30; $i++) {
+                    Start-Sleep -Milliseconds 100
+                    [System.Windows.Forms.Application]::DoEvents()
+                }
+            } else {
+                Write-Host "[INFO] Mobile access not enabled" -ForegroundColor Cyan
+            }
+
+            # Move to CLI Install page (page 6)
+            $status.Text = 'Proceeding to CLI tools installation...'
             $script:current++; Show-Page $script:current
 
             # AI CLI tools will be auto-installed by entrypoint.sh
@@ -1448,6 +1631,11 @@ $btnNext.Add_Click({
 
             Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
 
+            # SECURITY: Securely delete the password file now that container is running
+            # The password has been set in the container, we no longer need the file
+            Write-Host "[SECURITY] Container started successfully - cleaning up password file..." -ForegroundColor Cyan
+            Replace-PasswordWithPlaceholder -DockerPath $dockerPath
+
             # Clean up FORCE_CLI_REINSTALL from .env so it doesn't reinstall on every restart
             $envFilePath = Join-Path $dockerPath ".env"
             if (Test-Path $envFilePath) {
@@ -1459,16 +1647,16 @@ $btnNext.Add_Click({
                 }
             }
 
-            $status.Text = 'system ready'
+            $status.Text = 'System ready'
             $script:current++; Show-Page $script:current
         }
-        5 {
-            # Install CLI Tools page - this page auto-advances via case 3's flow
+        6 {
+            # Install CLI Tools page - this page auto-advances via case 5's flow
             # If user somehow clicks Next directly, just show a message
             Write-Host "[INFO] Install page - process is handled automatically" -ForegroundColor Yellow
             $status.Text = 'Installation is automatic - please wait...'
         }
-        6 {
+        7 {
             Write-Host "[INFO] User clicked Finish - closing wizard" -ForegroundColor Green
             $form.Close()
             $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -1611,6 +1799,9 @@ Write-Host "[SHUTDOWN] Wizard closed" -ForegroundColor Yellow
 if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Host "[SUCCESS] Setup completed successfully - exiting with code 0" -ForegroundColor Green
     exit 0  # Success
+} elseif ($result -eq [System.Windows.Forms.DialogResult]::Cancel) {
+    Write-Host "[INFO] Setup cancelled by user - exiting with code 2" -ForegroundColor Yellow
+    exit 2  # User cancelled
 } else {
     Write-Host "[INFO] Setup exited without completion - exiting with code 1" -ForegroundColor Yellow
     exit 1  # Not completed

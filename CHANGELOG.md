@@ -5,6 +5,57 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-01-27
+
+### Fixed
+- **Container restart fails after setup** (Critical): Docker Compose requires secret files to exist for bind mounts. Password file is now replaced with "SETUP_COMPLETE" placeholder instead of being deleted, allowing container restarts without "bind source path does not exist" errors
+- **add-ssh-key "USER: unbound variable"**: Script used `$USER` which is unset when running as root in Docker. Changed to `$(whoami)` for reliable operation
+- **Welcome screen not shown via "Launch Workspace"**: Added `-l` flag to bash command to invoke as login shell, ensuring `.bashrc` is sourced and welcome banner displays
+
+### Changed
+- Renamed `Remove-SecurePasswordFile` to `Replace-PasswordWithPlaceholder` in setup wizard
+- Password security maintained: 3-pass secure overwrite still performed before writing placeholder
+
+## [1.2.0] - 2026-01-27
+
+### Added
+- **Mobile Access**: Optional SSH + Mosh + tmux support for accessing Claude Code from mobile devices
+  - Mosh provides seamless roaming between WiFi and cellular networks
+  - tmux provides session persistence and scrollback (required since Mosh has no scrollback)
+  - SSH key authentication only (passwords disabled for security)
+  - Non-standard port 2222 to reduce automated scans
+  - Mosh UDP ports 60001-60005 for up to 5 concurrent connections
+- New environment variables for mobile access configuration:
+  - `ENABLE_MOBILE_ACCESS` (default: 0) - Set to 1 to enable
+  - `SSH_PORT` (default: 2222) - SSH server port
+  - `MOSH_PORT_START` (default: 60001) - First Mosh UDP port
+  - `MOSH_PORT_END` (default: 60005) - Last Mosh UDP port
+- Mobile-optimized tmux configuration with Ctrl+A prefix (easier on mobile keyboards)
+- New documentation: `docs/REMOTE_ACCESS.md` - comprehensive guide for mobile setup
+- SSH keys persistence via Docker volume (`ssh-keys`)
+- Locale configuration (en_US.UTF-8) required for Mosh
+- **`add-ssh-key` command** for easy SSH key management in the container
+  - `add-ssh-key "key"` - Add a new SSH public key
+  - `add-ssh-key --list` - List all authorized keys
+  - `add-ssh-key --remove N` - Remove key by number
+  - Validates key format and checks for duplicates
+  - Color-coded output for non-technical users
+
+### Changed
+- Updated README.md with mobile access feature and documentation link
+- Updated USER_MANUAL.md with "Mobile Phone Access (Advanced)" section and Security Features section
+- Updated QUICK_REFERENCE.md with tmux quick reference commands
+- Dockerfile now includes openssh-server, mosh, tmux, and locales packages
+
+### Security
+- **Docker Secrets for password handling**: Password is no longer stored in `.env` file
+  - Password written to temporary file that is securely deleted after container starts
+  - Uses Docker Secrets (tmpfs/memory-only) inside container
+  - Not visible in `docker inspect` output or `/proc/*/environ`
+  - Credential environment variables automatically cleaned up after use
+- Added `.gitignore` in docker directory to prevent accidental commits of `.secrets/`
+- Updated password handling UI text to reflect new secure storage method
+
 ## [1.1.3] - 2026-01-26
 
 ### Added
@@ -115,13 +166,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.2.1 | 2026-01-27 | Fix container restart, add-ssh-key, and welcome screen bugs |
+| 1.2.0 | 2026-01-27 | Mobile access via SSH + Mosh + tmux |
+| 1.1.3 | 2026-01-26 | Container-side logging with rotation |
 | 1.1.2 | 2025-01-20 | Clarify update-tools scope, dynamic package updates |
 | 1.1.1 | 2025-01-20 | Remove Codex OAuth workaround, add install retry logic |
 | 1.1.0 | 2025-01-17 | Vibe Kanban integration |
 | 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.3...v1.2.0
+[1.1.3]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.0.1...v1.1.0

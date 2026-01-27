@@ -64,6 +64,7 @@
 |---------|-------------|
 | 🤖 **Multiple AI Tools** | Claude, GitHub CLI, OpenAI/GPT, Gemini, Codex, and more |
 | 🎯 **Vibe Kanban** | Orchestrate multiple AI agents in parallel via web UI |
+| 📱 **Mobile Access** | Access Claude from your phone via SSH + Mosh (optional) |
 | 🔒 **Secure Isolation** | AI runs in Docker container - can't access your system files |
 | 🚀 **One-Click Setup** | Interactive wizard handles everything automatically |
 | 🔄 **Auto-Updates** | CLI tools update automatically every week |
@@ -120,6 +121,7 @@ sgpt "explain this code"  # Use Shell GPT
 | **[User Manual](docs/USER_MANUAL.md)** | Complete guide for end users |
 | **[CLI Tools Guide](docs/CLI_TOOLS_GUIDE.md)** | Reference for all AI tools |
 | **[Quick Reference](docs/QUICK_REFERENCE.md)** | One-page cheatsheet |
+| **[Remote Access](docs/REMOTE_ACCESS.md)** | Mobile phone access via SSH/Mosh |
 | **[Troubleshooting](docs/LOGGING.md)** | Logging and debugging guide |
 | **[Migration Guide](docs/MIGRATION.md)** | Upgrading between versions |
 | **[Development Guide](docs/DEVELOPMENT.md)** | For contributors |
@@ -195,6 +197,28 @@ docker stop ai-cli && docker rm ai-cli && docker rmi docker-files-ai
 ---
 
 ## 🔧 Advanced Usage
+
+### Mobile Access (SSH + Mosh)
+
+Access Claude Code from your phone with seamless network roaming:
+
+```bash
+# 1. Enable in .env file (in %LOCALAPPDATA%\AI-Docker-CLI\)
+ENABLE_MOBILE_ACCESS=1
+
+# 2. Rebuild container
+
+# 3. Add your SSH public key to the container
+docker exec ai-cli bash -c 'echo "YOUR_PUBLIC_KEY" >> ~/.ssh/authorized_keys'
+
+# 4. Connect from mobile (via VPN like Tailscale)
+mosh --ssh="ssh -p 2222" username@docker-host-ip
+
+# 5. Start tmux for scrollback
+tmux new -s mobile
+```
+
+See **[Remote Access Guide](docs/REMOTE_ACCESS.md)** for complete setup instructions.
 
 ### DEV Mode (UI Testing)
 

@@ -121,6 +121,39 @@ claude
 
 ---
 
+## 📱 Mobile Access (Optional)
+
+Enable SSH + Mosh + tmux for mobile phone access:
+
+```bash
+# 1. Add to .env file:
+ENABLE_MOBILE_ACCESS=1
+
+# 2. Rebuild container, then add your SSH key:
+docker exec ai-cli bash -c 'echo "YOUR_KEY" >> ~/.ssh/authorized_keys'
+
+# 3. Connect via VPN + Mosh:
+mosh --ssh="ssh -p 2222" user@host
+
+# 4. Start tmux:
+tmux new -s mobile
+```
+
+### tmux Quick Reference
+| Action | Keys |
+|--------|------|
+| Prefix | `Ctrl+A` |
+| Detach | `Ctrl+A` + `d` |
+| Scroll mode | `Ctrl+A` + `[` |
+| Exit scroll | `q` |
+| New window | `Ctrl+A` + `c` |
+| Split horizontal | `Ctrl+A` + `-` |
+| Split vertical | `Ctrl+A` + `|` |
+
+See **[REMOTE_ACCESS.md](REMOTE_ACCESS.md)** for full guide.
+
+---
+
 ## 🆘 Quick Help
 
 - **Docker Desktop**: System tray icon must be green

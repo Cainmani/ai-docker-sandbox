@@ -29,6 +29,10 @@ $filesToEmbed = @(
    "..\..\docker\install_cli_tools.sh",
    "..\..\docker\auto_update.sh",
    "..\..\docker\configure_tools.sh",
+   "..\..\docker\setup_mobile_access.sh",
+   "..\..\docker\add_ssh_key.sh",
+   "..\..\docker\setup_remote_connection.sh",
+   "..\..\docker\tmux.conf",
    "..\..\docker\lib\logging.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",
@@ -36,6 +40,7 @@ $filesToEmbed = @(
    "..\..\docs\USER_MANUAL.md",
    "..\..\docs\QUICK_REFERENCE.md",
    "..\..\docs\CLI_TOOLS_GUIDE.md",
+   "..\..\docs\REMOTE_ACCESS.md",
    "..\..\tests\TESTING_CHECKLIST.md"
 )
 

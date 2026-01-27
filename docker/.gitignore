@@ -1,0 +1,9 @@
+# Docker secrets directory - contains sensitive password files
+# NEVER commit this directory - it contains temporary password files
+.secrets/
+
+# Environment file may contain sensitive data
+.env
+
+# Local development overrides
+docker-compose.override.yml
