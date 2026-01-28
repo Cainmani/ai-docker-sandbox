@@ -26,6 +26,12 @@ Mobile access allows you to use Claude Code from your phone or tablet, even when
 
 > **Important**: This is an opt-in feature. It is disabled by default for security.
 
+### Known Limitation: No Real-Time Sync
+
+Claude Code conversations **do not sync in real-time** between devices. If you're working on your phone and then switch to your computer (or vice versa), you won't see the other session's conversation automatically.
+
+**Workaround**: Exit Claude on one device, then use `/resume` on the other device to load the latest conversation. See [Troubleshooting](#conversations-dont-sync-between-phone-and-computer) for details.
+
 ---
 
 ## Why Mosh?
@@ -466,6 +472,31 @@ mosh --ssh="ssh -p 2222" user@host
 1. Press `Ctrl+A` then `[` to enter copy mode
 2. Scroll with arrow keys or Page Up/Down
 3. Press `q` to exit
+
+### Conversations don't sync between phone and computer
+
+**Cause**: This is expected behavior - Claude Code doesn't have real-time sync between sessions.
+
+**How it works**:
+```
+Phone (SSH) ──────> Container ──────> ~/.claude/projects/...
+                        ↑
+Windows (docker exec) ──┘          (same files, different processes)
+```
+
+Both sessions access the same conversation files, but each Claude instance loads them once at startup. Neither session knows when the other writes new data.
+
+**Workarounds**:
+1. **Exit and resume**: After working on phone, exit Claude on Windows and run `claude` again or use `/resume` to reload the latest conversation
+2. **Use one device at a time**: Complete your work on phone, exit, then continue on Windows
+3. **Use `/resume <id>`**: List recent conversations and resume a specific one
+
+**To see your conversations**:
+```bash
+ls -lt ~/.claude/projects/*/
+```
+
+This is a Claude Code architectural limitation, not specific to this Docker setup.
 
 ---
 
