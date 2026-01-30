@@ -10,9 +10,10 @@ This guide explains how to access your AI Docker CLI environment from mobile dev
 5. [Setting Up SSH Keys](#setting-up-ssh-keys)
 6. [Connecting from Mobile](#connecting-from-mobile)
 7. [Using tmux](#using-tmux)
-8. [Security Best Practices](#security-best-practices)
-9. [Recommended Apps](#recommended-apps)
-10. [Troubleshooting](#troubleshooting)
+8. [Session Persistence & Multi-Device Sync](#session-persistence--multi-device-sync)
+9. [Security Best Practices](#security-best-practices)
+10. [Recommended Apps](#recommended-apps)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -26,11 +27,13 @@ Mobile access allows you to use Claude Code from your phone or tablet, even when
 
 > **Important**: This is an opt-in feature. It is disabled by default for security.
 
-### Known Limitation: No Real-Time Sync
+### Multi-Device Usage: Use tmux for Sync
 
-Claude Code conversations **do not sync in real-time** between devices. If you're working on your phone and then switch to your computer (or vice versa), you won't see the other session's conversation automatically.
+If you run Claude separately on your phone and computer, the conversations **do not sync** - they are independent processes.
 
-**Workaround**: Exit Claude on one device, then use `/resume` on the other device to load the latest conversation. See [Troubleshooting](#conversations-dont-sync-between-phone-and-computer) for details.
+**Solution**: Use tmux to share a single session across devices. When you `tmux attach` from your phone to a session running on your laptop, both devices see and control the **same Claude conversation** in real-time.
+
+See [Session Persistence & Multi-Device Sync](#session-persistence--multi-device-sync) for the full workflow.
 
 ---
 
@@ -329,6 +332,126 @@ Mosh uses a unique approach: it maintains a synchronized screen state between cl
 - **Con**: No scrollback buffer - what's off-screen is gone
 
 tmux provides the scrollback buffer that Mosh lacks, making it essential for reviewing Claude's output.
+
+---
+
+## Session Persistence & Multi-Device Sync
+
+tmux provides two powerful capabilities that are essential for mobile workflows:
+
+### 1. Session Persistence (Survive Disconnections)
+
+When you run Claude inside a tmux session, it keeps running even if you lose connection. This is critical for mobile use - you might lose signal on a plane, in a tunnel, or when switching networks.
+
+**Without tmux:**
+```
+Phone ←──SSH──→ Container
+  │                │
+  │    [Claude]    │
+  ✗ Connection drops
+  │
+  └── Claude is KILLED - work lost!
+```
+
+**With tmux:**
+```
+Phone ←──SSH──→ Container
+  │                │
+  │         ┌──────┴──────┐
+  │         │    tmux     │
+  │         │   session   │
+  │         │  [Claude]   │
+  │         └─────────────┘
+  ✗ Connection drops
+  │
+  │   (Claude keeps running!)
+  │
+  ✓ Reconnect later
+  │
+  └── tmux attach → Claude exactly where you left it
+```
+
+**Workflow:**
+```bash
+# On your phone - start a persistent session
+ssh -p 2222 caide@100.88.201.29
+tmux new -s work
+claude
+
+# ... connection drops (plane, tunnel, etc.) ...
+
+# Later - reconnect and reattach
+ssh -p 2222 caide@100.88.201.29
+tmux attach -t work
+# Claude is right there, mid-conversation!
+```
+
+### 2. Multi-Device Sync (Same Session, Multiple Viewers)
+
+tmux also allows multiple devices to attach to the **same session simultaneously**. This means you can have your phone AND laptop viewing and controlling the same Claude conversation in real-time.
+
+```
+Laptop ──────────┐
+                 │
+                 ├──→ tmux session "work" ──→ Claude
+                 │      (ONE session)
+Phone ───────────┘
+```
+
+**What happens:**
+- Both screens show the exact same thing in real-time
+- Either device can type - input goes to the same place
+- It's literally the same session, not two copies
+
+**Workflow:**
+```bash
+# On your laptop (in the container)
+tmux new -s shared
+claude
+
+# On your phone - attach to the SAME session
+ssh -p 2222 caide@100.88.201.29
+tmux attach -t shared
+
+# Now both devices see and control the same Claude session!
+# Type on phone → appears on laptop
+# Type on laptop → appears on phone
+```
+
+### Important: This is Different from "Conversation Sync"
+
+| Approach | What Happens | Sync? |
+|----------|--------------|-------|
+| Two separate `claude` commands | Two different processes, two different conversations | ❌ No |
+| `tmux attach` from both devices | Same process, same session, same conversation | ✅ Yes |
+
+If you want to continue the same Claude conversation across devices, use `tmux attach` - don't start a new `claude` instance.
+
+### Recommended Workflow for Mobile Users
+
+```bash
+# 1. Always use a named tmux session
+tmux new -s claude-work
+
+# 2. Start Claude inside tmux
+claude
+
+# 3. If you need to disconnect intentionally
+#    Press: Ctrl+A then d (detach)
+
+# 4. When reconnecting (same or different device)
+tmux attach -t claude-work
+
+# 5. List your sessions if you forget the name
+tmux ls
+```
+
+### Pro Tips
+
+- **Name your sessions descriptively**: `tmux new -s project-api-refactor`
+- **Check for existing sessions first**: `tmux ls` before creating new ones
+- **Detach cleanly when switching devices**: `Ctrl+A` then `d`
+- **Kill old sessions you don't need**: `tmux kill-session -t old-session`
 
 ---
 
