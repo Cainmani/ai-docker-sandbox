@@ -469,13 +469,30 @@ The default SSH port is 2222 (not 22), which reduces exposure to automated scann
 ### 4. Limit User Access
 The SSH configuration only allows your container user to connect - root login is disabled.
 
-### 5. Monitor Access Logs
+### 5. fail2ban Protection
+fail2ban is automatically enabled when mobile access is active. It monitors SSH login attempts and bans IPs after 5 failed attempts for 10 minutes.
+
+```bash
+# Check fail2ban status
+docker exec ai-cli fail2ban-client status sshd
+
+# View banned IPs
+docker exec ai-cli fail2ban-client status sshd | grep "Banned IP"
+
+# Manually unban an IP (if needed)
+docker exec ai-cli fail2ban-client set sshd unbanip <IP_ADDRESS>
+```
+
+### 6. Monitor Access Logs
 ```bash
 # View SSH logs
 docker exec ai-cli cat /var/log/auth.log | grep sshd
+
+# View fail2ban logs
+docker exec ai-cli cat /var/log/fail2ban.log
 ```
 
-### 6. Rotate Keys Periodically
+### 7. Rotate Keys Periodically
 If you suspect a key is compromised, remove it and generate a new one:
 ```bash
 # Remove all authorized keys

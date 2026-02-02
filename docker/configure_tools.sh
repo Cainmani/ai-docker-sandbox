@@ -614,18 +614,6 @@ case "$1" in
     --gemini)
         configure_gemini
         ;;
-    --aws)
-        configure_aws
-        ;;
-    --azure)
-        configure_azure
-        ;;
-    --gcloud)
-        configure_gcloud
-        ;;
-    --codeium)
-        configure_codeium
-        ;;
     --codex)
         configure_codex
         ;;
@@ -635,10 +623,6 @@ case "$1" in
         configure_openai
         configure_codex
         configure_gemini
-        configure_aws
-        configure_azure
-        configure_gcloud
-        configure_codeium
         show_status
         ;;
     --help|-h)
@@ -651,10 +635,6 @@ case "$1" in
         echo "  --openai, --gpt  Configure OpenAI/GPT tools (Python SDK)"
         echo "  --codex          Configure OpenAI Codex CLI"
         echo "  --gemini         Configure Google Gemini"
-        echo "  --aws            Configure AWS CLI"
-        echo "  --azure          Configure Azure CLI"
-        echo "  --gcloud         Configure Google Cloud CLI"
-        echo "  --codeium        Configure Codeium"
         echo "  --all            Configure all tools"
         echo "  --help, -h       Show this help message"
         echo ""
