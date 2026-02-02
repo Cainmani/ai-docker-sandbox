@@ -76,9 +76,9 @@
 - **Claude Code** - Anthropic's AI coding assistant
 - **Vibe Kanban** - Web UI to orchestrate AI agents in parallel (⚠️ runs with elevated permissions)
 - **GitHub CLI** - GitHub's official command-line tool
-- **OpenAI Tools** - Shell GPT, Aider, Codex
+- **OpenAI Codex CLI** - OpenAI's coding assistant
+- **OpenAI SDK** - Python SDK for OpenAI API
 - **Google Gemini** - Google's AI assistant
-- **Cloud CLIs** - AWS, Azure, Google Cloud
 
 ---
 

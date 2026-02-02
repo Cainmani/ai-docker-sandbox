@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AI Docker CLI Manager now automatically installs and manages a comprehensive suite of AI command-line tools, providing a unified environment for AI development and interaction.
+The AI Docker CLI Manager automatically installs and manages a suite of AI command-line tools, providing a unified environment for AI development and interaction.
 
 ## Installed Tools
 
@@ -12,30 +12,10 @@ The AI Docker CLI Manager now automatically installs and manages a comprehensive
 |------|---------|-------------|---------------|
 | **Claude Code CLI** | `claude` | Anthropic's official CLI for Claude AI | [Claude Docs](https://docs.anthropic.com) |
 | **GitHub CLI** | `gh` | GitHub's official command line tool | [GitHub CLI](https://cli.github.com) |
-| **Shell GPT** | `sgpt` | OpenAI GPT in your terminal | [Shell-GPT](https://github.com/TheR1D/shell_gpt) |
-| **Aider** | `aider` | AI pair programming tool | [Aider](https://aider.chat) |
-| **Codeium** | `codeium` | Free AI code completion | [Codeium](https://codeium.com) |
+| **OpenAI Codex CLI** | `codex` | OpenAI's coding assistant CLI | [Codex CLI](https://github.com/openai/codex) |
+| **OpenAI SDK** | `python3 -c "import openai"` | OpenAI Python SDK | [OpenAI Python](https://github.com/openai/openai-python) |
+| **Google Gemini CLI** | `gemini` | Google's AI assistant CLI | [Gemini CLI](https://github.com/google-gemini/gemini-cli) |
 | **Vibe Kanban** | `vibe-kanban` | Orchestrate AI agents in parallel via web UI | [Vibe Kanban](https://vibekanban.com) |
-
-### Cloud Provider CLIs
-
-| Tool | Command | Description | Use Case |
-|------|---------|-------------|----------|
-| **AWS CLI** | `aws` | Amazon Web Services CLI | Access to Bedrock, SageMaker |
-| **Azure CLI** | `az` | Microsoft Azure CLI | Azure OpenAI, Cognitive Services |
-| **Google Cloud CLI** | `gcloud` | Google Cloud Platform CLI | Vertex AI, PaLM API |
-
-### Development Tools
-
-| Tool | Command | Description |
-|------|---------|-------------|
-| **jq** | `jq` | JSON processor |
-| **HTTPie** | `http` | Modern HTTP client |
-| **bat** | `bat` | Cat with syntax highlighting |
-| **ripgrep** | `rg` | Fast recursive grep |
-| **fd** | `fd` | Modern find replacement |
-| **fzf** | `fzf` | Fuzzy finder |
-| **tldr** | `tldr` | Simplified man pages |
 
 ## Quick Start
 
@@ -57,10 +37,8 @@ The AI Docker CLI Manager now automatically installs and manages a comprehensive
    - Claude API key
    - GitHub authentication
    - OpenAI API key
+   - OpenAI Codex CLI
    - Google Gemini API key
-   - AWS credentials
-   - Azure credentials
-   - Google Cloud credentials
 
 ### Configuration Commands
 
@@ -77,8 +55,8 @@ The AI Docker CLI Manager now automatically installs and manages a comprehensive
 
 | Command | Description |
 |---------|-------------|
-| `update-tools` | Update all CLI tools |
-| `check-updates` | Check for available updates |
+| `update-container-tools` | Update all CLI tools in container |
+| `check-container-updates` | Check for available updates |
 | `config-status` | View configuration status |
 
 ## Tool-Specific Configuration
@@ -114,25 +92,18 @@ gh pr create
 # Set API key (done via configure-tools)
 export OPENAI_API_KEY="your-key-here"
 
-# Use Shell-GPT
-sgpt "Write a bash script to backup files"
-
-# Use with code generation
-sgpt --code "Python function to sort a list"
+# Use OpenAI Python SDK
+python3 -c "from openai import OpenAI; client = OpenAI(); print('Connected!')"
 ```
 
-### Aider (AI Pair Programming)
+### OpenAI Codex CLI
 
 ```bash
-# Start aider in your project
-cd /workspace/my-project
-aider
+# Authenticate with OpenAI
+codex auth
 
-# Specify files to work with
-aider file1.py file2.js
-
-# Use with specific model
-aider --model gpt-4
+# Start coding with Codex
+codex "Write a Python function to sort a list"
 ```
 
 ### Gemini CLI
@@ -149,18 +120,6 @@ gemini "Explain quantum computing"
 
 Vibe Kanban is a web-based tool that lets you orchestrate multiple AI coding agents in parallel through a visual kanban interface.
 
-**⚠️ Safety Warning:**
-Vibe Kanban runs AI agents with `--dangerously-skip-permissions` (aka `--yolo` mode) by default. This means agents have **unrestricted access** to:
-- Execute arbitrary code on your system
-- Run terminal commands without confirmation
-- Modify, create, and delete files
-
-**Best Practices:**
-- Always review agent changes using the built-in diff tool before accepting
-- Ensure you have backups of important work
-- Use git branches to isolate agent changes
-- Consider testing on non-critical projects first
-
 **Launch from Windows GUI:**
 1. Click "3. LAUNCH VIBE KANBAN" in the AI Docker Manager
 2. Browser automatically opens to `http://localhost:3000`
@@ -173,66 +132,11 @@ HOST=0.0.0.0 PORT=3000 vibe-kanban
 # Then open http://localhost:3000 in your Windows browser
 ```
 
-**Key Features:**
-- Run multiple AI agents (Claude, Codex, Gemini) simultaneously
-- Visual task management with kanban board
-- Each task runs in isolated git worktrees
-- Built-in diff tool for reviewing agent changes
-- MCP server integration for enhanced capabilities
-
-**Prerequisites:**
-- AI agents must be authenticated BEFORE using Vibe Kanban
-- Run `configure-tools` to set up Claude, Codex, etc.
-- Ensure `/workspace` contains a git repository
-
-**Configuration:**
-```bash
-# Port can be customized via environment variable
-export VIBE_KANBAN_PORT=3000
-
-# Or in the .env file (located at %LOCALAPPDATA%\AI-Docker-CLI\.env)
-VIBE_KANBAN_PORT=8080
-```
-
 **Supported Agents:**
 - Claude Code (claude)
 - OpenAI Codex (codex)
 - Gemini CLI (gemini)
 - GitHub CLI (gh)
-
-**Troubleshooting:**
-
-| Problem | Solution |
-|---------|----------|
-| "vibe-kanban binary not found" | Run First Time Setup with "Force Rebuild" checked |
-| Port 3000 already in use | Change `VIBE_KANBAN_PORT` in `.env` file |
-| Browser doesn't open | Manually navigate to `http://localhost:3000` |
-| Agents not responding | Verify authentication with `configure-tools --status` |
-
-For more information, visit [vibekanban.com/docs](https://vibekanban.com/docs)
-
-### AWS CLI for AI Services
-
-```bash
-# Configure AWS
-aws configure
-
-# Use Amazon Bedrock
-aws bedrock list-foundation-models
-
-# Use SageMaker
-aws sagemaker list-endpoints
-```
-
-### Azure CLI for AI Services
-
-```bash
-# Login to Azure
-az login
-
-# Use Azure OpenAI
-az cognitiveservices account list
-```
 
 ## Auto-Update System
 
@@ -242,19 +146,19 @@ The system automatically checks for updates weekly. You can also manually trigge
 
 ```bash
 # Check for updates
-check-updates
+check-container-updates
 
 # Apply updates
-update-tools
+update-container-tools
 ```
 
 ### Update Schedule
 
 - Automatic checks: Weekly (Sunday 2 AM)
 - Update types:
-  - npm packages (Claude, Continue, tldr)
-  - Python packages (OpenAI, Shell-GPT, Aider)
-  - System packages (GitHub CLI, AWS CLI, Azure CLI)
+  - npm packages (Gemini CLI, Codex CLI, Vibe Kanban)
+  - Python packages (OpenAI SDK)
+  - System packages (GitHub CLI)
 
 ### Customize Update Schedule
 
@@ -262,9 +166,8 @@ update-tools
 # Change update interval (days)
 export UPDATE_INTERVAL_DAYS=3
 
-# Disable auto-updates
-crontab -e
-# Comment out the auto_update.sh line
+# Force update check regardless of interval
+update-container-tools --force
 ```
 
 ## Environment Variables
@@ -275,7 +178,7 @@ The following environment variables are automatically configured:
 |----------|-------------|--------|
 | `OPENAI_API_KEY` | OpenAI API key | configure-tools |
 | `GEMINI_API_KEY` | Google Gemini API key | configure-tools |
-| `PATH` | Includes ~/.local/bin | .bashrc |
+| `PATH` | Includes ~/.local/bin and ~/.npm-global/bin | .bashrc |
 
 ## File Locations
 
@@ -285,7 +188,7 @@ The following environment variables are automatically configured:
 | API keys | `/home/$USER/.config/{tool}/` | Secure key storage |
 | Installation marker | `/home/$USER/.cli_tools_installed` | Installation status |
 | Version tracking | `/home/$USER/.cli_tools_versions` | Installed versions |
-| Update logs | `/home/$USER/.cli_tools_update.log` | Update history |
+| Update logs | `/workspace/.ai-docker-cli/logs/update.log` | Update history |
 
 ## Troubleshooting
 
@@ -323,12 +226,12 @@ If updates fail:
 
 1. Check logs:
    ```bash
-   cat ~/.cli_tools_update.log
+   cat /workspace/.ai-docker-cli/logs/update.log
    ```
 
 2. Manual update:
    ```bash
-   update-tools --force
+   update-container-tools --force
    ```
 
 ### Network Issues
@@ -358,15 +261,13 @@ For tools requiring internet:
    - Review update logs periodically
 
 3. **Tool Selection:**
-   - Use the right tool for the task
-   - Claude for complex coding tasks
-   - Shell-GPT for quick commands
-   - Aider for iterative development
+   - Use Claude for complex coding tasks
+   - Use Codex for quick code generation
+   - Use Gemini for general AI queries
 
 4. **Resource Management:**
    - Monitor API usage
    - Set rate limits where possible
-   - Use local models when appropriate
 
 ## Advanced Usage
 
@@ -376,11 +277,8 @@ For tools requiring internet:
 # Use GitHub CLI with Claude
 gh issue list | claude "Summarize these issues"
 
-# Use jq with API responses
-aws bedrock list-models | jq '.models[].name'
-
-# Pipe through multiple tools
-fd "*.py" | xargs rg "TODO" | claude "Create tasks from these TODOs"
+# Pipe commands through AI tools
+cat error.log | claude "Analyze these errors and suggest fixes"
 ```
 
 ### Custom Aliases
@@ -389,23 +287,8 @@ Add to your `.bashrc`:
 
 ```bash
 # Quick AI commands
-alias ai-commit="sgpt 'Write a git commit message for these changes' && git diff"
-alias ai-explain="claude 'Explain this code:' && cat"
-alias ai-review="aider --read-only"
-```
-
-### Scripting with AI Tools
-
-```bash
-#!/bin/bash
-# AI-assisted script example
-
-# Get AI help for command
-CMD=$(sgpt --code "Command to find large files")
-eval $CMD
-
-# Process with Claude
-claude "Analyze these results and suggest cleanup"
+alias ai-commit="claude 'Write a git commit message for these changes:' && git diff"
+alias ai-explain="claude 'Explain this code:'"
 ```
 
 ## Support and Resources
@@ -419,16 +302,11 @@ claude "Analyze these results and suggest cleanup"
 To check installed versions:
 
 ```bash
-# All versions
-cat ~/.cli_tools_versions
-
 # Individual tools
 claude --version
 gh --version
-sgpt --version
-aws --version
-az --version
-gcloud --version
+codex --version
+gemini --version
 ```
 
 ## Security Notes
@@ -440,5 +318,5 @@ gcloud --version
 
 ---
 
-*Last Updated: November 2024*
-*AI Docker CLI Manager v2.0*
+*Last Updated: February 2026*
+*AI Docker CLI Manager v2.1*
