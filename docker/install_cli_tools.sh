@@ -299,7 +299,10 @@ install_cli_tools() {
     update_install_status "GitHub CLI" "apt"
     if ! command_exists gh; then
         print_status "Installing GitHub CLI..."
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        # Download GPG key to temp file first to avoid curl-pipe-shell risk
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-keyring.gpg
+        sudo cp /tmp/githubcli-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg
+        rm -f /tmp/githubcli-keyring.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
         sudo apt-get update -qq
         sudo apt-get install gh -y -qq
@@ -371,7 +374,8 @@ install_cli_tools() {
     # Install native version if needed
     if [ "$needs_install" = true ]; then
         print_status "Installing Claude Code CLI via native installer..."
-        if curl -fsSL https://claude.ai/install.sh | bash; then
+        # Download installer first to avoid curl-pipe-shell risk
+        if curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && bash /tmp/claude-install.sh; then
             # Ensure claude is in PATH for this session
             export PATH="${HOME}/.local/bin:${PATH}"
             print_success "Claude Code CLI installed successfully via native installer"
@@ -389,6 +393,7 @@ install_cli_tools() {
         else
             print_warning "Claude Code CLI installation failed - continuing with other tools"
         fi
+        rm -f /tmp/claude-install.sh
     fi
 
     # 3. Install Google Gemini CLI (official)
