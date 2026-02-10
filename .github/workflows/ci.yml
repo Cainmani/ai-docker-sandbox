@@ -117,13 +117,18 @@ jobs:
           check_pip() {
             local pkg="$1"
             local pinned="$2"
-            local latest
-            latest=$(pip3 index versions "$pkg" 2>/dev/null | grep -oP 'LATEST:\s+\K[0-9.]+' || echo "unknown")
-            if [ "$latest" = "unknown" ]; then
-              # Fallback: try pip install with impossible version to get available versions
-              latest=$(pip3 install "${pkg}==0.0.0.0.0" 2>&1 | grep -oP '\(from versions: .*\)' | grep -oP '[0-9.]+' | tail -1 || echo "unknown")
+            local latest="unknown"
+            # Try pip index versions (format varies by pip version)
+            local pip_output
+            pip_output=$(pip3 index versions "$pkg" 2>/dev/null || true)
+            if [ -n "$pip_output" ]; then
+              latest=$(echo "$pip_output" | grep -iE 'LATEST|Available' | grep -oE '[0-9]+\.[0-9]+[0-9.]*' | head -1 || true)
             fi
-            if [ "$latest" = "unknown" ]; then
+            # Fallback: use pip install with invalid version to extract latest from error
+            if [ -z "$latest" ] || [ "$latest" = "unknown" ]; then
+              latest=$(pip3 install "${pkg}==0.0.0invalid" 2>&1 | grep -oE '[0-9]+\.[0-9]+[0-9.]*' | tail -1 || echo "unknown")
+            fi
+            if [ -z "$latest" ] || [ "$latest" = "unknown" ]; then
               echo "⚠ $pkg: could not query registry (pinned: $pinned)"
             elif [ "$pinned" = "$latest" ]; then
               echo "✓ $pkg (pip): $pinned (up to date)"
