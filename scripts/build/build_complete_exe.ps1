@@ -33,6 +33,7 @@ $filesToEmbed = @(
    "..\..\docker\add_ssh_key.sh",
    "..\..\docker\setup_remote_connection.sh",
    "..\..\docker\tmux.conf",
+   "..\..\docker\fail2ban-jail.local",
    "..\..\docker\lib\logging.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",

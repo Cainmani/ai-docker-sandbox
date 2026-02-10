@@ -5,6 +5,25 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-02-02
+
+### Added
+- **fail2ban SSH protection**: Automatically protects SSH from brute force attacks when mobile access is enabled (closes #35)
+  - Bans IPs after 5 failed login attempts for 10 minutes
+  - Integrated into `setup_mobile_access.sh` - no manual configuration needed
+  - Check status with `fail2ban-client status sshd`
+
+### Fixed
+- **Segmentation fault in `update-container-tools`**: Fixed infinite recursion caused by function name collision between `log_message()` in auto_update.sh and the logging library. Renamed to `update_log()` to avoid conflict
+- **Update script checking for non-installed tools**: Removed references to azure-cli, google-cloud-sdk, bat, ripgrep, fd-find, fzf, httpie, jq, aws-cli, and codeium from apt update checks - these tools are not installed in the container
+- **Configure-tools showing non-installed tools**: Removed AWS CLI, Azure CLI, Google Cloud CLI, and Codeium from the configuration wizard menu since they are not installed
+
+### Changed
+- Updated `docs/CLI_TOOLS_GUIDE.md` to accurately reflect installed tools (Claude, GitHub CLI, OpenAI Codex, OpenAI SDK, Gemini, Vibe Kanban)
+- Updated `README.md` to list only actually installed AI CLI tools
+- Simplified apt update command to only check `gh` package (the only apt-installed CLI tool)
+- Updated `docs/REMOTE_ACCESS.md` with fail2ban security documentation
+
 ## [1.2.1] - 2026-01-27
 
 ### Fixed

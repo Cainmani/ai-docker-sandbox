@@ -47,7 +47,7 @@ NC='\033[0m' # No Color
 
 # Function to log with timestamp
 # Uses the shared logging library if available, otherwise falls back to simple logging
-log_message() {
+update_log() {
     local msg="$1"
     if [ "$LOGGING_LIBRARY_AVAILABLE" = "1" ]; then
         # Use the shared logging library
@@ -80,14 +80,14 @@ should_update() {
 check_updates() {
     local updates_available=0
 
-    log_message "${BLUE}[INFO]${NC} Checking for available updates..."
+    update_log "${BLUE}[INFO]${NC} Checking for available updates..."
 
     # Check ALL global npm packages for updates (dynamic, not hardcoded)
     npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 || true)
     if [ ! -z "$npm_outdated" ]; then
-        log_message "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
+        update_log "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
         echo "$npm_outdated" | while read line; do
-            log_message "  - $line"
+            update_log "  - $line"
         done
         updates_available=1
     fi
@@ -95,20 +95,20 @@ check_updates() {
     # Check ALL user pip packages for updates (dynamic, not hardcoded)
     pip_outdated=$(pip3 list --user --outdated 2>/dev/null | tail -n +3 || true)
     if [ ! -z "$pip_outdated" ]; then
-        log_message "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
+        update_log "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
         echo "$pip_outdated" | while read line; do
-            log_message "  - $line"
+            update_log "  - $line"
         done
         updates_available=1
     fi
 
-    # Check apt updates for known CLI tools
+    # Check apt updates for installed CLI tools (only gh is installed via apt)
     sudo apt-get update -qq
-    apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "gh|azure-cli|google-cloud-sdk|bat|ripgrep|fd-find|fzf|httpie|jq" || true)
+    apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "^gh/" || true)
     if [ ! -z "$apt_updates" ]; then
-        log_message "${YELLOW}[UPDATE]${NC} System packages have updates available:"
+        update_log "${YELLOW}[UPDATE]${NC} System packages have updates available:"
         echo "$apt_updates" | while read line; do
-            log_message "  - $line"
+            update_log "  - $line"
         done
         updates_available=1
     fi
@@ -118,87 +118,65 @@ check_updates() {
 
 # Function to apply updates
 apply_updates() {
-    log_message "${BLUE}[INFO]${NC} Applying updates to container CLI tools..."
-    log_message ""
-    log_message "${YELLOW}NOTE:${NC} This updates tools INSIDE the Docker container only."
-    log_message "      To update the AI Docker Manager launcher app, download from:"
-    log_message "      https://github.com/Cainmani/ai-docker-cli-setup/releases/latest"
-    log_message ""
+    update_log "${BLUE}[INFO]${NC} Applying updates to container CLI tools..."
+    update_log ""
+    update_log "${YELLOW}NOTE:${NC} This updates tools INSIDE the Docker container only."
+    update_log "      To update the AI Docker Manager launcher app, download from:"
+    update_log "      https://github.com/Cainmani/ai-docker-cli-setup/releases/latest"
+    update_log ""
 
     # Note: Claude Code uses native installer and auto-updates in the background
     # No manual update needed - just log current version for visibility
     if command -v claude >/dev/null 2>&1; then
         claude_version=$(claude --version 2>/dev/null | head -n1 || echo "unknown")
-        log_message "Claude Code: $claude_version (auto-updates in background)"
+        update_log "Claude Code: $claude_version (auto-updates in background)"
     fi
 
     # Update ALL global npm packages (dynamic)
     # Note: Claude Code is no longer installed via npm (uses native installer)
-    log_message "Updating npm packages..."
+    update_log "Updating npm packages..."
     npm_output=$(npm update -g 2>&1)
     npm_exit_code=$?
     if [ $npm_exit_code -eq 0 ]; then
-        echo "$npm_output" | grep -E "added|updated|changed" | while read line; do log_message "  $line"; done
+        echo "$npm_output" | grep -E "added|updated|changed" | while read line; do update_log "  $line"; done
         if ! echo "$npm_output" | grep -qE "added|updated|changed"; then
-            log_message "  No npm updates applied"
+            update_log "  No npm updates applied"
         fi
     else
-        log_message "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
-        echo "$npm_output" | while read line; do log_message "  $line"; done
+        update_log "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
+        echo "$npm_output" | while read line; do update_log "  $line"; done
     fi
 
     # Update ALL user pip packages (dynamic)
-    log_message "Updating Python packages..."
+    update_log "Updating Python packages..."
     outdated_packages=$(pip3 list --user --outdated --format=freeze 2>/dev/null | cut -d= -f1 || true)
     if [ ! -z "$outdated_packages" ]; then
         pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade 2>&1)
         pip_exit_code=$?
         if [ $pip_exit_code -eq 0 ]; then
-            echo "$pip_output" | grep -E "Successfully installed" | while read line; do log_message "  ${GREEN}$line${NC}"; done
+            echo "$pip_output" | grep -E "Successfully installed" | while read line; do update_log "  ${GREEN}$line${NC}"; done
         else
-            log_message "${RED}[ERROR]${NC} Some pip packages failed to update (exit code: $pip_exit_code)"
+            update_log "${RED}[ERROR]${NC} Some pip packages failed to update (exit code: $pip_exit_code)"
             # Log both successes and failures for visibility
-            echo "$pip_output" | grep -E "Successfully installed" | while read line; do log_message "  ${GREEN}$line${NC}"; done
-            echo "$pip_output" | grep -iE "error|failed|could not" | while read line; do log_message "  ${RED}$line${NC}"; done
+            echo "$pip_output" | grep -E "Successfully installed" | while read line; do update_log "  ${GREEN}$line${NC}"; done
+            echo "$pip_output" | grep -iE "error|failed|could not" | while read line; do update_log "  ${RED}$line${NC}"; done
         fi
     else
-        log_message "  All Python packages are up to date"
+        update_log "  All Python packages are up to date"
     fi
 
-    # Update apt packages (keeping specific list for safety)
-    log_message "Updating system packages..."
-    apt_output=$(sudo apt-get upgrade -y -qq gh azure-cli google-cloud-sdk bat ripgrep fd-find fzf httpie jq 2>&1)
+    # Update apt packages (only gh is installed via apt in this container)
+    update_log "Updating system packages..."
+    apt_output=$(sudo apt-get upgrade -y -qq gh 2>&1)
     apt_exit_code=$?
     if [ $apt_exit_code -eq 0 ]; then
-        echo "$apt_output" | grep -E "upgraded|newly installed" | while read line; do log_message "  $line"; done
+        echo "$apt_output" | grep -E "upgraded|newly installed" | while read line; do update_log "  $line"; done
     else
-        log_message "${RED}[ERROR]${NC} apt upgrade failed (exit code: $apt_exit_code)"
-        echo "$apt_output" | while read line; do log_message "  $line"; done
+        update_log "${RED}[ERROR]${NC} apt upgrade failed (exit code: $apt_exit_code)"
+        echo "$apt_output" | while read line; do update_log "  $line"; done
     fi
 
-    # Update AWS CLI if installed
-    if command -v aws >/dev/null 2>&1; then
-        log_message "Updating AWS CLI..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip" --silent
-        unzip -q -o /tmp/awscliv2.zip -d /tmp/
-        sudo /tmp/aws/install --update 2>&1 | grep -E "updated|installed" | \
-            while read line; do log_message "  $line"; done
-        rm -rf /tmp/awscliv2.zip /tmp/aws/
-    fi
-
-    # Update Codeium if installed
-    if command -v codeium >/dev/null 2>&1; then
-        log_message "Updating Codeium..."
-        current_version=$(codeium --version 2>/dev/null || echo "unknown")
-        curl -Ls https://github.com/Exafunction/codeium/releases/latest/download/codeium_linux_x64.tar.gz | \
-            sudo tar -xz -C /usr/local/bin/ 2>/dev/null
-        new_version=$(codeium --version 2>/dev/null || echo "unknown")
-        if [ "$current_version" != "$new_version" ]; then
-            log_message "  Codeium updated from $current_version to $new_version"
-        fi
-    fi
-
-    log_message "${GREEN}[SUCCESS]${NC} Updates completed successfully"
+    update_log "${GREEN}[SUCCESS]${NC} Updates completed successfully"
 }
 
 # Function to run update check and apply if needed
@@ -208,15 +186,15 @@ run_auto_update() {
     # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
     chown $(whoami):$(whoami) "$LOG_FILE"
 
-    log_message "=========================================="
-    log_message "${BLUE}[INFO]${NC} Starting auto-update check"
+    update_log "=========================================="
+    update_log "${BLUE}[INFO]${NC} Starting auto-update check"
 
     # Check if we should run update based on interval
     if ! should_update && [ "$1" != "--force" ]; then
         last_check_date=$(date -r "$UPDATE_CHECK_FILE" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "never")
-        log_message "${BLUE}[INFO]${NC} Skipping update check (last check: $last_check_date)"
-        log_message "  Next check in $((UPDATE_INTERVAL_DAYS - $(( ($(date +%s) - $(stat -c %Y "$UPDATE_CHECK_FILE")) / 86400 )))) days"
-        log_message "  Use --force to check now"
+        update_log "${BLUE}[INFO]${NC} Skipping update check (last check: $last_check_date)"
+        update_log "  Next check in $((UPDATE_INTERVAL_DAYS - $(( ($(date +%s) - $(stat -c %Y "$UPDATE_CHECK_FILE")) / 86400 )))) days"
+        update_log "  Use --force to check now"
         return 0
     fi
 
@@ -224,7 +202,7 @@ run_auto_update() {
     if check_updates || [ "$1" == "--force" ]; then
         apply_updates
     else
-        log_message "${GREEN}[INFO]${NC} All tools are up to date"
+        update_log "${GREEN}[INFO]${NC} All tools are up to date"
     fi
 
     # Update the check timestamp
@@ -232,8 +210,8 @@ run_auto_update() {
     # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
     chown $(whoami):$(whoami) "$UPDATE_CHECK_FILE"
 
-    log_message "${BLUE}[INFO]${NC} Auto-update check completed"
-    log_message "=========================================="
+    update_log "${BLUE}[INFO]${NC} Auto-update check completed"
+    update_log "=========================================="
 }
 
 # Setup cron job for auto-updates if requested
@@ -242,13 +220,13 @@ setup_cron() {
 
     # Check if cron job already exists
     if crontab -l 2>/dev/null | grep -q "auto_update.sh"; then
-        log_message "${YELLOW}[WARNING]${NC} Cron job already exists"
+        update_log "${YELLOW}[WARNING]${NC} Cron job already exists"
         return 1
     fi
 
     # Add cron job
     (crontab -l 2>/dev/null; echo "$cron_schedule /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
-    log_message "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
+    update_log "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
 }
 
 # Parse command line arguments
