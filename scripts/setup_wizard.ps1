@@ -1096,7 +1096,21 @@ $btnNext.Add_Click({
 
                 if ([string]::IsNullOrWhiteSpace($script:tbUser.Text) -or [string]::IsNullOrWhiteSpace($script:tbPass.Text) -or [string]::IsNullOrWhiteSpace($script:tbPassConfirm.Text)) {
                     Write-Host "[ERROR] Validation failed - empty fields" -ForegroundColor Red
-                    Show-Error 'Please enter username, password, and confirm password'
+                    Show-Error 'Please enter username, password, and confirm password.'
+                    return
+                }
+
+                # Validate username follows Linux naming rules (1-32 chars, lowercase alphanumeric + underscore/hyphen, must start with letter)
+                if ($script:tbUser.Text -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
+                    Write-Host "[ERROR] Invalid username format" -ForegroundColor Red
+                    Show-Error 'Username must be 1-32 characters, start with a lowercase letter or underscore, and contain only lowercase letters, digits, underscores, or hyphens.'
+                    return
+                }
+
+                # Validate password minimum length
+                if ($script:tbPass.Text.Length -lt 4) {
+                    Write-Host "[ERROR] Password too short" -ForegroundColor Red
+                    Show-Error 'Password must be at least 4 characters long.'
                     return
                 }
 

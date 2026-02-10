@@ -236,6 +236,13 @@ if (-not $userName) {
     ShowMsg "Configuration error: .env file is missing or invalid.`n`nPlease run 'First Time Setup' again to fix this." 'Error'
     exit 1
 }
+
+# Validate username format to prevent command injection
+if ($userName -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
+    Write-AppLog "ERROR: Invalid username format in .env: [$userName]" "ERROR"
+    ShowMsg "Configuration error: invalid username '$userName' in .env file.`n`nPlease run 'First Time Setup' again." 'Error'
+    exit 1
+}
 Write-AppLog "Final username: [$userName]" "INFO"
 
 # Build the docker exec command - connect as the user and start at /workspace
