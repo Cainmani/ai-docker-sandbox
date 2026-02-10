@@ -6,6 +6,8 @@
 
 # Note: We do NOT use "set -e" here because we want to continue installing other tools
 # even if one tool fails. The marker file will be created regardless to prevent infinite loops.
+# We DO use set -uo pipefail to catch undefined variables and pipe failures.
+set -uo pipefail
 
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
@@ -299,7 +301,10 @@ install_cli_tools() {
     update_install_status "GitHub CLI" "apt"
     if ! command_exists gh; then
         print_status "Installing GitHub CLI..."
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        # Download GPG key to temp file first to avoid curl-pipe-shell risk
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-keyring.gpg
+        sudo cp /tmp/githubcli-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg
+        rm -f /tmp/githubcli-keyring.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
         sudo apt-get update -qq
         sudo apt-get install gh -y -qq
@@ -371,7 +376,8 @@ install_cli_tools() {
     # Install native version if needed
     if [ "$needs_install" = true ]; then
         print_status "Installing Claude Code CLI via native installer..."
-        if curl -fsSL https://claude.ai/install.sh | bash; then
+        # Download installer first to avoid curl-pipe-shell risk
+        if curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && bash /tmp/claude-install.sh; then
             # Ensure claude is in PATH for this session
             export PATH="${HOME}/.local/bin:${PATH}"
             print_success "Claude Code CLI installed successfully via native installer"
@@ -389,6 +395,7 @@ install_cli_tools() {
         else
             print_warning "Claude Code CLI installation failed - continuing with other tools"
         fi
+        rm -f /tmp/claude-install.sh
     fi
 
     # 3. Install Google Gemini CLI (official)
@@ -396,7 +403,7 @@ install_cli_tools() {
     print_status "Installing Google Gemini CLI..."
     if npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Found @google/gemini-cli in npm registry"
-        if npm_install_with_retry "@google/gemini-cli@latest" "/tmp/gemini_install.log"; then
+        if npm_install_with_retry "@google/gemini-cli@0.27.3" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
             # Try community version as fallback
@@ -431,7 +438,7 @@ install_cli_tools() {
     # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
     # which uses PEP 668 to prevent accidental system package modifications on host systems.
     if ! pip3 show openai >/dev/null 2>&1; then
-        if pip_install_with_retry "openai" "--break-system-packages"; then
+        if pip_install_with_retry "openai==2.18.0" "--break-system-packages"; then
             print_success "OpenAI Python SDK installed"
         else
             print_warning "Failed to install OpenAI Python SDK"
@@ -446,7 +453,7 @@ install_cli_tools() {
     update_install_status "OpenAI Codex CLI" "npm"
     print_status "Installing OpenAI Codex CLI..."
     if npm view @openai/codex version >/dev/null 2>&1; then
-        if npm_install_with_retry "@openai/codex@latest" "/tmp/codex_install.log"; then
+        if npm_install_with_retry "@openai/codex@0.98.0" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -461,7 +468,7 @@ install_cli_tools() {
 
     # 5. Install Vibe Kanban (AI agent orchestration tool)
     update_install_status "Vibe Kanban" "npm"
-    if npm_install_with_retry "vibe-kanban@latest" "/tmp/vibe_kanban_install.log"; then
+    if npm_install_with_retry "vibe-kanban@0.1.7" "/tmp/vibe_kanban_install.log"; then
         print_success "Vibe Kanban installed successfully"
         # Create .vibe-kanban directory for data persistence
         mkdir -p "${HOME}/.vibe-kanban"
@@ -528,23 +535,14 @@ update_cli_tools() {
     print_status "Updating npm packages..."
     npm update -g --silent
 
-    # Update pip packages
+    # Update pip packages (only currently installed tools)
     print_status "Updating Python packages..."
-    pip3 install --user --upgrade openai shell-gpt aider-chat gemini-cli --quiet
+    pip3 install --user --upgrade openai==2.18.0 --quiet || true
 
     # Update GitHub CLI
     if command_exists gh; then
         print_status "Updating GitHub CLI..."
         sudo apt-get install --only-upgrade gh -y -qq
-    fi
-
-    # Update AWS CLI
-    if command_exists aws; then
-        print_status "Checking AWS CLI updates..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" --silent
-        unzip -q -o awscliv2.zip
-        sudo ./aws/install --update
-        rm -rf awscliv2.zip aws/
     fi
 
     # Save updated versions

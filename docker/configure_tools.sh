@@ -2,6 +2,8 @@
 
 # CLI Tools Configuration Helper
 # This script helps users configure and sign into various AI CLI tools
+# Note: set -e is omitted so users can skip/cancel individual tool configs.
+set -uo pipefail
 
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
@@ -101,32 +103,12 @@ is_configured() {
             fi
             ;;
         openai)
-            if [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
+            if [ -n "${OPENAI_API_KEY:-}" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
                 return 0
             fi
             ;;
         gemini)
-            if [ ! -z "$GEMINI_API_KEY" ] || [ -f "${HOME}/.config/gemini/api_key" ]; then
-                return 0
-            fi
-            ;;
-        aws)
-            if [ -f "${HOME}/.aws/credentials" ]; then
-                return 0
-            fi
-            ;;
-        azure)
-            if az account show >/dev/null 2>&1; then
-                return 0
-            fi
-            ;;
-        gcloud)
-            if gcloud auth list 2>/dev/null | grep -q ACTIVE; then
-                return 0
-            fi
-            ;;
-        codeium)
-            if [ -f "${HOME}/.codeium/config.json" ]; then
+            if [ -n "${GEMINI_API_KEY:-}" ] || [ -f "${HOME}/.config/gemini/api_key" ]; then
                 return 0
             fi
             ;;
@@ -134,7 +116,7 @@ is_configured() {
             # Codex can use OAuth (auth.json) for subscription, or OPENAI_API_KEY for API credits
             if [ -f "${HOME}/.codex/auth.json" ]; then
                 return 0  # Subscription auth (preferred)
-            elif [ ! -z "$OPENAI_API_KEY" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
+            elif [ -n "${OPENAI_API_KEY:-}" ] || [ -f "${HOME}/.config/openai/api_key" ]; then
                 return 0  # API key fallback
             fi
             ;;
@@ -306,134 +288,6 @@ configure_gemini() {
         config_log "INFO" "Gemini CLI: authentication started"
         "$gemini_cmd"
         config_log "INFO" "Gemini CLI: authentication completed"
-    fi
-}
-
-# Function to configure AWS CLI
-configure_aws() {
-    print_header "Configure AWS CLI"
-    config_log "INFO" "User initiated AWS CLI configuration"
-
-    if is_configured aws; then
-        print_success "AWS CLI is already configured"
-        config_log "INFO" "AWS CLI: already configured"
-        aws configure list
-        echo ""
-        read -rp "Press Enter to continue..." _
-    else
-        print_status "AWS CLI requires credentials"
-        echo ""
-        echo "You'll need:"
-        echo "- AWS Access Key ID"
-        echo "- AWS Secret Access Key"
-        echo "- Default region (e.g., us-east-1)"
-        echo ""
-        read -rp "Press Enter to configure AWS CLI, or Ctrl+C to skip..."
-        config_log "INFO" "AWS CLI: configuration started"
-        aws configure
-        config_log "INFO" "AWS CLI: credentials configured"
-    fi
-}
-
-# Function to configure Azure CLI
-configure_azure() {
-    print_header "Configure Azure CLI"
-    config_log "INFO" "User initiated Azure CLI configuration"
-
-    if is_configured azure; then
-        print_success "Azure CLI is already authenticated"
-        config_log "INFO" "Azure CLI: already authenticated"
-        az account show
-        echo ""
-        read -rp "Press Enter to continue..." _
-    else
-        print_status "Azure CLI requires authentication"
-        echo ""
-        echo "Choose authentication method:"
-        echo "1. Web browser (recommended)"
-        echo "2. Device code"
-        echo "3. Service principal"
-        echo ""
-        read -rp "Press Enter to configure Azure now, or Ctrl+C to skip..."
-        echo ""
-        read -rp "Select option (1, 2, or 3): " auth_method
-
-        case "$auth_method" in
-            1)
-                config_log "INFO" "Azure CLI: web browser authentication started"
-                az login
-                config_log "INFO" "Azure CLI: authentication completed"
-                ;;
-            2)
-                config_log "INFO" "Azure CLI: device code authentication started"
-                az login --use-device-code
-                config_log "INFO" "Azure CLI: authentication completed"
-                ;;
-            3)
-                echo "You'll need: tenant ID, app ID, and password/certificate"
-                read -rp "Press Enter to continue..." _
-                config_log "INFO" "Azure CLI: service principal authentication started"
-                az login --service-principal
-                config_log "INFO" "Azure CLI: authentication completed"
-                ;;
-            *)
-                print_warning "Invalid option, skipping Azure CLI configuration"
-                config_log "WARN" "Azure CLI: configuration skipped (invalid option)"
-                ;;
-        esac
-    fi
-}
-
-# Function to configure Google Cloud CLI
-configure_gcloud() {
-    print_header "Configure Google Cloud CLI"
-    config_log "INFO" "User initiated Google Cloud CLI configuration"
-
-    if is_configured gcloud; then
-        print_success "Google Cloud CLI is already authenticated"
-        config_log "INFO" "Google Cloud CLI: already authenticated"
-        gcloud auth list
-        echo ""
-        read -rp "Press Enter to continue..." _
-    else
-        print_status "Google Cloud CLI requires authentication"
-        echo ""
-        read -rp "Press Enter to authenticate with Google Cloud, or Ctrl+C to skip..."
-        config_log "INFO" "Google Cloud CLI: authentication started"
-        gcloud auth login
-        config_log "INFO" "Google Cloud CLI: authentication completed"
-        # Set default project if available
-        local project_id
-        project_id="$(gcloud projects list --limit=1 --format='value(projectId)' 2>/dev/null)"
-        if [ -n "$project_id" ]; then
-            gcloud config set project "$project_id"
-            config_log "INFO" "Google Cloud CLI: default project set"
-        else
-            print_warning "No GCP projects found. Set a project manually with: gcloud config set project PROJECT_ID"
-            config_log "WARN" "Google Cloud CLI: no projects found, skipped default project"
-        fi
-    fi
-}
-
-# Function to configure Codeium
-configure_codeium() {
-    print_header "Configure Codeium"
-    config_log "INFO" "User initiated Codeium configuration"
-
-    if is_configured codeium; then
-        print_success "Codeium is already configured"
-        config_log "INFO" "Codeium: already configured"
-        echo ""
-        read -rp "Press Enter to continue..." _
-    else
-        print_status "Codeium requires authentication"
-        echo ""
-        echo "You'll be prompted to sign in with your Codeium account."
-        echo ""
-        read -rp "Press Enter to configure Codeium now, or Ctrl+C to skip..."
-        config_log "INFO" "Codeium: authentication started"
-        codeium auth
-        config_log "INFO" "Codeium: authentication completed"
     fi
 }
 
