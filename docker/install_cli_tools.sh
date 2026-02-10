@@ -6,6 +6,8 @@
 
 # Note: We do NOT use "set -e" here because we want to continue installing other tools
 # even if one tool fails. The marker file will be created regardless to prevent infinite loops.
+# We DO use set -uo pipefail to catch undefined variables and pipe failures.
+set -uo pipefail
 
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
@@ -533,23 +535,14 @@ update_cli_tools() {
     print_status "Updating npm packages..."
     npm update -g --silent
 
-    # Update pip packages
+    # Update pip packages (only currently installed tools)
     print_status "Updating Python packages..."
-    pip3 install --user --upgrade openai shell-gpt aider-chat gemini-cli --quiet
+    pip3 install --user --upgrade openai --quiet || true
 
     # Update GitHub CLI
     if command_exists gh; then
         print_status "Updating GitHub CLI..."
         sudo apt-get install --only-upgrade gh -y -qq
-    fi
-
-    # Update AWS CLI
-    if command_exists aws; then
-        print_status "Checking AWS CLI updates..."
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" --silent
-        unzip -q -o awscliv2.zip
-        sudo ./aws/install --update
-        rm -rf awscliv2.zip aws/
     fi
 
     # Save updated versions

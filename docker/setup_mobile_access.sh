@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # setup_mobile_access.sh - Configure SSH, Mosh, and tmux for mobile access
 # Only runs when ENABLE_MOBILE_ACCESS=1
+set -uo pipefail
 
 # Source logging library (if available)
 if [ -f "/usr/local/lib/logging.sh" ]; then
