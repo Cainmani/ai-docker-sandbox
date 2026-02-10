@@ -209,6 +209,11 @@ function Repair-NpmInstallation {
 
 $script:runningProcess = $null
 
+# ============================================================
+# WSL CONFIGURATION FUNCTIONS (loaded from wsl_config.ps1)
+# ============================================================
+. "$PSScriptRoot\wsl_config.ps1"
+
 function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $statusLabel, [string]$workingDirectory = '') {
     try {
         # Log command to console with proper variable expansion
@@ -545,6 +550,12 @@ $state = [ordered]@{
     Password = ''
     ParentPath = ''
     WorkspacePath = ''
+    WSLProfile = ''          # 'light', 'standard', 'heavy', 'skip', or 'keep'
+    SystemRAMGB = 0          # Detected RAM
+    SystemCores = 0          # Detected cores
+    RecommendedProfile = ''  # Recommended profile based on system resources
+    ExistingWSLConfig = $null   # Parsed existing config (if any)
+    WSLComparisonMode = $false  # True when showing comparison view
 }
 
 # .env file path - defined early for use throughout the script
@@ -875,15 +886,206 @@ $btnRetryDock.Add_Click({
     }
 })
 
-# Page 4: Build/Up
-$p4 = New-PanelPage
-$p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p4.Controls.Add((New-Label -text 'BUILDING AND DEPLOYING CONTAINER' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p4.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+# Page 4: System Optimization (WSL Configuration)
+$p4_wsl = New-PanelPage
+$p4_wsl.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p4_wsl.Controls.Add((New-Label -text 'SYSTEM OPTIMIZATION' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p4_wsl.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+
+# System detection display (populated dynamically when page is shown)
+$script:lblDetectedHeader = New-Label 'Detected System:' 20 80 880 24 10 $true $false
+$p4_wsl.Controls.Add($script:lblDetectedHeader)
+$script:lblDetectedRAM = New-Label '  >> RAM:        Detecting...' 20 105 880 24 10 $false $false
+$script:lblDetectedCPU = New-Label '  >> CPU Cores:  Detecting...' 20 130 880 24 10 $false $false
+$p4_wsl.Controls.Add($script:lblDetectedRAM)
+$p4_wsl.Controls.Add($script:lblDetectedCPU)
+
+# Recommendation label (populated dynamically)
+$script:lblRecommendation = New-Label 'Based on your hardware, we recommend the STANDARD profile.' 20 165 880 24 10 $true $false
+$p4_wsl.Controls.Add($script:lblRecommendation)
+
+# Profile selection section
+$script:lblSelectProfile = New-Label 'Select a profile:' 20 200 880 24 10 $true $false
+$p4_wsl.Controls.Add($script:lblSelectProfile)
+
+# Radio buttons for profile selection
+$script:rbLight = New-Object System.Windows.Forms.RadioButton
+$script:rbLight.Text = "Light        3 GB RAM, 2 GB swap, 2 cores"
+$script:rbLight.Left = 40
+$script:rbLight.Top = 230
+$script:rbLight.Width = 400
+$script:rbLight.Height = 24
+$script:rbLight.ForeColor = $script:MatrixGreen
+$script:rbLight.BackColor = [System.Drawing.Color]::Transparent
+$script:rbLight.Font = New-Object System.Drawing.Font('Consolas', 10)
+$p4_wsl.Controls.Add($script:rbLight)
+
+$script:lblLightDesc = New-Label '                 For systems up to 10 GB RAM. Basic Docker operations, single containers.' 40 254 800 20 9 $false $false
+$script:lblLightDesc.ForeColor = $script:MatrixAccent
+$p4_wsl.Controls.Add($script:lblLightDesc)
+
+$script:rbStandard = New-Object System.Windows.Forms.RadioButton
+$script:rbStandard.Text = "Standard     6 GB RAM, 4 GB swap, 4 cores"
+$script:rbStandard.Left = 40
+$script:rbStandard.Top = 285
+$script:rbStandard.Width = 400
+$script:rbStandard.Height = 24
+$script:rbStandard.ForeColor = $script:MatrixGreen
+$script:rbStandard.BackColor = [System.Drawing.Color]::Transparent
+$script:rbStandard.Font = New-Object System.Drawing.Font('Consolas', 10)
+$script:rbStandard.Checked = $true  # Default selection
+$p4_wsl.Controls.Add($script:rbStandard)
+
+$script:lblStandardDesc = New-Label '                 For systems with 11-20 GB RAM. Multiple containers, moderate builds.' 40 309 800 20 9 $false $false
+$script:lblStandardDesc.ForeColor = $script:MatrixAccent
+$p4_wsl.Controls.Add($script:lblStandardDesc)
+
+$script:rbHeavy = New-Object System.Windows.Forms.RadioButton
+$script:rbHeavy.Text = "Heavy        12 GB RAM, 6 GB swap, 6 cores"
+$script:rbHeavy.Left = 40
+$script:rbHeavy.Top = 340
+$script:rbHeavy.Width = 400
+$script:rbHeavy.Height = 24
+$script:rbHeavy.ForeColor = $script:MatrixGreen
+$script:rbHeavy.BackColor = [System.Drawing.Color]::Transparent
+$script:rbHeavy.Font = New-Object System.Drawing.Font('Consolas', 10)
+$p4_wsl.Controls.Add($script:rbHeavy)
+
+$script:lblHeavyDesc = New-Label '                 For systems with 21+ GB RAM. Complex builds, heavy workloads.' 40 364 800 20 9 $false $false
+$script:lblHeavyDesc.ForeColor = $script:MatrixAccent
+$p4_wsl.Controls.Add($script:lblHeavyDesc)
+
+# Skip checkbox
+$script:chkSkipWSL = New-Object System.Windows.Forms.CheckBox
+$script:chkSkipWSL.Text = "Skip WSL configuration (I'll manage this manually)"
+$script:chkSkipWSL.Left = 40
+$script:chkSkipWSL.Top = 405
+$script:chkSkipWSL.Width = 450
+$script:chkSkipWSL.Height = 24
+$script:chkSkipWSL.ForeColor = $script:MatrixGreen
+$script:chkSkipWSL.BackColor = [System.Drawing.Color]::Transparent
+$script:chkSkipWSL.Font = New-Object System.Drawing.Font('Consolas', 10)
+$p4_wsl.Controls.Add($script:chkSkipWSL)
+
+# Information text (stored for visibility toggling)
+$script:lblWSLInfo1 = New-Label '' 20 440 880 24 10 $false $true
+$script:lblWSLInfo2 = New-Label 'This creates a .wslconfig file to prevent WSL from consuming all your RAM.' 20 460 880 24 9 $false $true
+$script:lblWSLInfo3 = New-Label 'Changes will apply after Docker Desktop restarts (happens automatically during setup).' 20 480 880 24 9 $false $true
+$p4_wsl.Controls.Add($script:lblWSLInfo1)
+$p4_wsl.Controls.Add($script:lblWSLInfo2)
+$p4_wsl.Controls.Add($script:lblWSLInfo3)
+
+# =============================================================================
+# COMPARISON MODE UI (shown when existing non-wizard .wslconfig is detected)
+# =============================================================================
+$script:pnlComparison = New-Object System.Windows.Forms.Panel
+$script:pnlComparison.Left = 20
+$script:pnlComparison.Top = 80
+$script:pnlComparison.Width = 880
+$script:pnlComparison.Height = 400
+$script:pnlComparison.BackColor = [System.Drawing.Color]::Transparent
+$script:pnlComparison.Visible = $false
+
+# Warning header
+$script:lblExistingHeader = New-Label 'EXISTING CONFIGURATION DETECTED' 0 0 880 24 10 $true $false
+$script:lblExistingHeader.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)  # Warning color
+$script:pnlComparison.Controls.Add($script:lblExistingHeader)
+
+$script:lblExistingSubtext = New-Label "We found a .wslconfig file that wasn't created by this wizard." 0 28 880 24 9 $false $false
+$script:pnlComparison.Controls.Add($script:lblExistingSubtext)
+
+# Comparison table headers
+$script:lblCompareYours = New-Label 'Your Current' 0 70 200 20 9 $true $false
+$script:lblCompareOurs = New-Label 'Our Recommendation' 250 70 250 20 9 $true $false
+$script:pnlComparison.Controls.Add($script:lblCompareYours)
+$script:pnlComparison.Controls.Add($script:lblCompareOurs)
+
+# Separator lines
+$script:lblCompareSep1 = New-Label '------------' 0 90 200 20 9 $false $false
+$script:lblCompareSep2 = New-Label '-------------------' 250 90 250 20 9 $false $false
+$script:pnlComparison.Controls.Add($script:lblCompareSep1)
+$script:pnlComparison.Controls.Add($script:lblCompareSep2)
+
+# Value comparison rows (populated dynamically)
+$script:lblYourMemory = New-Label 'memory = (not set)' 0 110 200 20 9 $false $false
+$script:lblOurMemory = New-Label 'memory = 6GB' 250 110 250 20 9 $false $false
+$script:pnlComparison.Controls.Add($script:lblYourMemory)
+$script:pnlComparison.Controls.Add($script:lblOurMemory)
+
+$script:lblYourSwap = New-Label 'swap = (not set)' 0 135 200 20 9 $false $false
+$script:lblOurSwap = New-Label 'swap = 4GB' 250 135 250 20 9 $false $false
+$script:pnlComparison.Controls.Add($script:lblYourSwap)
+$script:pnlComparison.Controls.Add($script:lblOurSwap)
+
+$script:lblYourProc = New-Label 'processors = (not set)' 0 160 200 20 9 $false $false
+$script:lblOurProc = New-Label 'processors = 4' 250 160 250 20 9 $false $false
+$script:pnlComparison.Controls.Add($script:lblYourProc)
+$script:pnlComparison.Controls.Add($script:lblOurProc)
+
+# Question label
+$script:lblCompareQuestion = New-Label 'What would you like to do?' 0 200 880 24 10 $true $false
+$script:pnlComparison.Controls.Add($script:lblCompareQuestion)
+
+# Radio buttons for comparison choice
+$script:rbKeepCurrent = New-Object System.Windows.Forms.RadioButton
+$script:rbKeepCurrent.Text = "Keep my current settings"
+$script:rbKeepCurrent.Left = 20
+$script:rbKeepCurrent.Top = 230
+$script:rbKeepCurrent.Width = 400
+$script:rbKeepCurrent.Height = 24
+$script:rbKeepCurrent.ForeColor = $script:MatrixGreen
+$script:rbKeepCurrent.BackColor = [System.Drawing.Color]::Transparent
+$script:rbKeepCurrent.Font = New-Object System.Drawing.Font('Consolas', 10)
+$script:rbKeepCurrent.Checked = $true  # Default to keeping user's config
+$script:pnlComparison.Controls.Add($script:rbKeepCurrent)
+
+$script:lblKeepDesc = New-Label '                         Your existing configuration will not be modified.' 20 254 800 20 9 $false $false
+$script:lblKeepDesc.ForeColor = $script:MatrixAccent
+$script:pnlComparison.Controls.Add($script:lblKeepDesc)
+
+$script:rbUseRecommended = New-Object System.Windows.Forms.RadioButton
+$script:rbUseRecommended.Text = "Use recommended settings"
+$script:rbUseRecommended.Left = 20
+$script:rbUseRecommended.Top = 285
+$script:rbUseRecommended.Width = 400
+$script:rbUseRecommended.Height = 24
+$script:rbUseRecommended.ForeColor = $script:MatrixGreen
+$script:rbUseRecommended.BackColor = [System.Drawing.Color]::Transparent
+$script:rbUseRecommended.Font = New-Object System.Drawing.Font('Consolas', 10)
+$script:pnlComparison.Controls.Add($script:rbUseRecommended)
+
+$script:lblRecommendedDesc = New-Label '                         Replace your config with our optimized profile.' 20 309 800 20 9 $false $false
+$script:lblRecommendedDesc.ForeColor = $script:MatrixAccent
+$script:pnlComparison.Controls.Add($script:lblRecommendedDesc)
+
+$script:rbCustomize = New-Object System.Windows.Forms.RadioButton
+$script:rbCustomize.Text = "Let me customize"
+$script:rbCustomize.Left = 20
+$script:rbCustomize.Top = 340
+$script:rbCustomize.Width = 400
+$script:rbCustomize.Height = 24
+$script:rbCustomize.ForeColor = $script:MatrixGreen
+$script:rbCustomize.BackColor = [System.Drawing.Color]::Transparent
+$script:rbCustomize.Font = New-Object System.Drawing.Font('Consolas', 10)
+$script:pnlComparison.Controls.Add($script:rbCustomize)
+
+$script:lblCustomizeDesc = New-Label '                         Show profile options (Light/Standard/Heavy) to choose from.' 20 364 800 20 9 $false $false
+$script:lblCustomizeDesc.ForeColor = $script:MatrixAccent
+$script:pnlComparison.Controls.Add($script:lblCustomizeDesc)
+
+$p4_wsl.Controls.Add($script:pnlComparison)
+
+$pages += $p4_wsl
+
+# Page 5: Build/Up
+$p5 = New-PanelPage
+$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text 'BUILDING AND DEPLOYING CONTAINER' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p5.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 
 # Dynamic status label for current operation
 $script:lblBuildStatus = New-Label 'Preparing to build...' 20 75 880 24 10 $true $true
-$p4.Controls.Add($script:lblBuildStatus)
+$p5.Controls.Add($script:lblBuildStatus)
 
 # Force rebuild checkbox (unchecked = use cache if image exists)
 $script:chkForceRebuild = New-Object System.Windows.Forms.CheckBox
@@ -896,7 +1098,7 @@ $script:chkForceRebuild.ForeColor = $script:MatrixGreen
 $script:chkForceRebuild.BackColor = [System.Drawing.Color]::Transparent
 $script:chkForceRebuild.Font = New-Object System.Drawing.Font('Consolas', 9)
 $script:chkForceRebuild.Checked = $false
-$p4.Controls.Add($script:chkForceRebuild)
+$p5.Controls.Add($script:chkForceRebuild)
 
 # Terminal display for build output (like Page 5)
 $script:buildTerminalBox = New-Object System.Windows.Forms.RichTextBox
@@ -911,25 +1113,25 @@ $script:buildTerminalBox.ReadOnly = $true
 $script:buildTerminalBox.ScrollBars = 'Vertical'
 $script:buildTerminalBox.BorderStyle = 'FixedSingle'
 $script:buildTerminalBox.Text = ">> Waiting for build to begin...`r`n"
-$p4.Controls.Add($script:buildTerminalBox)
+$p5.Controls.Add($script:buildTerminalBox)
 
-$pages += $p4
+$pages += $p5
 
-# Page 5: Mobile Access (optional)
-$p5_mobile = New-PanelPage
-$p5_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5_mobile.Controls.Add((New-Label -text 'MOBILE ACCESS CONFIGURATION (OPTIONAL)' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p5_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+# Page 6: Mobile Access (optional)
+$p6_mobile = New-PanelPage
+$p6_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6_mobile.Controls.Add((New-Label -text 'MOBILE ACCESS CONFIGURATION (OPTIONAL)' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p6_mobile.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 
 # Description
-$p5_mobile.Controls.Add((New-Label 'Enable remote access to Claude Code from your mobile phone (iPhone/Android).' 20 85 880 24 10 $false $true))
-$p5_mobile.Controls.Add((New-Label '' 20 110 880 24 10 $false $true))
+$p6_mobile.Controls.Add((New-Label 'Enable remote access to Claude Code from your mobile phone (iPhone/Android).' 20 85 880 24 10 $false $true))
+$p6_mobile.Controls.Add((New-Label '' 20 110 880 24 10 $false $true))
 
 # Feature list
-$p5_mobile.Controls.Add((New-Label 'When enabled, you can:' 20 130 880 24 10 $true $true))
-$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Connect from any mobile terminal app (Blink Shell, Termius, Termux)" 20 155 880 24 9 $false $true))
-$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Stay connected when switching between WiFi and cellular (via Mosh)" 20 180 880 24 9 $false $true))
-$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Keep sessions alive even if you disconnect (via tmux)" 20 205 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label 'When enabled, you can:' 20 130 880 24 10 $true $true))
+$p6_mobile.Controls.Add((New-Label "$($script:Arrow) Connect from any mobile terminal app (Blink Shell, Termius, Termux)" 20 155 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label "$($script:Arrow) Stay connected when switching between WiFi and cellular (via Mosh)" 20 180 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label "$($script:Arrow) Keep sessions alive even if you disconnect (via tmux)" 20 205 880 24 9 $false $true))
 
 # Checkbox for enabling mobile access (centered: form width 920, checkbox width 420, so left = (920-420)/2 = 250)
 $script:chkMobileAccess = New-Object System.Windows.Forms.CheckBox
@@ -942,36 +1144,36 @@ $script:chkMobileAccess.ForeColor = $script:MatrixGreen
 $script:chkMobileAccess.BackColor = [System.Drawing.Color]::Transparent
 $script:chkMobileAccess.Font = New-Object System.Drawing.Font('Consolas', 11, [System.Drawing.FontStyle]::Bold)
 $script:chkMobileAccess.Checked = $false
-$p5_mobile.Controls.Add($script:chkMobileAccess)
+$p6_mobile.Controls.Add($script:chkMobileAccess)
 
 # Port info
-$p5_mobile.Controls.Add((New-Label '' 20 290 880 24 10 $false $true))
-$p5_mobile.Controls.Add((New-Label 'Default ports (can be changed in .env file later):' 20 310 880 24 9 $true $true))
-$p5_mobile.Controls.Add((New-Label "$($script:Arrow) SSH: port 2222 (non-standard for security)" 20 335 880 24 9 $false $true))
-$p5_mobile.Controls.Add((New-Label "$($script:Arrow) Mosh: UDP ports 60001-60005 (5 concurrent connections)" 20 360 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label '' 20 290 880 24 10 $false $true))
+$p6_mobile.Controls.Add((New-Label 'Default ports (can be changed in .env file later):' 20 310 880 24 9 $true $true))
+$p6_mobile.Controls.Add((New-Label "$($script:Arrow) SSH: port 2222 (non-standard for security)" 20 335 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label "$($script:Arrow) Mosh: UDP ports 60001-60005 (5 concurrent connections)" 20 360 880 24 9 $false $true))
 
 # Security warning
-$p5_mobile.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
+$p6_mobile.Controls.Add((New-Label '' 20 395 880 24 10 $false $true))
 $lblSecurityWarning = New-Label '[!] SECURITY: Always use a VPN (like Tailscale) - never expose ports to internet!' 20 415 880 24 9 $true $true
 $lblSecurityWarning.ForeColor = [System.Drawing.Color]::FromArgb(255, 200, 100)  # Orange/yellow for warning
-$p5_mobile.Controls.Add($lblSecurityWarning)
+$p6_mobile.Controls.Add($lblSecurityWarning)
 
 # Documentation link
-$p5_mobile.Controls.Add((New-Label '' 20 445 880 24 10 $false $true))
-$p5_mobile.Controls.Add((New-Label 'For detailed setup instructions after installation, see:' 20 465 880 24 9 $false $true))
-$p5_mobile.Controls.Add((New-Label 'docs/REMOTE_ACCESS.md' 20 490 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label '' 20 445 880 24 10 $false $true))
+$p6_mobile.Controls.Add((New-Label 'For detailed setup instructions after installation, see:' 20 465 880 24 9 $false $true))
+$p6_mobile.Controls.Add((New-Label 'docs/REMOTE_ACCESS.md' 20 490 880 24 9 $false $true))
 
-$pages += $p5_mobile
+$pages += $p6_mobile
 
-# Page 6: Install CLI Tools (was Page 5 before Mobile Access)
-$p6 = New-PanelPage
-$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p6.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+# Page 7: Install CLI Tools
+$p7 = New-PanelPage
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text 'INSTALLING AI CLI TOOLS' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
 # Dynamic label for current tool being installed
 $script:lblCurrentTool = New-Label 'Initializing installation...' 20 75 880 24 10 $true $true
-$p6.Controls.Add($script:lblCurrentTool)
-$p6.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
+$p7.Controls.Add($script:lblCurrentTool)
+$p7.Controls.Add((New-Label 'Tools: GitHub CLI, Claude Code, Gemini, OpenAI SDK, Codex' 20 100 880 20 9 $false $true))
 
 # Mini terminal display for installation output
 $script:terminalBox = New-Object System.Windows.Forms.RichTextBox
@@ -986,34 +1188,34 @@ $script:terminalBox.ReadOnly = $true
 $script:terminalBox.ScrollBars = 'Vertical'
 $script:terminalBox.BorderStyle = 'FixedSingle'
 $script:terminalBox.Text = ">> Waiting for installation to begin...`r`n"
-$p6.Controls.Add($script:terminalBox)
+$p7.Controls.Add($script:terminalBox)
 
-$pages += $p6
-
-# Page 7: Done (was Page 6 before Mobile Access)
-$p7 = New-PanelPage
-$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p7.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p7.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
-$p7.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
-$p7.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
-$p7.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
-$p7.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
-$p7.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
-$p7.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
-$p7.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
-$p7.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
-$p7.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
-$p7.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
-$p7.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
-$p7.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
-$p7.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
-$p7.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
-$p7.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
-$p7.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p7.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
-$p7.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
 $pages += $p7
+
+# Page 8: Done
+$p8 = New-PanelPage
+$p8.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 10 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p8.Controls.Add((New-Label -text 'SETUP COMPLETE - YOUR AI ENVIRONMENT IS READY!' -x 20 -y 30 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p8.Controls.Add((New-Label -text '==================================================================================' -x 20 -y 50 -w 880 -h 20 -fontSize 10 -bold $true -center $true))
+$p8.Controls.Add((New-Label '' 20 75 880 24 10 $false $true))
+$p8.Controls.Add((New-Label 'AI CLI Tools Environment successfully initialized!' 20 95 880 24 10 $true $true))
+$p8.Controls.Add((New-Label '' 20 120 880 24 10 $false $true))
+$p8.Controls.Add((New-Label 'INSTALLED TOOLS: Claude Code, GitHub CLI, Gemini CLI, OpenAI SDK, Codex CLI' 20 140 880 24 10 $true $true))
+$p8.Controls.Add((New-Label '' 20 165 880 24 10 $false $true))
+$p8.Controls.Add((New-Label 'GETTING STARTED - Quick Setup:' 20 190 880 24 10 $true $true))
+$p8.Controls.Add((New-Label '' 20 210 880 24 10 $false $true))
+$p8.Controls.Add((New-Label '1. Click "LAUNCH AI WORKSPACE" on the main menu' 20 235 880 24 9 $false $true))
+$p8.Controls.Add((New-Label '' 20 255 880 24 10 $false $true))
+$p8.Controls.Add((New-Label '2. In the terminal, run: configure-tools' 20 280 880 24 9 $false $true))
+$p8.Controls.Add((New-Label '   - This wizard will help you sign into all AI services' 20 300 880 24 9 $false $true))
+$p8.Controls.Add((New-Label '   - You can skip tools you don''t have API keys for' 20 320 880 24 9 $false $true))
+$p8.Controls.Add((New-Label '' 20 340 880 24 10 $false $true))
+$p8.Controls.Add((New-Label 'AVAILABLE COMMANDS:' 20 365 880 24 10 $true $true))
+$p8.Controls.Add((New-Label '   claude, gh, gemini, codex' 20 385 880 24 9 $false $true))
+$p8.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
+$p8.Controls.Add((New-Label 'MANAGEMENT COMMANDS:' 20 430 880 24 10 $true $true))
+$p8.Controls.Add((New-Label '   update-tools (check for updates), config-status (view config)' 20 450 880 24 9 $false $true))
+$pages += $p8
 
 # ---------- page plumbing ----------
 $form.Controls.Add($pages[0])
@@ -1027,13 +1229,86 @@ function Show-Page([int]$i) {
 
     $progress.Visible = $true
     $status.Visible = $true
+
+    # Page 4 (WSL Config): Toggle between normal mode and comparison mode
+    if ($i -eq 4) {
+        if ($state.WSLComparisonMode) {
+            Write-Host "[UI] Showing comparison mode" -ForegroundColor Cyan
+            # Hide normal controls
+            $script:lblDetectedHeader.Visible = $false
+            $script:lblDetectedRAM.Visible = $false
+            $script:lblDetectedCPU.Visible = $false
+            $script:lblRecommendation.Visible = $false
+            $script:lblSelectProfile.Visible = $false
+            $script:rbLight.Visible = $false
+            $script:lblLightDesc.Visible = $false
+            $script:rbStandard.Visible = $false
+            $script:lblStandardDesc.Visible = $false
+            $script:rbHeavy.Visible = $false
+            $script:lblHeavyDesc.Visible = $false
+            $script:chkSkipWSL.Visible = $false
+            $script:lblWSLInfo1.Visible = $false
+            $script:lblWSLInfo2.Visible = $false
+            $script:lblWSLInfo3.Visible = $false
+
+            # Show comparison panel
+            $script:pnlComparison.Visible = $true
+
+            # Populate comparison values
+            $existing = $state.ExistingWSLConfig
+            $script:lblYourMemory.Text = "memory = $(if ($existing.Memory) { $existing.Memory } else { '(not set)' })"
+            $script:lblYourSwap.Text = "swap = $(if ($existing.Swap) { $existing.Swap } else { '(not set)' })"
+            $script:lblYourProc.Text = "processors = $(if ($existing.Processors) { $existing.Processors } else { '(not set)' })"
+
+            # Get recommended profile settings
+            $recommendedProfile = $state.RecommendedProfile
+            $profiles = @{
+                'light' = @{ Memory = '3GB'; Swap = '2GB'; Processors = [Math]::Min(2, $state.SystemCores) }
+                'standard' = @{ Memory = '6GB'; Swap = '4GB'; Processors = [Math]::Min(4, $state.SystemCores) }
+                'heavy' = @{ Memory = '12GB'; Swap = '6GB'; Processors = [Math]::Min(6, $state.SystemCores) }
+            }
+            $recommended = $profiles[$recommendedProfile]
+            $profileName = (Get-ProfileDisplayName $recommendedProfile)
+
+            $script:lblCompareOurs.Text = "Our Recommendation ($profileName)"
+            $script:lblOurMemory.Text = "memory = $($recommended.Memory)"
+            $script:lblOurSwap.Text = "swap = $($recommended.Swap)"
+            $script:lblOurProc.Text = "processors = $($recommended.Processors)"
+
+            # Reset comparison radio buttons
+            $script:rbKeepCurrent.Checked = $true
+            $script:rbUseRecommended.Checked = $false
+            $script:rbCustomize.Checked = $false
+        } else {
+            Write-Host "[UI] Showing normal mode" -ForegroundColor Cyan
+            # Show normal controls
+            $script:lblDetectedHeader.Visible = $true
+            $script:lblDetectedRAM.Visible = $true
+            $script:lblDetectedCPU.Visible = $true
+            $script:lblRecommendation.Visible = $true
+            $script:lblSelectProfile.Visible = $true
+            $script:rbLight.Visible = $true
+            $script:lblLightDesc.Visible = $true
+            $script:rbStandard.Visible = $true
+            $script:lblStandardDesc.Visible = $true
+            $script:rbHeavy.Visible = $true
+            $script:lblHeavyDesc.Visible = $true
+            $script:chkSkipWSL.Visible = $true
+            $script:lblWSLInfo1.Visible = $true
+            $script:lblWSLInfo2.Visible = $true
+            $script:lblWSLInfo3.Visible = $true
+
+            # Hide comparison panel
+            $script:pnlComparison.Visible = $false
+        }
+    }
 }
 $btnCancel.Add_Click({
     Write-Host '[WARNING] User requested cancellation' -ForegroundColor Yellow
 
     # Confirm cancellation if on a critical page (skip in DEV MODE for easy testing)
-    # Critical pages: 4 (Build), 5 (Mobile Access), 6 (CLI Install)
-    if (($script:current -eq 4 -or $script:current -eq 5 -or $script:current -eq 6) -and -not $script:IsDevMode) {
+    # Critical pages: 5 (Build), 6 (Mobile Access), 7 (CLI Install)
+    if (($script:current -eq 5 -or $script:current -eq 6 -or $script:current -eq 7) -and -not $script:IsDevMode) {
         $result = [System.Windows.Forms.MessageBox]::Show(
             "Setup is currently in progress.`n`nAre you sure you want to cancel?`n`nThis may leave the system in an incomplete state.",
             "Cancel Setup?",
@@ -1046,7 +1321,7 @@ $btnCancel.Add_Click({
             Write-Host '[INFO] User chose to continue setup' -ForegroundColor Cyan
             return
         }
-    } elseif ($script:IsDevMode -and ($script:current -eq 4 -or $script:current -eq 5 -or $script:current -eq 6)) {
+    } elseif ($script:IsDevMode -and ($script:current -eq 5 -or $script:current -eq 6 -or $script:current -eq 7)) {
         Write-Host "[DEV MODE] Skipping cancel confirmation - allowing immediate exit" -ForegroundColor Magenta
     }
 
@@ -1219,14 +1494,148 @@ $btnNext.Add_Click({
                     return
                 }
             }
-            Write-Host "[SUCCESS] Docker verified - proceeding to build page" -ForegroundColor Green
+            Write-Host "[SUCCESS] Docker verified - proceeding to System Optimization page" -ForegroundColor Green
+
+            # Enhanced .wslconfig detection with marker check
+            $wslconfigPath = "$env:USERPROFILE\.wslconfig"
+            $existingConfig = Parse-WSLConfig -Path $wslconfigPath
+
+            if ($existingConfig.Exists) {
+                if ($existingConfig.IsOurs) {
+                    # Our marker found - skip entirely
+                    Write-Host "[INFO] .wslconfig created by this wizard - skipping" -ForegroundColor Cyan
+                    $state.WSLProfile = 'skip'
+                    $script:current += 2  # Skip to Build page (page 5)
+                    Show-Page $script:current
+                    return
+                } else {
+                    # Unknown config - show comparison mode
+                    Write-Host "[INFO] Existing .wslconfig found (not ours) - showing comparison" -ForegroundColor Yellow
+                    $state.ExistingWSLConfig = $existingConfig
+                    $state.WSLComparisonMode = $true
+                }
+            } else {
+                # No config exists - show normal mode
+                $state.WSLComparisonMode = $false
+            }
+
+            # Detect system resources and populate the WSL page
+            Write-Host "[INFO] Detecting system resources for WSL configuration..." -ForegroundColor Cyan
+            $state.SystemRAMGB = Get-SystemMemoryGB
+            $state.SystemCores = Get-ProcessorCount
+            $recommendedProfile = Get-RecommendedWSLProfile -TotalRAMGB $state.SystemRAMGB
+
+            Write-Host "[INFO] Detected: $($state.SystemRAMGB) GB RAM, $($state.SystemCores) CPU cores" -ForegroundColor Green
+            Write-Host "[INFO] Recommended profile: $($recommendedProfile.ToUpper())" -ForegroundColor Green
+
+            # Store recommended profile for comparison mode
+            $state.RecommendedProfile = $recommendedProfile
+
+            # Update UI labels with detected values
+            $script:lblDetectedRAM.Text = "  >> RAM:        $($state.SystemRAMGB) GB"
+            $script:lblDetectedCPU.Text = "  >> CPU Cores:  $($state.SystemCores)"
+            $script:lblRecommendation.Text = "Based on your hardware, we recommend the $(Get-ProfileDisplayName $recommendedProfile) profile."
+
+            # Pre-select recommended profile
+            switch ($recommendedProfile) {
+                'light' {
+                    $script:rbLight.Checked = $true
+                    $script:rbStandard.Checked = $false
+                    $script:rbHeavy.Checked = $false
+                }
+                'standard' {
+                    $script:rbLight.Checked = $false
+                    $script:rbStandard.Checked = $true
+                    $script:rbHeavy.Checked = $false
+                }
+                'heavy' {
+                    $script:rbLight.Checked = $false
+                    $script:rbStandard.Checked = $false
+                    $script:rbHeavy.Checked = $true
+                }
+            }
+
             $script:current++; Show-Page $script:current
-            # STOP HERE - let user see Page 4 and toggle Force Rebuild checkbox if needed
-            # Build will start when user clicks Next on Page 4 (case 4)
+            # STOP HERE - let user see Page 4 (WSL Config) and select profile
         }
         4 {
+            # WSL Configuration page - user clicked Next, apply configuration
+            Write-Host "[DEBUG] Page 4: WSL Configuration" -ForegroundColor Cyan
+            $wslconfigPath = "$env:USERPROFILE\.wslconfig"
+
+            # Handle comparison mode choices
+            if ($state.WSLComparisonMode) {
+                Write-Host "[DEBUG] Processing comparison mode choice" -ForegroundColor Cyan
+
+                if ($script:rbKeepCurrent.Checked) {
+                    Write-Host "[INFO] User chose to keep existing config" -ForegroundColor Cyan
+                    $state.WSLProfile = 'keep'
+                    # Don't write anything - keep the user's existing config
+                } elseif ($script:rbUseRecommended.Checked) {
+                    Write-Host "[INFO] User chose recommended settings" -ForegroundColor Green
+                    # Write config with recommended profile
+                    $recommendedProfile = $state.RecommendedProfile
+                    $state.WSLProfile = $recommendedProfile
+
+                    if (-not $script:IsDevMode) {
+                        $result = New-WSLConfig -Profile $recommendedProfile -Path $wslconfigPath -SystemCores $state.SystemCores
+                        if ($result) {
+                            $status.Text = "WSL configuration saved. Changes apply after Docker restart."
+                            Write-Host "[SUCCESS] .wslconfig updated with $($recommendedProfile.ToUpper()) profile at $wslconfigPath" -ForegroundColor Green
+                        } else {
+                            Write-Host "[WARNING] Failed to create .wslconfig, continuing anyway" -ForegroundColor Yellow
+                        }
+                    } else {
+                        Write-Host "[DEV MODE] Skipping .wslconfig creation" -ForegroundColor Magenta
+                    }
+                } elseif ($script:rbCustomize.Checked) {
+                    Write-Host "[INFO] User chose to customize - switching to normal mode" -ForegroundColor Yellow
+                    # Switch to normal mode to show profile options
+                    $state.WSLComparisonMode = $false
+                    # Re-show the page with normal controls
+                    Show-Page $script:current
+                    return
+                } else {
+                    Write-Host "[WARNING] No comparison option selected, keeping existing config" -ForegroundColor Yellow
+                    $state.WSLProfile = 'keep'
+                }
+            } else {
+                # Normal mode - handle skip checkbox and profile selection
+                if ($script:chkSkipWSL.Checked) {
+                    Write-Host "[INFO] User chose to skip WSL configuration" -ForegroundColor Yellow
+                    $state.WSLProfile = 'skip'
+                } else {
+                    # Determine selected profile
+                    $selectedProfile = if ($script:rbLight.Checked) { 'light' }
+                                       elseif ($script:rbStandard.Checked) { 'standard' }
+                                       elseif ($script:rbHeavy.Checked) { 'heavy' }
+                                       else { 'standard' }  # Default fallback
+
+                    Write-Host "[INFO] User selected profile: $($selectedProfile.ToUpper())" -ForegroundColor Green
+                    $state.WSLProfile = $selectedProfile
+
+                    if (-not $script:IsDevMode) {
+                        # Generate and write .wslconfig
+                        $result = New-WSLConfig -Profile $selectedProfile -Path $wslconfigPath -SystemCores $state.SystemCores
+
+                        if ($result) {
+                            $status.Text = "WSL configuration saved. Changes apply after Docker restart."
+                            Write-Host "[SUCCESS] .wslconfig created at $wslconfigPath" -ForegroundColor Green
+                        } else {
+                            Write-Host "[WARNING] Failed to create .wslconfig, continuing anyway" -ForegroundColor Yellow
+                        }
+                    } else {
+                        Write-Host "[DEV MODE] Skipping .wslconfig creation" -ForegroundColor Magenta
+                    }
+                }
+            }
+
+            $script:current++; Show-Page $script:current
+            # STOP HERE - let user see Page 5 (Build) and toggle Force Rebuild checkbox if needed
+        }
+        5 {
             # Build/Deploy page - user clicked Next, start the build process
-            Write-Host "[DEBUG] Page 4: Starting build process" -ForegroundColor Cyan
+            Write-Host "[DEBUG] Page 5: Starting build process" -ForegroundColor Cyan
 
             # DEV MODE: Skip all Docker operations, go to Mobile Access page
             if ($script:IsDevMode) {
@@ -1246,7 +1655,7 @@ $btnNext.Add_Click({
                 $progress.Value = 0
                 [System.Windows.Forms.Application]::DoEvents()
 
-                # Move to Mobile Access page (page 5)
+                # Move to Mobile Access page (page 6)
                 Write-Host "[DEV MODE] Proceeding to Mobile Access page" -ForegroundColor Magenta
                 $status.Text = '[DEV MODE] Mobile Access configuration'
                 $script:current++
@@ -1371,12 +1780,12 @@ $btnNext.Add_Click({
             Write-Host "[SUCCESS] Container ready" -ForegroundColor Green
 
             $status.Text = 'Container started - configure Mobile Access'
-            # Move to Mobile Access page (page 5)
+            # Move to Mobile Access page (page 6)
             $script:current++; Show-Page $script:current
         }
-        5 {
+        6 {
             # Mobile Access configuration page
-            Write-Host "[DEBUG] Page 5: Mobile Access configuration" -ForegroundColor Cyan
+            Write-Host "[DEBUG] Page 6: Mobile Access configuration" -ForegroundColor Cyan
 
             # DEV MODE: Skip container operations
             if ($script:IsDevMode) {
@@ -1664,13 +2073,13 @@ $btnNext.Add_Click({
             $status.Text = 'System ready'
             $script:current++; Show-Page $script:current
         }
-        6 {
-            # Install CLI Tools page - this page auto-advances via case 5's flow
+        7 {
+            # Install CLI Tools page - this page auto-advances via case 6's flow
             # If user somehow clicks Next directly, just show a message
             Write-Host "[INFO] Install page - process is handled automatically" -ForegroundColor Yellow
             $status.Text = 'Installation is automatic - please wait...'
         }
-        7 {
+        8 {
             Write-Host "[INFO] User clicked Finish - closing wizard" -ForegroundColor Green
             $form.Close()
             $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
