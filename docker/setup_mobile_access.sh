@@ -85,13 +85,19 @@ UsePAM no
 
 # Security hardening
 X11Forwarding no
-AllowTcpForwarding yes
-AllowAgentForwarding yes
+AllowTcpForwarding no
+AllowAgentForwarding no
 PermitTunnel no
 MaxAuthTries 3
 MaxSessions 5
 ClientAliveInterval 60
 ClientAliveCountMax 3
+
+# Cryptographic hardening - restrict to modern, strong algorithms only
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+HostKeyAlgorithms ssh-ed25519,rsa-sha2-512,rsa-sha2-256
 
 # Subsystems
 Subsystem sftp /usr/lib/openssh/sftp-server
