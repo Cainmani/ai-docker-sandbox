@@ -403,7 +403,7 @@ install_cli_tools() {
     print_status "Installing Google Gemini CLI..."
     if npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Found @google/gemini-cli in npm registry"
-        if npm_install_with_retry "@google/gemini-cli@latest" "/tmp/gemini_install.log"; then
+        if npm_install_with_retry "@google/gemini-cli@0.27.3" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
             # Try community version as fallback
@@ -438,7 +438,7 @@ install_cli_tools() {
     # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
     # which uses PEP 668 to prevent accidental system package modifications on host systems.
     if ! pip3 show openai >/dev/null 2>&1; then
-        if pip_install_with_retry "openai" "--break-system-packages"; then
+        if pip_install_with_retry "openai==2.18.0" "--break-system-packages"; then
             print_success "OpenAI Python SDK installed"
         else
             print_warning "Failed to install OpenAI Python SDK"
@@ -453,7 +453,7 @@ install_cli_tools() {
     update_install_status "OpenAI Codex CLI" "npm"
     print_status "Installing OpenAI Codex CLI..."
     if npm view @openai/codex version >/dev/null 2>&1; then
-        if npm_install_with_retry "@openai/codex@latest" "/tmp/codex_install.log"; then
+        if npm_install_with_retry "@openai/codex@0.98.0" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -468,7 +468,7 @@ install_cli_tools() {
 
     # 5. Install Vibe Kanban (AI agent orchestration tool)
     update_install_status "Vibe Kanban" "npm"
-    if npm_install_with_retry "vibe-kanban@latest" "/tmp/vibe_kanban_install.log"; then
+    if npm_install_with_retry "vibe-kanban@0.1.7" "/tmp/vibe_kanban_install.log"; then
         print_success "Vibe Kanban installed successfully"
         # Create .vibe-kanban directory for data persistence
         mkdir -p "${HOME}/.vibe-kanban"
@@ -537,7 +537,7 @@ update_cli_tools() {
 
     # Update pip packages (only currently installed tools)
     print_status "Updating Python packages..."
-    pip3 install --user --upgrade openai --quiet || true
+    pip3 install --user --upgrade openai==2.18.0 --quiet || true
 
     # Update GitHub CLI
     if command_exists gh; then
