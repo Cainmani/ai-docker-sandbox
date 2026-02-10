@@ -1,0 +1,29 @@
+# AI Docker CLI - fail2ban SSH jail configuration
+# Protects SSH from brute force login attempts
+# Only active when ENABLE_MOBILE_ACCESS=1
+
+[DEFAULT]
+# Ban duration: 10 minutes
+bantime = 600
+
+# Time window to count failures
+findtime = 600
+
+# Max failures before ban
+maxretry = 5
+
+# Backend for log monitoring
+backend = auto
+
+# Don't ban localhost
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+# Port is dynamically set by setup_mobile_access.sh
+port = SSH_PORT_PLACEHOLDER
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 600
+findtime = 600

@@ -532,10 +532,6 @@ show_status() {
         "openai:OpenAI/GPT Tools"
         "codex:OpenAI Codex CLI"
         "gemini:Google Gemini"
-        "aws:AWS CLI"
-        "azure:Azure CLI"
-        "gcloud:Google Cloud CLI"
-        "codeium:Codeium"
     )
 
     for tool_info in "${tools[@]}"; do
@@ -568,15 +564,11 @@ interactive_configure() {
     echo "3. OpenAI/GPT Tools (Python SDK)"
     echo "4. OpenAI Codex CLI"
     echo "5. Google Gemini"
-    echo "6. AWS CLI"
-    echo "7. Azure CLI"
-    echo "8. Google Cloud CLI"
-    echo "9. Codeium"
     echo "A. Configure All"
     echo "0. Exit"
     echo ""
 
-    read -rp "Enter your choice (0-9, A): " choice
+    read -rp "Enter your choice (0-5, A): " choice
 
     case $choice in
         1) configure_claude; interactive_configure ;;
@@ -584,20 +576,12 @@ interactive_configure() {
         3) configure_openai; interactive_configure ;;
         4) configure_codex; interactive_configure ;;
         5) configure_gemini; interactive_configure ;;
-        6) configure_aws; interactive_configure ;;
-        7) configure_azure; interactive_configure ;;
-        8) configure_gcloud; interactive_configure ;;
-        9) configure_codeium; interactive_configure ;;
         [Aa])
             configure_claude
             configure_github
             configure_openai
             configure_codex
             configure_gemini
-            configure_aws
-            configure_azure
-            configure_gcloud
-            configure_codeium
             show_status
             ;;
         0)
@@ -630,18 +614,6 @@ case "$1" in
     --gemini)
         configure_gemini
         ;;
-    --aws)
-        configure_aws
-        ;;
-    --azure)
-        configure_azure
-        ;;
-    --gcloud)
-        configure_gcloud
-        ;;
-    --codeium)
-        configure_codeium
-        ;;
     --codex)
         configure_codex
         ;;
@@ -651,10 +623,6 @@ case "$1" in
         configure_openai
         configure_codex
         configure_gemini
-        configure_aws
-        configure_azure
-        configure_gcloud
-        configure_codeium
         show_status
         ;;
     --help|-h)
@@ -667,10 +635,6 @@ case "$1" in
         echo "  --openai, --gpt  Configure OpenAI/GPT tools (Python SDK)"
         echo "  --codex          Configure OpenAI Codex CLI"
         echo "  --gemini         Configure Google Gemini"
-        echo "  --aws            Configure AWS CLI"
-        echo "  --azure          Configure Azure CLI"
-        echo "  --gcloud         Configure Google Cloud CLI"
-        echo "  --codeium        Configure Codeium"
         echo "  --all            Configure all tools"
         echo "  --help, -h       Show this help message"
         echo ""

@@ -121,6 +121,41 @@ else
     exit 1
 fi
 
+# Configure and start fail2ban for SSH brute force protection
+mobile_log "INFO" "Configuring fail2ban for SSH protection..."
+
+# Create fail2ban jail configuration with correct SSH port
+if [ -f /etc/fail2ban/jail.d/sshd.local.template ]; then
+    sed "s|SSH_PORT_PLACEHOLDER|$SSH_PORT|g" /etc/fail2ban/jail.d/sshd.local.template > /etc/fail2ban/jail.d/sshd.local
+    rm -f /etc/fail2ban/jail.d/sshd.local.template
+    mobile_log "INFO" "fail2ban jail configured for port $SSH_PORT"
+else
+    # Create jail config directly if template doesn't exist
+    cat > /etc/fail2ban/jail.d/sshd.local << JAILEOF
+[sshd]
+enabled = true
+port = $SSH_PORT
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 600
+findtime = 600
+JAILEOF
+    mobile_log "INFO" "fail2ban jail created for port $SSH_PORT"
+fi
+
+# Ensure auth.log exists (fail2ban needs it)
+touch /var/log/auth.log
+
+# Start fail2ban service
+mobile_log "INFO" "Starting fail2ban service..."
+service fail2ban start
+if [ $? -eq 0 ]; then
+    mobile_log "INFO" "fail2ban started successfully (bans after 5 failed attempts for 10 minutes)"
+else
+    mobile_log "WARN" "Failed to start fail2ban - SSH protection may be reduced"
+fi
+
 # Copy tmux configuration to user's home directory
 if [ -f /etc/tmux.conf ]; then
     mobile_log "INFO" "Setting up tmux configuration..."
@@ -136,6 +171,8 @@ echo "export MOSH_SERVER_NETWORK_TMOUT=604800" >> "$USER_HOME/.bashrc"
 echo "export MOSH_SERVER_SIGNAL_TMOUT=60" >> "$USER_HOME/.bashrc"
 
 mobile_log "INFO" "Mobile access setup complete!"
+mobile_log "INFO" ""
+mobile_log "INFO" "Security: fail2ban is active - IPs banned after 5 failed login attempts"
 mobile_log "INFO" ""
 mobile_log "INFO" "To connect from your mobile device:"
 mobile_log "INFO" "  1. Add your SSH public key to: $SSH_DIR/authorized_keys"

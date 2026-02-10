@@ -32,6 +32,9 @@ RUN apt-get update && apt-get install -y \
     mosh \
     tmux \
     locales \
+    # Security: fail2ban protects SSH from brute force attacks
+    fail2ban \
+    iptables \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -73,6 +76,7 @@ COPY setup_mobile_access.sh /usr/local/bin/setup_mobile_access.sh
 COPY add_ssh_key.sh /usr/local/bin/add-ssh-key
 COPY setup_remote_connection.sh /usr/local/bin/setup-remote-connection
 COPY tmux.conf /etc/tmux.conf
+COPY fail2ban-jail.local /etc/fail2ban/jail.d/sshd.local.template
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
