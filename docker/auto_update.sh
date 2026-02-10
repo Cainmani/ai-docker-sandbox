@@ -10,6 +10,8 @@
 
 # Note: We do NOT use "set -e" because we want to continue updating other tools
 # even if one tool fails to update.
+# We DO use set -uo pipefail to catch undefined variables and pipe failures.
+set -uo pipefail
 
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
@@ -84,7 +86,7 @@ check_updates() {
 
     # Check ALL global npm packages for updates (dynamic, not hardcoded)
     npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 || true)
-    if [ ! -z "$npm_outdated" ]; then
+    if [ -n "$npm_outdated" ]; then
         update_log "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
         echo "$npm_outdated" | while read line; do
             update_log "  - $line"
@@ -94,7 +96,7 @@ check_updates() {
 
     # Check ALL user pip packages for updates (dynamic, not hardcoded)
     pip_outdated=$(pip3 list --user --outdated 2>/dev/null | tail -n +3 || true)
-    if [ ! -z "$pip_outdated" ]; then
+    if [ -n "$pip_outdated" ]; then
         update_log "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
         echo "$pip_outdated" | while read line; do
             update_log "  - $line"
@@ -105,7 +107,7 @@ check_updates() {
     # Check apt updates for installed CLI tools (only gh is installed via apt)
     sudo apt-get update -qq
     apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "^gh/" || true)
-    if [ ! -z "$apt_updates" ]; then
+    if [ -n "$apt_updates" ]; then
         update_log "${YELLOW}[UPDATE]${NC} System packages have updates available:"
         echo "$apt_updates" | while read line; do
             update_log "  - $line"
@@ -150,7 +152,7 @@ apply_updates() {
     # Update ALL user pip packages (dynamic)
     update_log "Updating Python packages..."
     outdated_packages=$(pip3 list --user --outdated --format=freeze 2>/dev/null | cut -d= -f1 || true)
-    if [ ! -z "$outdated_packages" ]; then
+    if [ -n "$outdated_packages" ]; then
         pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade 2>&1)
         pip_exit_code=$?
         if [ $pip_exit_code -eq 0 ]; then

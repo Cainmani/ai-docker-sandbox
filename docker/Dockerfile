@@ -44,10 +44,16 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # Install Tailscale (secure remote access - no exposed ports)
-RUN curl -fsSL https://tailscale.com/install.sh | sh
+# Download script first to avoid curl-pipe-shell supply-chain risk
+RUN curl -fsSL https://tailscale.com/install.sh -o /tmp/tailscale-install.sh && \
+    bash /tmp/tailscale-install.sh && \
+    rm -f /tmp/tailscale-install.sh
 
-# Install Node.js 20.x from NodeSource (required for Gemini CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+# Install Node.js 22.x LTS from NodeSource (required for Gemini CLI)
+# Download script first to avoid curl-pipe-shell supply-chain risk
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh && \
+    bash /tmp/nodesource-setup.sh && \
+    rm -f /tmp/nodesource-setup.sh && \
     apt-get install -y nodejs && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
