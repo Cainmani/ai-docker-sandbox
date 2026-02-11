@@ -15,12 +15,20 @@ if (-not (Test-Path $script:LogDir)) {
     New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
+# Container username read from .env (set later, used by Sanitize-LogMessage)
+$script:ContainerUsername = $null
+
 function Sanitize-LogMessage {
     param([string]$Message)
+    # Redact Windows username in paths
     $username = $env:USERNAME
     if ($username) {
         $Message = $Message -replace "\\$username\\", "\<USER>\"
         $Message = $Message -replace "/$username/", "/<USER>/"
+    }
+    # Redact container username (from .env) in log messages
+    if ($script:ContainerUsername) {
+        $Message = $Message -replace "\b$([regex]::Escape($script:ContainerUsername))\b", "<USER>"
     }
     $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
@@ -235,6 +243,7 @@ try {
         foreach ($line in $envContent) {
             if ($line -match '^USER_NAME=(.+)$') {
                 $userName = $matches[1]
+                $script:ContainerUsername = $userName
                 Write-AppLog "Username from .env: [$userName]" "DEBUG"
                 break
             }
