@@ -157,6 +157,7 @@ $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)
 # Embedded files as Base64 - stored in memory, only extracted when Docker needs them
 $script:EmbeddedFiles = @{
     'setup_wizard.ps1' = 'SETUP_WIZARD_PS1_BASE64_HERE'
+    'wsl_config.ps1' = 'WSL_CONFIG_PS1_BASE64_HERE'
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
@@ -553,11 +554,21 @@ $btnSetup.Add_Click({
         $setupContent = Get-EmbeddedFileContent 'setup_wizard.ps1'
         if ($setupContent) {
             Write-AppLog "Setup wizard loaded successfully" "DEBUG"
-            # Extract setup wizard to subfolder
+            # Extract setup wizard and its dependencies to subfolder
             $setupScript = Join-Path $filesDir "setup_wizard.ps1"
             Write-AppLog "Writing setup wizard to: [$setupScript]" "DEBUG"
             [System.IO.File]::WriteAllText($setupScript, $setupContent, [System.Text.UTF8Encoding]::new($false))
             Write-AppLog "Setup wizard written successfully" "DEBUG"
+
+            # Extract wsl_config.ps1 (dot-sourced by setup_wizard.ps1 for WSL detection functions)
+            $wslConfigContent = Get-EmbeddedFileContent 'wsl_config.ps1'
+            if ($wslConfigContent) {
+                $wslConfigScript = Join-Path $filesDir "wsl_config.ps1"
+                [System.IO.File]::WriteAllText($wslConfigScript, $wslConfigContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "WSL config helper written to: [$wslConfigScript]" "DEBUG"
+            } else {
+                Write-AppLog "WARNING: wsl_config.ps1 not found in embedded resources - WSL detection may fail" "WARN"
+            }
 
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"

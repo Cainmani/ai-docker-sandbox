@@ -22,7 +22,7 @@ fi
 config_log() {
     local level="$1"
     local message="$2"
-    if [ -n "$LOG_FILE" ]; then
+    if [ -n "${LOG_FILE:-}" ]; then
         log_message "CONFIGURE" "$level" "$message" "$LOG_FILE"
     fi
 }
@@ -76,25 +76,14 @@ is_configured() {
                 return 1  # Claude is broken or not installed
             fi
             # Check for ANTHROPIC_API_KEY environment variable (doesn't need rebuild check)
-            if [ -n "$ANTHROPIC_API_KEY" ]; then
+            if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
                 return 0
             fi
-            # Check for Claude OAuth credentials with rebuild detection
-            # If container was rebuilt after auth, credentials are stale and need re-auth
+            # Check for Claude OAuth credentials (persisted via claude-config volume)
+            # If the token has actually expired, Claude itself will prompt for re-auth
             local creds_file="${HOME}/.claude/.credentials.json"
-            if [ -f "$creds_file" ]; then
-                # If install marker exists, compare timestamps
-                if [ -f "$install_marker" ]; then
-                    # If credentials are NEWER than install marker, auth happened after rebuild
-                    if [ "$creds_file" -nt "$install_marker" ]; then
-                        return 0  # Authenticated after this rebuild
-                    else
-                        return 1  # Rebuild happened after auth - needs re-auth
-                    fi
-                else
-                    # No install marker (shouldn't happen), assume configured
-                    return 0
-                fi
+            if [ -f "$creds_file" ] && [ -s "$creds_file" ]; then
+                return 0
             fi
             ;;
         gh)
@@ -452,7 +441,7 @@ interactive_configure() {
 }
 
 # Main execution
-case "$1" in
+case "${1:-}" in
     --status|-s)
         show_status
         ;;

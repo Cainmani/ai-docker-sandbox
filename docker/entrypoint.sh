@@ -129,6 +129,65 @@ mkdir -p "/home/$USER_NAME/.claude"
 chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
 chmod 755 "/home/$USER_NAME/.claude"
 
+# Persist ~/.claude.json across container rebuilds via symlink into claude-config volume
+# This file stores hasCompletedOnboarding; without it Claude re-prompts setup
+entrypoint_log "INFO" "Setting up ~/.claude.json persistence"
+CLAUDE_ROOT_JSON="/home/$USER_NAME/.claude.json"
+CLAUDE_ROOT_JSON_VOLUME="/home/$USER_NAME/.claude/_claude_root.json"
+if [ -f "$CLAUDE_ROOT_JSON" ] && [ ! -L "$CLAUDE_ROOT_JSON" ]; then
+    # Real file exists (pre-persistence migration): move into volume
+    entrypoint_log "INFO" "Migrating existing ~/.claude.json into claude-config volume"
+    mv "$CLAUDE_ROOT_JSON" "$CLAUDE_ROOT_JSON_VOLUME"
+fi
+if [ ! -f "$CLAUDE_ROOT_JSON_VOLUME" ]; then
+    # First run: create minimal file so symlink target exists
+    echo '{"hasCompletedOnboarding":false}' > "$CLAUDE_ROOT_JSON_VOLUME"
+fi
+# (Re)create symlink (handles rebuilds where container layer is fresh)
+ln -sf "$CLAUDE_ROOT_JSON_VOLUME" "$CLAUDE_ROOT_JSON"
+chown -h "$USER_NAME:$USER_NAME" "$CLAUDE_ROOT_JSON"
+chown "$USER_NAME:$USER_NAME" "$CLAUDE_ROOT_JSON_VOLUME"
+
+# Persist tool auth configs across container rebuilds via symlinks into tool-auth volume
+entrypoint_log "INFO" "Setting up tool-auth persistence"
+TOOL_AUTH_DIR="/home/$USER_NAME/.tool-auth"
+mkdir -p "$TOOL_AUTH_DIR"
+
+# Create subdirs and symlink each tool's config path
+for tool_dir in gh openai gemini shell_gpt codex; do
+    mkdir -p "$TOOL_AUTH_DIR/$tool_dir"
+done
+
+# Symlink ~/.config/<tool> directories
+for tool_dir in gh openai gemini shell_gpt; do
+    config_path="/home/$USER_NAME/.config/$tool_dir"
+    volume_path="$TOOL_AUTH_DIR/$tool_dir"
+    if [ -d "$config_path" ] && [ ! -L "$config_path" ]; then
+        # Real directory exists (pre-persistence migration): copy contents into volume
+        entrypoint_log "INFO" "Migrating $config_path into tool-auth volume"
+        cp -a "$config_path"/. "$volume_path"/ 2>/dev/null || true
+        rm -rf "$config_path"
+    fi
+    # Ensure parent exists and create symlink
+    mkdir -p "/home/$USER_NAME/.config"
+    ln -sfn "$volume_path" "$config_path"
+done
+
+# Symlink ~/.codex separately (not under ~/.config)
+CODEX_CONFIG="/home/$USER_NAME/.codex"
+CODEX_VOLUME="$TOOL_AUTH_DIR/codex"
+if [ -d "$CODEX_CONFIG" ] && [ ! -L "$CODEX_CONFIG" ]; then
+    entrypoint_log "INFO" "Migrating $CODEX_CONFIG into tool-auth volume"
+    cp -a "$CODEX_CONFIG"/. "$CODEX_VOLUME"/ 2>/dev/null || true
+    rm -rf "$CODEX_CONFIG"
+fi
+ln -sfn "$CODEX_VOLUME" "$CODEX_CONFIG"
+
+chown -R "$USER_NAME:$USER_NAME" "$TOOL_AUTH_DIR"
+chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
+chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG"
+entrypoint_log "INFO" "Tool-auth persistence setup complete"
+
 # Configure npm to use user-local directory for global packages
 su - "$USER_NAME" -c "mkdir -p /home/$USER_NAME/.npm-global"
 su - "$USER_NAME" -c "npm config set prefix '/home/$USER_NAME/.npm-global'"
@@ -193,6 +252,11 @@ if [ -f "$HOME/.cli_tools_installed" ]; then
   echo "First time? Run 'configure-tools' to set up your API keys!"
   echo "Phone access? Run 'setup-remote-connection' for guided setup!"
   echo ""
+fi
+
+# Load persisted API keys (survive container rebuilds)
+if [ -f "${HOME}/.config/openai/api_key" ]; then
+    export OPENAI_API_KEY="$(cat "${HOME}/.config/openai/api_key")"
 fi
 
 # Auto-change to workspace directory on login

@@ -1376,7 +1376,8 @@ $btnNext.Add_Click({
                 }
 
                 # Validate username follows Linux naming rules (1-32 chars, lowercase alphanumeric + underscore/hyphen, must start with letter)
-                if ($script:tbUser.Text -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
+                # Note: -cnotmatch is case-sensitive; -notmatch in PowerShell is case-insensitive and would accept uppercase
+                if ($script:tbUser.Text -cnotmatch '^[a-z_][a-z0-9_-]{0,31}$') {
                     Write-Host "[ERROR] Invalid username format" -ForegroundColor Red
                     Show-Error 'Username must be 1-32 characters, start with a lowercase letter or underscore, and contain only lowercase letters, digits, underscores, or hyphens.'
                     return
