@@ -52,7 +52,7 @@ update_install_status() {
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
     # Also log to file if logging is available
-    if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+    if [ -n "${LOG_FILE:-}" ] && type log_info >/dev/null 2>&1; then
         log_info "INSTALL" "$1" "$LOG_FILE"
     fi
 }
@@ -60,7 +60,7 @@ print_status() {
 print_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
     # Also log to file if logging is available
-    if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+    if [ -n "${LOG_FILE:-}" ] && type log_info >/dev/null 2>&1; then
         log_info "INSTALL" "[SUCCESS] $1" "$LOG_FILE"
     fi
 }
@@ -68,7 +68,7 @@ print_success() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
     # Also log to file if logging is available
-    if [ -n "$LOG_FILE" ] && type log_error >/dev/null 2>&1; then
+    if [ -n "${LOG_FILE:-}" ] && type log_error >/dev/null 2>&1; then
         log_error "INSTALL" "$1" "$LOG_FILE"
     fi
 }
@@ -76,7 +76,7 @@ print_error() {
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
     # Also log to file if logging is available
-    if [ -n "$LOG_FILE" ] && type log_warn >/dev/null 2>&1; then
+    if [ -n "${LOG_FILE:-}" ] && type log_warn >/dev/null 2>&1; then
         log_warn "INSTALL" "$1" "$LOG_FILE"
     fi
 }
@@ -107,7 +107,7 @@ npm_install_with_retry() {
         echo "$npm_output" > "$npm_log_file"
 
         # Log npm output to main log file if logging is available
-        if [ -n "$LOG_FILE" ] && type log_info >/dev/null 2>&1; then
+        if [ -n "${LOG_FILE:-}" ] && type log_info >/dev/null 2>&1; then
             while IFS= read -r line; do
                 if [ -n "$line" ]; then
                     log_info "INSTALL" "  npm: $line" "$LOG_FILE"
@@ -551,8 +551,10 @@ update_cli_tools() {
     print_success "All tools updated successfully!"
 }
 
-# Trap to ensure marker file is created even if script fails
-trap 'create_marker_file' EXIT
+# Note: marker file is created explicitly after install_cli_tools completes.
+# We intentionally do NOT use an EXIT trap, because if the script crashes
+# before reaching install (e.g. unbound variable), the marker would prevent
+# retries on the next container start.
 
 # Function to clean up old CLI installations before fresh install
 # Called during --force to ensure a clean slate
@@ -596,15 +598,14 @@ cleanup_old_installations() {
 }
 
 # Check if this is first run or update request
-if [ "$1" == "--update" ] || [ "$1" == "-u" ]; then
+# Use ${1:-} to avoid "unbound variable" error with set -u when called without arguments
+if [ "${1:-}" == "--update" ] || [ "${1:-}" == "-u" ]; then
     update_cli_tools
-    # Update doesn't recreate marker, so disable the trap
-    trap - EXIT
-elif [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
+elif [ "${1:-}" == "--force" ] || [ "${1:-}" == "-f" ]; then
     rm -f "$INSTALL_MARKER"
     cleanup_old_installations
     install_cli_tools
-    # Marker will be created by trap
+    create_marker_file
 elif [ -f "$INSTALL_MARKER" ]; then
     print_status "CLI tools already installed. Use --update to update or --force to reinstall."
     if [ -f "$TOOLS_VERSION_FILE" ]; then
@@ -612,11 +613,9 @@ elif [ -f "$INSTALL_MARKER" ]; then
         print_status "Installed versions:"
         cat "$TOOLS_VERSION_FILE" | grep -v "^#"
     fi
-    # Disable trap since already installed
-    trap - EXIT
 else
     install_cli_tools
-    # Marker will be created by trap
+    create_marker_file
 fi
 
 # Set proper permissions (run regardless of success/failure)

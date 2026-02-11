@@ -55,8 +55,15 @@ update_log() {
         # Use the shared logging library
         log_info "UPDATE" "$msg" "$LOG_FILE"
     else
-        # Fallback to simple logging
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$LOG_FILE"
+        # Fallback to simple logging (with basic sanitization)
+        local sanitized="$msg"
+        local user_name
+        user_name="$(whoami 2>/dev/null || echo '')"
+        if [ -n "$user_name" ]; then
+            sanitized="${sanitized//$user_name/<USER>}"
+        fi
+        sanitized="$(echo "$sanitized" | sed -E 's/sk-(proj-|ant-)?[a-zA-Z0-9_-]{20,}/<REDACTED_API_KEY>/g; s/gh[pousr]_[a-zA-Z0-9]{36,}/<REDACTED_TOKEN>/g')"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $sanitized" >> "$LOG_FILE"
         echo -e "$msg"
     fi
 }
@@ -192,7 +199,7 @@ run_auto_update() {
     update_log "${BLUE}[INFO]${NC} Starting auto-update check"
 
     # Check if we should run update based on interval
-    if ! should_update && [ "$1" != "--force" ]; then
+    if ! should_update && [ "${1:-}" != "--force" ]; then
         last_check_date=$(date -r "$UPDATE_CHECK_FILE" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "never")
         update_log "${BLUE}[INFO]${NC} Skipping update check (last check: $last_check_date)"
         update_log "  Next check in $((UPDATE_INTERVAL_DAYS - $(( ($(date +%s) - $(stat -c %Y "$UPDATE_CHECK_FILE")) / 86400 )))) days"
@@ -201,7 +208,7 @@ run_auto_update() {
     fi
 
     # Check for updates
-    if check_updates || [ "$1" == "--force" ]; then
+    if check_updates || [ "${1:-}" == "--force" ]; then
         apply_updates
     else
         update_log "${GREEN}[INFO]${NC} All tools are up to date"
@@ -232,7 +239,7 @@ setup_cron() {
 }
 
 # Parse command line arguments
-case "$1" in
+case "${1:-}" in
     --check|-c)
         check_updates
         if [ $? -eq 0 ]; then
@@ -248,7 +255,7 @@ case "$1" in
         run_auto_update --force
         ;;
     --cron)
-        setup_cron "$2"
+        setup_cron "${2:-}"
         ;;
     --help|-h)
         echo "Usage: $0 [OPTIONS]"

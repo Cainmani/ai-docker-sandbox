@@ -32,6 +32,8 @@ services:
       - vibe-kanban-data:/home/${USER_NAME}/.vibe-kanban
       # SSH keys persistence for mobile access
       - ssh-keys:/home/${USER_NAME}/.ssh
+      # Tool auth persistence (survives container rebuilds)
+      - tool-auth:/home/${USER_NAME}/.tool-auth
     tty: true
     stdin_open: true
     healthcheck:
@@ -58,4 +60,6 @@ volumes:
   vibe-kanban-data:
     driver: local
   ssh-keys:
+    driver: local
+  tool-auth:
     driver: local

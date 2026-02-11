@@ -19,6 +19,7 @@ Write-Host "[1/4] Reading source files..." -ForegroundColor Cyan
 
 $filesToEmbed = @(
    "..\setup_wizard.ps1",
+   "..\wsl_config.ps1",
    "..\launch_claude.ps1",
    "..\launch_vibe_kanban.ps1",
    "..\..\docker\docker-compose.yml",
