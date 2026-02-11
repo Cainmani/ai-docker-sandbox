@@ -10,7 +10,7 @@
    - Wait for Docker build (2-5 minutes)
    - Wait for Claude CLI installation (1-2 minutes)
 4. **First Use**: When you first run `claude`, authenticate with your Anthropic API key or account
-   - **Authentication persists** - you only do this once!
+   - **Authentication persists** - you only do this once, even across container rebuilds!
 
 ---
 

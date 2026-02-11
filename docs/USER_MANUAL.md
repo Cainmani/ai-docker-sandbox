@@ -523,9 +523,15 @@ If you accidentally run "First Time Setup" again, it will warn you that you'll l
 
 Any file you create inside the container at `/workspace` automatically appears in your Windows AI_Work folder, and vice versa. No manual copying needed!
 
-### ✅ Authentication Persists Forever
+### ✅ Authentication Persists Across Rebuilds
 
-Once you authenticate with Claude on first use, your credentials are stored in a Docker volume. Even if you recreate the container, your authentication will persist (unless you delete the `claude-config` Docker volume).
+All your tool credentials are stored in Docker volumes and persist even if you rebuild the container:
+
+- **Claude** — OAuth credentials in `claude-config` volume
+- **GitHub CLI, OpenAI, Gemini, Codex** — configs in `tool-auth` volume
+- **Claude onboarding flag** (`~/.claude.json`) — symlinked into `claude-config` volume
+
+You only need to authenticate once. Even "Force Rebuild" preserves your credentials (unless you manually delete the Docker volumes).
 
 ### ✅ Each Project is Isolated
 

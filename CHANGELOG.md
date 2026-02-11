@@ -5,24 +5,45 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.2] - 2026-02-02
+## [1.2.2] - 2026-02-11
 
 ### Added
+- **Auth persistence across container rebuilds**: Credentials for all tools now survive Force Rebuild
+  - New `tool-auth` Docker volume with symlinks for gh, openai, gemini, codex, and shell_gpt configs
+  - `~/.claude.json` (onboarding flag) persisted via symlink into claude-config volume
+  - `OPENAI_API_KEY` auto-loaded from persisted config on shell startup
+  - No more re-authentication after rebuilding the container
+- **Welcome banner wait spinner**: If tools are still installing when you attach, a spinner shows until installation completes, then the full welcome banner displays
+- **Auth persistence test suite**: 27 automated tests covering first run, migration, rebuild, and idempotent re-run scenarios
 - **fail2ban SSH protection**: Automatically protects SSH from brute force attacks when mobile access is enabled (closes #35)
   - Bans IPs after 5 failed login attempts for 10 minutes
   - Integrated into `setup_mobile_access.sh` - no manual configuration needed
   - Check status with `fail2ban-client status sshd`
 
 ### Fixed
+- **Critical: Tools fail to install on new builds** (`set -u` unbound variable crashes)
+  - `install_cli_tools.sh`: `$1` unguarded when called without arguments — caused total install failure
+  - `install_cli_tools.sh`: EXIT trap created marker file on crash, permanently preventing retries
+  - `configure_tools.sh`: `$ANTHROPIC_API_KEY` and `$LOG_FILE` unguarded — crashed `config-status`
+  - `auto_update.sh`: `$1`/`$2` unguarded in 4 locations
+- **WSL RAM/CPU detection showing 0 in setup wizard**: `wsl_config.ps1` was not embedded in the .exe after PR #41 extracted it to a separate file. Added to build embed list and extraction logic
+- **Username validation accepting uppercase**: PowerShell `-notmatch` is case-insensitive; changed to `-cnotmatch` so "Caide" is correctly rejected
+- **`claude` command not found after native installer migration**: Replaced hardcoded dead npm path in `claude_wrapper.sh` with multi-location fallback (`~/.local/bin/claude`, `~/.local/share/claude/local/claude`, npm global)
 - **Segmentation fault in `update-container-tools`**: Fixed infinite recursion caused by function name collision between `log_message()` in auto_update.sh and the logging library. Renamed to `update_log()` to avoid conflict
-- **Update script checking for non-installed tools**: Removed references to azure-cli, google-cloud-sdk, bat, ripgrep, fd-find, fzf, httpie, jq, aws-cli, and codeium from apt update checks - these tools are not installed in the container
-- **Configure-tools showing non-installed tools**: Removed AWS CLI, Azure CLI, Google Cloud CLI, and Codeium from the configuration wizard menu since they are not installed
+- **Update script checking for non-installed tools**: Removed references to azure-cli, google-cloud-sdk, bat, ripgrep, fd-find, fzf, httpie, jq, aws-cli, and codeium from apt update checks
+- **Configure-tools showing non-installed tools**: Removed AWS CLI, Azure CLI, Google Cloud CLI, and Codeium from the configuration wizard menu
 
 ### Changed
+- Replaced timestamp-based credential staleness check with simple existence check (credentials in volumes are always current)
 - Updated `docs/CLI_TOOLS_GUIDE.md` to accurately reflect installed tools (Claude, GitHub CLI, OpenAI Codex, OpenAI SDK, Gemini, Vibe Kanban)
 - Updated `README.md` to list only actually installed AI CLI tools
 - Simplified apt update command to only check `gh` package (the only apt-installed CLI tool)
 - Updated `docs/REMOTE_ACCESS.md` with fail2ban security documentation
+
+### Security
+- **Log sanitization for launch scripts**: Added `Sanitize-LogMessage` to `launch_claude.ps1` and `launch_vibe_kanban.ps1` — redacts Windows username, container username, API keys, and tokens before writing to log files
+- **Fallback log sanitization**: `auto_update.sh` fallback logging now sanitizes messages when the logging library is unavailable
+- Removed accidentally tracked PowerShell log file from repository
 
 ## [1.2.1] - 2026-01-27
 
@@ -185,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.2.2 | 2026-02-11 | Auth persistence, set -u fixes, WSL detection, log sanitization |
 | 1.2.1 | 2026-01-27 | Fix container restart, add-ssh-key, and welcome screen bugs |
 | 1.2.0 | 2026-01-27 | Mobile access via SSH + Mosh + tmux |
 | 1.1.3 | 2026-01-26 | Container-side logging with rotation |
@@ -194,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/Cainmani/ai-docker-cli-setup/compare/v1.1.2...v1.1.3

@@ -130,13 +130,19 @@ sgpt "explain this code"  # Use Shell GPT
 
 ## ⬆️ Upgrading
 
+### From v1.1.x to v1.2.x
+
+Run "First Time Setup" with **Force Rebuild** checked to pick up the latest scripts.
+
+**v1.2.2+:** Credentials now persist across rebuilds — no re-authentication needed.
+
 ### From v1.0.x to v1.1.x
 
 **Breaking change:** Claude Code has been migrated from npm to the native installer.
 
 **Existing users must:**
 1. Run "First Time Setup" with **Force Rebuild** checked
-2. Re-authenticate **all** tools (Claude, GitHub CLI, etc.)
+2. Re-authenticate all tools (one-time only — v1.2.2+ persists credentials across future rebuilds)
 
 Your Claude conversation history will be preserved. See the **[Migration Guide](docs/MIGRATION.md)** for details.
 

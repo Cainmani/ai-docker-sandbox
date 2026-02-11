@@ -4,6 +4,18 @@ This guide covers breaking changes between versions and how to upgrade.
 
 ---
 
+## v1.2.2 - Auth Persistence
+
+### What Changed
+
+All tool credentials now persist across container rebuilds via Docker volumes. You no longer need to re-authenticate after running Force Rebuild.
+
+### What You Need To Do
+
+Run "First Time Setup" with **Force Rebuild** checked to pick up the new scripts. Your existing credentials will be automatically migrated into the persistence volumes on first start.
+
+---
+
 ## v1.1.3 - Claude Code Native Installer Migration
 
 ### What Changed
@@ -24,7 +36,9 @@ Claude Code has been migrated from npm installation (`@anthropic-ai/claude-code`
 2. **Click "First Time Setup"** (even though you've done it before)
 3. **Check the "Force Rebuild" checkbox** in the setup wizard
 4. **Complete the setup** - this will reinstall Claude with the native installer
-5. **Re-authenticate all tools** - run `configure-tools` after rebuild
+5. **Authenticate your tools** - run `configure-tools` after rebuild
+
+> **Note:** Starting from v1.2.2, credentials persist across rebuilds. If upgrading directly to v1.2.2+, you only need to authenticate once.
 
 ### What To Expect
 
@@ -33,11 +47,11 @@ Claude Code has been migrated from npm installation (`@anthropic-ai/claude-code`
 | Claude conversation history | **Preserved** - all your Claude conversations remain |
 | Claude project settings | **Preserved** - project configurations remain |
 | Claude user preferences | **Preserved** - settings remain |
-| **All authentications** | **Re-login required** - Claude, GitHub CLI, and all other tools |
+| **All authentications** | **One-time re-login** - persists across future rebuilds (v1.2.2+) |
 
 ### Re-Authentication
 
-After the rebuild, you'll need to re-authenticate **all** your tools:
+After the rebuild, authenticate your tools:
 
 ```bash
 # Run the configuration wizard
@@ -114,5 +128,6 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
-| v1.1.3 | 2026-01 | Claude Code migrated to native installer (requires force rebuild + re-auth for all tools) |
+| v1.2.2 | 2026-02 | None — credentials now persist across rebuilds (force rebuild recommended to pick up fixes) |
+| v1.1.3 | 2026-01 | Claude Code migrated to native installer (requires force rebuild + one-time re-auth) |
 | v1.0.0 | 2024-12 | Initial release |
