@@ -227,6 +227,19 @@ alias config-status='/usr/local/bin/configure_tools.sh --status'
 
 # Show available CLI tools on login
 # Note: $USER is set by bash at login time to the current username
+# If tools are still installing (entrypoint hasn't finished), wait with a spinner
+if [ ! -f "$HOME/.cli_tools_installed" ] && pgrep -f "install_cli_tools" >/dev/null 2>&1; then
+  echo ""
+  echo "  Tools are still installing, please wait..."
+  _spinner='|/-\'
+  _i=0
+  while [ ! -f "$HOME/.cli_tools_installed" ] && pgrep -f "install_cli_tools" >/dev/null 2>&1; do
+    printf "\r  Installing... %s " "${_spinner:$((_i % 4)):1}"
+    _i=$((_i + 1))
+    sleep 0.5
+  done
+  printf "\r                    \r"
+fi
 if [ -f "$HOME/.cli_tools_installed" ]; then
   echo ""
   echo "+==============================================================+"
