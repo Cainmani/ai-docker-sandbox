@@ -8,7 +8,7 @@ on:
 
 jobs:
   validate:
-    runs-on: windows-latest
+    runs-on: [self-hosted, cainmani]
 
     steps:
       - name: Checkout code
@@ -108,7 +108,7 @@ jobs:
           path: tests/results.xml
 
   check-pinned-versions:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, cainmani]
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
