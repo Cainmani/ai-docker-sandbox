@@ -18,7 +18,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 | **Info** | 17 | Observations and suggestions for consideration |
 | **Total** | **131** | |
 
-### Overall Health Score: **6.2 / 10**
+### Overall Health Score: **6.5 / 10**
 
 **Key Strengths:**
 - Well-structured Docker Secrets mechanism for password management
@@ -83,7 +83,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 
 | ID | Severity | File:Line | Finding | Recommendation |
 |---|---|---|---|---|
-| SEC-001 | Medium | `docker/Dockerfile:2` | Floating base image tag `ubuntu:24.04` is used. Mutable tag means builds are not reproducible and a compromised upstream image could be silently pulled. | Pin to a specific SHA256 digest, e.g., `FROM ubuntu:24.04@sha256:<digest>`. Use Dependabot or Renovate to update the digest periodically. |
+| SEC-001 | ~~Medium~~ **Resolved** | `docker/Dockerfile:2` | ~~Floating base image tag `ubuntu:24.04` is used.~~ **Fixed in v1.3.0:** Pinned to SHA256 digest. | ~~Pin to a specific SHA256 digest.~~ Done. |
 | SEC-002 | High | `docker/Dockerfile:47` | Tailscale installation uses unauthenticated curl-pipe-shell: `curl -fsSL https://tailscale.com/install.sh \| sh`. If CDN or DNS is compromised, arbitrary code runs as root during build. | Download the script first, verify its checksum or GPG signature, then execute. Alternatively, use Tailscale's official APT repository with signed packages. |
 | SEC-003 | High | `docker/Dockerfile:50` | NodeSource installation uses curl-pipe-shell: `curl -fsSL https://deb.nodesource.com/setup_20.x \| bash -`. Same supply-chain risk as SEC-002. | Use the NodeSource APT repository with GPG key verification, or use the official Node.js Docker image as a build stage. |
 | SEC-004 | High | `docker/install_cli_tools.sh:374` | Claude Code CLI installation uses curl-pipe-shell at runtime: `curl -fsSL https://claude.ai/install.sh \| bash`. This runs inside the container on each first startup, making it a persistent supply-chain risk. | Download the installer, verify its integrity before execution. Consider including the Claude CLI in the Docker image at build time with a pinned version. |
@@ -99,7 +99,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 | SEC-014 | Medium | `scripts/setup_wizard.ps1:708,1544` | Password is stored as plaintext `[string]` in the PowerShell `$state` hashtable. .NET strings are immutable and remain in memory until garbage collected. | Use `[System.Security.SecureString]` for password handling. Extract plaintext only at the moment of writing to the secrets file, then immediately clear and call `[GC]::Collect()`. |
 | SEC-015 | Low | `scripts/setup_wizard.ps1:797-798` | Secure password overwrite uses `System.Random` instead of a cryptographically secure RNG. `System.Random` is predictable. | Use `[System.Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes)` instead. |
 | SEC-016 | Low | `docker/docker-compose.yml:8` | `USER_NAME` passed as a plain environment variable, visible in `docker inspect`. | Informational. Consider passing via Docker secrets if username is considered sensitive. |
-| SEC-017 | Medium | `docker/configure_tools.sh:254` | OpenAI API key written to `.sgptrc` in plaintext with only chmod 600 protection. | Consider a dedicated secrets manager. At minimum, ensure `.sgptrc` is excluded from backups and warn users about this storage. |
+| SEC-017 | ~~Medium~~ **Resolved** | `docker/configure_tools.sh` | ~~OpenAI API key written to `.sgptrc` in plaintext.~~ **Fixed in v1.3.0:** Shell-GPT config block removed (tool no longer installed). | ~~Consider a dedicated secrets manager.~~ Dead code removed. |
 | SEC-018 | Medium | `docker/configure_tools.sh:257` | `export OPENAI_API_KEY="$api_key"` sets the key as a persistent environment variable, visible via `/proc/PID/environ`. | Source the key from file only when needed rather than exporting persistently. Use a wrapper script that reads the key ephemerally per-invocation. |
 | SEC-019 | Low | `docker/lib/logging.sh:63` | GitHub token sanitization regex `gh[pousr]_[a-zA-Z0-9]{36,}` does not cover fine-grained tokens (`github_pat_` prefix). | Add pattern for `github_pat_[a-zA-Z0-9]{22,}`. Also consider patterns for GitLab (`glpat-`), npm (`npm_`), and Slack tokens. |
 | SEC-020 | Low | `docker/lib/logging.sh:56-57` | OpenAI key sanitization: generic `sk-` regex could match Anthropic `sk-ant-` tokens before the specific pattern on line 60 is checked. Order matters. | Reorder to check most specific patterns first (`sk-ant-`, `sk-proj-`), then fallback to generic `sk-`. Use word-boundary assertions. |
@@ -116,7 +116,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 
 | ID | Severity | File:Line | Finding | Recommendation |
 |---|---|---|---|---|
-| DEP-001 | Medium | `docker/Dockerfile:2` | Base image `ubuntu:24.04` uses a mutable tag. Builds are not reproducible. Ubuntu 24.04 LTS is supported until April 2029, so the version is appropriate. | Pin to a specific digest (e.g., `FROM ubuntu:24.04@sha256:<hash>`) and update quarterly. |
+| DEP-001 | ~~Medium~~ **Resolved** | `docker/Dockerfile:2` | ~~Base image `ubuntu:24.04` uses a mutable tag.~~ **Fixed in v1.3.0:** Pinned to SHA256 digest. | ~~Pin to a specific digest.~~ Done. |
 | DEP-002 | High | `docker/Dockerfile:50` | Node.js 20.x (Juno) enters End-of-Life on **April 30, 2026** — fewer than 3 months away. After EOL, no security patches will be issued. | Migrate to Node.js 22.x LTS (Jod), supported until April 2027. Update to `setup_22.x`. |
 | DEP-003 | High | `docker/Dockerfile:47` | Tailscale installed by piping a remote script directly into `sh` with no integrity verification. Supply-chain risk with full root privileges. | Download script first, verify checksum or GPG signature. Alternatively, use Tailscale's official APT repository with key pinning. |
 | DEP-004 | High | `docker/Dockerfile:50` | NodeSource setup script piped directly into `bash`. NodeSource is **no longer the recommended installation method** for Node.js. | Use the official Node.js binary tarball with SHA256 verification, or `fnm`/`nvm` for user-scoped installs. |
@@ -147,15 +147,15 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 | BP-002 | High | `docker/auto_update.sh:1` | Missing `set -euo pipefail`. Same rationale as BP-001. | Add `set -uo pipefail` at top. |
 | BP-003 | High | `docker/configure_tools.sh:1` | Missing `set -euo pipefail`. No strict mode and no comment explaining why. | Add `set -uo pipefail` at minimum. |
 | BP-004 | High | `docker/Dockerfile:47` | Piping curl output directly to `sh` without integrity verification across multiple locations (Dockerfile:47, Dockerfile:50, install_cli_tools.sh:374). | Download scripts first, verify checksums, then execute. |
-| BP-005 | Medium | `docker/Dockerfile:2` | Unpinned base image `ubuntu:24.04`. | Pin to specific SHA256 digest. |
+| BP-005 | ~~Medium~~ **Resolved** | `docker/Dockerfile:2` | ~~Unpinned base image `ubuntu:24.04`.~~ **Fixed in v1.3.0:** Pinned to SHA256 digest. | ~~Pin to specific SHA256 digest.~~ Done. |
 | BP-006 | Medium | `docker/Dockerfile:7-39` | Single monolithic `RUN apt-get install` layer installs 20+ packages. Impossible to cache stable base layer separately. Includes convenience tools (`nano`, `vim`, `tree`) that bloat the image. | Split into stable base layer and volatile layer. Consider multi-stage build. |
 | BP-007 | Medium | `docker/docker-compose.yml:1-51` | No health check defined for the `ai` service. Docker Compose has no way to determine if the container is healthy. | Add `healthcheck` directive (e.g., `test: ["CMD", "pgrep", "-f", "tail"], interval: 30s`). |
 | BP-008 | Medium | `docker/docker-compose.yml:1-51` | No resource limits (`deploy.resources.limits`). Container can consume unbounded CPU and memory. | Add resource limits (e.g., `memory: 4G`, `cpus: '4.0'`). |
 | BP-009 | Medium | `docker/docker-compose.yml:25-27` | SSH/Mosh ports always published regardless of `ENABLE_MOBILE_ACCESS` setting. | Use separate Compose override files or profiles. |
 | BP-010 | Medium | `docker/install_cli_tools.sh:626` | Unquoted variable expansion: `sudo chown -R $(whoami):$(whoami) ${HOME}/`. | Quote: `sudo chown -R "$(whoami)":"$(whoami)" "${HOME}/"`. |
-| BP-011 | Medium | `docker/install_cli_tools.sh:533` | `update_cli_tools()` references removed tools (`shell-gpt`, `aider-chat`, AWS CLI). Dead code that will produce errors when run. | Remove stale tool references to match current installation scope. |
+| BP-011 | ~~Medium~~ **Resolved** | `docker/install_cli_tools.sh` | ~~`update_cli_tools()` references removed tools.~~ **Fixed in v1.3.0:** Removed aider/cursor dead code from get_version and save_versions. | ~~Remove stale tool references.~~ Done. |
 | BP-012 | Medium | `docker/configure_tools.sh:104,109,137` | Using `[ ! -z "$VAR" ]` instead of `[ -n "$VAR" ]`. Double negation, shellcheck SC2236. | Replace with `[ -n "$VAR" ]`. |
-| BP-013 | Medium | `docker/configure_tools.sh:112-127` | Configuration functions for AWS, Azure, Google Cloud, and Codeium are defined but those tools are no longer installed. Dead code. | Remove unused configuration functions. |
+| BP-013 | ~~Medium~~ **Resolved** | `docker/configure_tools.sh` | ~~Shell-GPT config block still present for removed tool.~~ **Fixed in v1.3.0:** Removed shell-gpt config block and sgpt reference. | ~~Remove unused configuration functions.~~ Done (shell-gpt portion). |
 | BP-014 | Medium | `docker/auto_update.sh:87,97,108,153` | Using `[ ! -z "$VAR" ]` instead of `[ -n "$VAR" ]` in multiple locations. | Replace all with `[ -n "$VAR" ]`. |
 | BP-015 | Medium | `docker/auto_update.sh:187,211` | Unquoted `$(whoami)` in `chown` calls. | Quote: `chown "$(whoami)":"$(whoami)" "$LOG_FILE"`. |
 | BP-016 | Medium | `docker/lib/logging.sh:1` | Missing `set -euo pipefail`. Exported functions don't include color variables, which will be undefined in subshells. | Document sourcing requirements. Either export color variables or move them to exported functions. |
@@ -166,8 +166,8 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 | BP-021 | Low | `.github/workflows/ci.yml:1-80` | No caching strategy. CI runs without caching Docker layers, PowerShell modules, or build dependencies. | Add `actions/cache` for PowerShell modules and Docker layer caching. |
 | BP-022 | Low | `.github/workflows/release.yml:70` | `softprops/action-gh-release@v1` — floating major version tag. | Pin to specific SHA for supply-chain safety. |
 | BP-023 | Low | `.github/workflows/release.yml:37-45` | Build step runs `build_complete_exe.ps1` with `-NonInteractive` but the script uses `Read-Host` which blocks. | Ensure CI always provides `$env:GITHUB_ACTIONS` to skip the prompt. |
-| BP-024 | Info | `README.md:13` | Version badge hardcoded as `v1.0.0` but actual version is `1.2.2`. | Use a dynamic shields.io badge or update static badge. |
-| BP-025 | Info | `README.md:110` | Documentation references `sgpt "explain this code"` but Shell-GPT is no longer installed. | Remove `sgpt` reference and replace with a currently installed tool. |
+| BP-024 | ~~Info~~ **Resolved** | `README.md:13` | ~~Version badge hardcoded as `v1.0.0`.~~ **Fixed in v1.3.0:** Updated to v1.2.2. | ~~Update static badge.~~ Done. |
+| BP-025 | ~~Info~~ **Resolved** | `README.md:110` | ~~Documentation references `sgpt` but Shell-GPT is no longer installed.~~ **Fixed in v1.3.0:** Replaced with `codex "explain this code"`. | ~~Replace with currently installed tool.~~ Done. |
 | BP-026 | Info | `CONTRIBUTING.md:168` | Contributing guide says to "Add `set -e` for fail-fast behavior" but several production scripts deliberately omit it. | Update guide to reflect actual convention and recommend `set -uo pipefail`. |
 | BP-027 | Info | `.gitignore:40` | `.secrets/` directory only excluded in `docker/.gitignore`, not root `.gitignore`. | Add `.secrets/` to root `.gitignore` for defense in depth. |
 | BP-028 | Info | `docker/entrypoint.sh:36` | Useless use of `cat`: `cat "$secret_file" \| tr -d '\n\r'` (shellcheck SC2002). | Replace with `tr -d '\n\r' < "$secret_file"`. |
@@ -185,7 +185,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 | CQ-003 | High | `launch_claude.ps1:52-75`, `launch_vibe_kanban.ps1:52-75` | DRY violation: `Find-Docker` and `DockerOk` functions are copy-pasted between launcher scripts. Character-for-character identical. | Extract a shared `DockerHelpers.ps1` module. |
 | CQ-004 | High | `launch_claude.ps1:127-152`, `launch_vibe_kanban.ps1:127-152` | DRY violation: `.env` file parsing logic duplicated across 3 scripts, each with its own regex-based parser. | Create a single `Read-EnvFile` function in a shared module. |
 | CQ-005 | Medium | `install_cli_tools.sh:29-34`, `auto_update.sh:42-46`, `configure_tools.sh:29-35` | DRY violation: ANSI color variables and `print_status`/`print_success`/`print_error` helpers duplicated in every shell script. | Move into existing `docker/lib/logging.sh` or create `docker/lib/colors.sh`. |
-| CQ-006 | Medium | `docker/install_cli_tools.sh:521-553` | Dead code: `update_cli_tools()` references removed tools (`shell-gpt`, `aider-chat`, AWS CLI). | Remove stale references. Align with actual installed tool set. |
+| CQ-006 | ~~Medium~~ **Resolved** | `docker/install_cli_tools.sh` | ~~Dead code: references to removed tools (aider, cursor).~~ **Fixed in v1.3.0:** Removed aider/cursor from get_version and save_versions. | ~~Remove stale references.~~ Done. |
 | CQ-007 | Medium | `docker/configure_tools.sh:312-416` | Dead code: ~120 lines of configure functions for tools not installed (AWS, Azure, GCloud, Codeium). | Remove unused configuration functions. |
 | CQ-008 | Medium | `docker/claude_wrapper.sh:1-3` | Dead code: entire file is obsolete. Assumes Claude installed via npm at `/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js`, but Claude now uses native installer at `~/.local/bin/claude`. | Delete `claude_wrapper.sh` or update path. Verify no references remain. |
 | CQ-009 | High | `install_cli_tools.sh:7-8`, `auto_update.sh:12-13`, `configure_tools.sh:1` | Inconsistent error-handling strategy. `entrypoint.sh` uses `set -euo pipefail`, but `configure_tools.sh` has neither strict mode nor a comment explaining why. | Add `set -euo pipefail` or explicit documentation to all scripts for consistent strategy. |
@@ -243,8 +243,8 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
    - Files: `install_cli_tools.sh`, `auto_update.sh`, `configure_tools.sh`, `setup_mobile_access.sh`
    - Effort: Low | Impact: Medium
 
-7. **Remove dead code** — CQ-006/007/008, BP-011/013, DEP-013
-   - Files: `install_cli_tools.sh`, `configure_tools.sh`, `claude_wrapper.sh`
+7. **Remove dead code** — ~~CQ-006~~ ~~BP-011~~ ~~BP-013~~ (resolved in v1.3.0), CQ-007/008, DEP-013 remaining
+   - Files: `configure_tools.sh` (AWS/Azure/GCloud), `claude_wrapper.sh`
    - Effort: Low | Impact: Medium (maintenance burden)
 
 8. **Fix username/password validation** — UX-001, CQ-027
@@ -298,7 +298,7 @@ This comprehensive audit reviewed the entire AI Docker CLI Manager application a
 19. **Fix PowerShell verb naming** — BP-018/019
 20. **Add strict mode to PowerShell scripts** — BP-017/018
 21. **Fix build metadata** — CQ-021/022, BP-029
-22. **Update README version badge and stale references** — BP-024/025
+22. ~~**Update README version badge and stale references**~~ — ~~BP-024/025~~ **Resolved in v1.3.0**
 23. **Improve keyboard navigation** — UX-006
 24. **Add unit test coverage** — CQ-028
 25. **Fix `Fix-LineEndings` file list** — CQ-024

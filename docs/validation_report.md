@@ -166,7 +166,7 @@ The system is ready for production use with these changes. All critical function
 
 ```bash
 # Build and run the container
-cd /workspace/ai-docker-cli-setup/docker
+cd /workspace/ai-docker-sandbox/docker
 docker build -t ai-cli-test .
 docker run -it --rm -e USER_NAME=testuser -e USER_PASSWORD=testpass ai-cli-test
 

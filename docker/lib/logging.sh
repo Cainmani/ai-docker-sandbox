@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Container-side logging library for ai-docker-cli-setup
+# Container-side logging library for ai-docker-sandbox
 # Provides consistent logging with sanitization, rotation, and timestamps
 #
 # Usage:

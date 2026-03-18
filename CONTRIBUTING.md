@@ -33,13 +33,13 @@ This project and everyone participating in it is governed by our commitment to p
 
 2. **Clone your fork**:
    ```powershell
-   git clone https://github.com/YOUR_USERNAME/ai-docker-cli-setup.git
-   cd ai-docker-cli-setup
+   git clone https://github.com/YOUR_USERNAME/ai-docker-sandbox.git
+   cd ai-docker-sandbox
    ```
 
 3. **Add upstream remote**:
    ```powershell
-   git remote add upstream https://github.com/Cainmani/ai-docker-cli-setup.git
+   git remote add upstream https://github.com/Cainmani/ai-docker-sandbox.git
    ```
 
 4. **Create a feature branch**:
@@ -50,7 +50,7 @@ This project and everyone participating in it is governed by our commitment to p
 ### Project Structure
 
 ```
-ai-docker-cli-setup/
+ai-docker-sandbox/
 ├── scripts/           # PowerShell scripts
 │   ├── setup_wizard.ps1          # Main setup wizard
 │   ├── AI_Docker_Launcher.ps1    # Daily launcher
@@ -176,7 +176,7 @@ function getcreds($u) {
 
 ## Reporting Bugs
 
-Use the [Bug Report template](https://github.com/Cainmani/ai-docker-cli-setup/issues/new?template=bug_report.yml) and include:
+Use the [Bug Report template](https://github.com/Cainmani/ai-docker-sandbox/issues/new?template=bug_report.yml) and include:
 
 1. **Clear description** of the problem
 2. **Steps to reproduce** the issue
@@ -186,7 +186,7 @@ Use the [Bug Report template](https://github.com/Cainmani/ai-docker-cli-setup/is
 
 ## Suggesting Features
 
-Use the [Feature Request template](https://github.com/Cainmani/ai-docker-cli-setup/issues/new?template=feature_request.yml) and include:
+Use the [Feature Request template](https://github.com/Cainmani/ai-docker-sandbox/issues/new?template=feature_request.yml) and include:
 
 1. **Problem statement** - what problem does this solve?
 2. **Proposed solution** - how should it work?
@@ -194,7 +194,7 @@ Use the [Feature Request template](https://github.com/Cainmani/ai-docker-cli-set
 
 ## Questions?
 
-Feel free to open a [Discussion](https://github.com/Cainmani/ai-docker-cli-setup/discussions) for questions or ideas that aren't bugs or feature requests.
+Feel free to open a [Discussion](https://github.com/Cainmani/ai-docker-sandbox/discussions) for questions or ideas that aren't bugs or feature requests.
 
 ---
 

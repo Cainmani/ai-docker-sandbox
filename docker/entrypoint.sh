@@ -154,12 +154,12 @@ TOOL_AUTH_DIR="/home/$USER_NAME/.tool-auth"
 mkdir -p "$TOOL_AUTH_DIR"
 
 # Create subdirs and symlink each tool's config path
-for tool_dir in gh openai gemini shell_gpt codex; do
+for tool_dir in gh openai gemini codex; do
     mkdir -p "$TOOL_AUTH_DIR/$tool_dir"
 done
 
 # Symlink ~/.config/<tool> directories
-for tool_dir in gh openai gemini shell_gpt; do
+for tool_dir in gh openai gemini; do
     config_path="/home/$USER_NAME/.config/$tool_dir"
     volume_path="$TOOL_AUTH_DIR/$tool_dir"
     if [ -d "$config_path" ] && [ ! -L "$config_path" ]; then

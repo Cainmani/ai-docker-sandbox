@@ -363,7 +363,7 @@ powershell -ExecutionPolicy Bypass -File fix_line_endings.ps1
 ## File Structure
 
 ```
-ai-docker-cli-setup/
+ai-docker-sandbox/
 ├── AI_Docker_Launcher.ps1        # Main menu (simple builds)
 ├── AI_Docker_Complete.ps1        # Template with Base64 placeholders (self-contained builds)
 ├── setup_wizard.ps1              # First-time setup (39KB, 7-page wizard)
@@ -796,7 +796,7 @@ BUILD_NOW.bat
 #### Option 2: PowerShell
 ```powershell
 # Open PowerShell in project directory
-cd C:\path\to\ai-docker-cli-setup
+cd C:\path\to\ai-docker-sandbox
 powershell -ExecutionPolicy Bypass -File build_complete_exe.ps1
 ```
 

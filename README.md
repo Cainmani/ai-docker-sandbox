@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Cainmani/ai-docker-cli-setup/releases/latest">
-    <img src="https://img.shields.io/badge/Download-v1.0.0-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
+  <a href="https://github.com/Cainmani/ai-docker-sandbox/releases/latest">
+    <img src="https://img.shields.io/badge/Download-v1.2.2-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
   &nbsp;
   <a href="LICENSE">
@@ -23,7 +23,7 @@
   <a href="#-features">Features</a> •
   <a href="docs/USER_MANUAL.md">User Manual</a> •
   <a href="CONTRIBUTING.md">Contributing</a> •
-  <a href="https://github.com/Cainmani/ai-docker-cli-setup/issues/new?template=bug_report.yml">Report Bug</a>
+  <a href="https://github.com/Cainmani/ai-docker-sandbox/issues/new?template=bug_report.yml">Report Bug</a>
 </p>
 
 ---
@@ -36,7 +36,7 @@
 
 ### Windows (Recommended)
 
-**[⬇️ Download AI_Docker_Manager.exe](https://github.com/Cainmani/ai-docker-cli-setup/releases/latest/download/AI_Docker_Manager.exe)**
+**[⬇️ Download AI_Docker_Manager.exe](https://github.com/Cainmani/ai-docker-sandbox/releases/latest/download/AI_Docker_Manager.exe)**
 
 > **Note:** Windows SmartScreen may show a warning because the app isn't code-signed.
 > Click **"More info"** → **"Run anyway"** to proceed.
@@ -107,7 +107,7 @@
 cd /workspace/my-project
 claude                    # Start Claude Code
 gh repo clone user/repo   # Use GitHub CLI
-sgpt "explain this code"  # Use Shell GPT
+codex "explain this code"  # Use OpenAI Codex
 ```
 
 > **Vibe Kanban Note:** Opens at `http://localhost:3000`. Runs agents with elevated permissions - always review changes before committing.
@@ -255,9 +255,9 @@ Invoke-ps2exe -inputFile "scripts/AI_Docker_Complete.ps1" -outputFile "AI_Docker
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-- 🐛 [Report a bug](https://github.com/Cainmani/ai-docker-cli-setup/issues/new?template=bug_report.yml)
-- 💡 [Request a feature](https://github.com/Cainmani/ai-docker-cli-setup/issues/new?template=feature_request.yml)
-- 📖 [Improve documentation](https://github.com/Cainmani/ai-docker-cli-setup/pulls)
+- 🐛 [Report a bug](https://github.com/Cainmani/ai-docker-sandbox/issues/new?template=bug_report.yml)
+- 💡 [Request a feature](https://github.com/Cainmani/ai-docker-sandbox/issues/new?template=feature_request.yml)
+- 📖 [Improve documentation](https://github.com/Cainmani/ai-docker-sandbox/pulls)
 
 ---
 

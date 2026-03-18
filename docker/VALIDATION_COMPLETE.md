@@ -85,7 +85,7 @@ Your changes have been implemented correctly and maintain full functionality whi
 
 ### 1. Build the Docker Image
 ```bash
-cd /workspace/ai-docker-cli-setup/docker
+cd /workspace/ai-docker-sandbox/docker
 docker build -t ai-cli .
 ```
 

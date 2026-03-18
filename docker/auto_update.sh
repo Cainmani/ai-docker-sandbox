@@ -131,7 +131,7 @@ apply_updates() {
     update_log ""
     update_log "${YELLOW}NOTE:${NC} This updates tools INSIDE the Docker container only."
     update_log "      To update the AI Docker Manager launcher app, download from:"
-    update_log "      https://github.com/Cainmani/ai-docker-cli-setup/releases/latest"
+    update_log "      https://github.com/Cainmani/ai-docker-sandbox/releases/latest"
     update_log ""
 
     # Note: Claude Code uses native installer and auto-updates in the background

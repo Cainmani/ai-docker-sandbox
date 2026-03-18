@@ -293,7 +293,7 @@ alias ai-explain="claude 'Explain this code:'"
 
 ## Support and Resources
 
-- **Documentation:** `/workspace/ai-docker-cli-setup/docs/`
+- **Documentation:** `/workspace/ai-docker-sandbox/docs/`
 - **Issues:** Report at GitHub repository
 - **Updates:** Check release notes in update logs
 
