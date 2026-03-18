@@ -4,7 +4,8 @@ BeforeAll {
     . "$PSScriptRoot/../scripts/wsl_config.ps1"
 }
 
-Describe 'Get-SystemMemoryGB' {
+# Get-CimInstance is Windows-only (WMI/CIM) — skip on Linux runners
+Describe 'Get-SystemMemoryGB' -Skip:(-not $IsWindows) {
     It 'Returns correct GB for a 16GB system' {
         Mock Get-CimInstance {
             [PSCustomObject]@{ TotalPhysicalMemory = 17179869184 }
@@ -33,7 +34,7 @@ Describe 'Get-SystemMemoryGB' {
     }
 }
 
-Describe 'Get-ProcessorCount' {
+Describe 'Get-ProcessorCount' -Skip:(-not $IsWindows) {
     It 'Returns count for single CPU' {
         Mock Get-CimInstance {
             [PSCustomObject]@{ NumberOfLogicalProcessors = 8 }
