@@ -193,7 +193,7 @@ run_auto_update() {
     # Create log file if it doesn't exist
     touch "$LOG_FILE"
     # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
-    chown $(whoami):$(whoami) "$LOG_FILE"
+    chown "$(whoami)":"$(whoami)" "$LOG_FILE"
 
     update_log "=========================================="
     update_log "${BLUE}[INFO]${NC} Starting auto-update check"
@@ -217,7 +217,7 @@ run_auto_update() {
     # Update the check timestamp
     date > "$UPDATE_CHECK_FILE"
     # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
-    chown $(whoami):$(whoami) "$UPDATE_CHECK_FILE"
+    chown "$(whoami)":"$(whoami)" "$UPDATE_CHECK_FILE"
 
     update_log "${BLUE}[INFO]${NC} Auto-update check completed"
     update_log "=========================================="

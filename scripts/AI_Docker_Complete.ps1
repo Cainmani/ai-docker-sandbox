@@ -28,10 +28,14 @@ if (-not (Test-Path $filesDir)) {
 
 # ============================================================
 # CENTRALIZED LOGGING SYSTEM
+# NOTE: Inline here because the .exe template runs before files are extracted.
+# Sub-scripts (launch_claude, launch_vibe_kanban) use the shared log_utils.ps1 module.
 # Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
 # ============================================================
 $script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
 $script:LogFile = Join-Path $script:LogDir "ai-docker.log"
+$script:LogComponent = "COMPLETE"
+$script:ContainerUsername = $null
 
 # Ensure log directory exists
 if (-not (Test-Path $script:LogDir)) {
@@ -40,53 +44,39 @@ if (-not (Test-Path $script:LogDir)) {
 
 function Sanitize-LogMessage {
     param([string]$Message)
-
-    # Sanitize Windows username in paths
+    if (-not $Message) { return $Message }
     $username = $env:USERNAME
     if ($username) {
         $Message = $Message -replace "\\$username\\", "\<USER>\"
         $Message = $Message -replace "/$username/", "/<USER>/"
     }
-
-    # Sanitize API keys (OpenAI sk-proj-... and sk-... patterns)
+    if ($script:ContainerUsername) {
+        $Message = $Message -replace "\b$([regex]::Escape($script:ContainerUsername))\b", "<USER>"
+    }
     $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
-
-    # Sanitize GitHub tokens
     $Message = $Message -replace "gh[pousr]_[a-zA-Z0-9]{36,}", "<REDACTED_TOKEN>"
-
-    # Sanitize generic tokens/secrets/passwords
     $Message = $Message -replace "([Tt]oken)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
     $Message = $Message -replace "([Ss]ecret)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
     $Message = $Message -replace "([Pp]assword)[=:]\s*[^\s]+", "`$1=<REDACTED>"
-
-    # Sanitize AWS keys
     $Message = $Message -replace "AKIA[A-Z0-9]{16}", "<REDACTED_AWS_KEY>"
-
-    # Sanitize Google Cloud API keys
     $Message = $Message -replace "AIza[a-zA-Z0-9_-]{35}", "<REDACTED_GCP_KEY>"
-
-    # Sanitize Bearer tokens
     $Message = $Message -replace "Bearer [a-zA-Z0-9_.-]{20,}", "Bearer <REDACTED>"
-
-    # Sanitize JWT tokens
     $Message = $Message -replace "eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*", "<REDACTED_JWT>"
-
     return $Message
 }
 
 function Write-AppLog {
     param(
         [string]$Message,
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+        [string]$Component = $script:LogComponent
     )
     try {
-        # Sanitize BEFORE writing
         $sanitizedMessage = Sanitize-LogMessage -Message $Message
-
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-        $logEntry = "[$timestamp] [$Level] [COMPLETE] $sanitizedMessage"
+        $logEntry = "[$timestamp] [$Level] [$Component] $sanitizedMessage"
         Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
     } catch {
         # Silently fail if logging doesn't work - don't break the app
@@ -160,6 +150,7 @@ $script:EmbeddedFiles = @{
     'wsl_config.ps1' = 'WSL_CONFIG_PS1_BASE64_HERE'
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
+    'log_utils.ps1' = 'LOG_UTILS_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
@@ -570,6 +561,14 @@ $btnSetup.Add_Click({
                 Write-AppLog "WARNING: wsl_config.ps1 not found in embedded resources - WSL detection may fail" "WARN"
             }
 
+            # Extract log_utils.ps1 (dot-sourced by launch scripts for shared logging)
+            $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
+            if ($logUtilsContent) {
+                $logUtilsScript = Join-Path $filesDir "log_utils.ps1"
+                [System.IO.File]::WriteAllText($logUtilsScript, $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "Log utils helper written to: [$logUtilsScript]" "DEBUG"
+            }
+
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
                 [System.Windows.Forms.Application]::DoEvents()
@@ -742,10 +741,16 @@ $btnLaunch.Add_Click({
         $launchContent = Get-EmbeddedFileContent 'launch_claude.ps1'
         if ($launchContent) {
             Write-AppLog "Launch script loaded successfully" "DEBUG"
-            # Extract launch script to subfolder
+            # Extract launch script and its dependencies to subfolder
             $launchScript = Join-Path $filesDir "launch_claude.ps1"
             Write-AppLog "Writing launch script to: [$launchScript]" "DEBUG"
             [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
+
+            # Extract log_utils.ps1 (dot-sourced by launch script)
+            $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
+            if ($logUtilsContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+            }
             Write-AppLog "Launch script written successfully" "DEBUG"
 
             $form.Hide()
@@ -855,10 +860,16 @@ $btnVibeKanban.Add_Click({
             $vibeContent = Get-EmbeddedFileContent 'launch_vibe_kanban.ps1'
             if ($vibeContent) {
                 Write-AppLog "Vibe Kanban launch script loaded successfully" "DEBUG"
-                # Extract launch script to subfolder
+                # Extract launch script and its dependencies to subfolder
                 $vibeScript = Join-Path $filesDir "launch_vibe_kanban.ps1"
                 Write-AppLog "Writing Vibe Kanban script to: [$vibeScript]" "DEBUG"
                 [System.IO.File]::WriteAllText($vibeScript, $vibeContent, [System.Text.UTF8Encoding]::new($false))
+
+                # Extract log_utils.ps1 (dot-sourced by launch script)
+                $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
+                if ($logUtilsContent) {
+                    [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+                }
                 Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
 
                 $form.Hide()

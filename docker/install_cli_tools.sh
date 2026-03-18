@@ -612,5 +612,5 @@ fi
 
 # Set proper permissions (run regardless of success/failure)
 if [ -d "${HOME}" ]; then
-    sudo chown -R $(whoami):$(whoami) ${HOME}/ 2>/dev/null || true
+    sudo chown -R "$(whoami)":"$(whoami)" "${HOME}/" 2>/dev/null || true
 fi
