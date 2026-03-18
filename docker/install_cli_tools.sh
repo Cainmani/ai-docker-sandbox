@@ -252,12 +252,6 @@ get_version() {
         codex)
             codex --version 2>/dev/null | head -n1 || echo "not installed"
             ;;
-        aider)
-            aider --version 2>/dev/null || echo "not installed"
-            ;;
-        cursor)
-            cursor --version 2>/dev/null || echo "not installed"
-            ;;
         vibe-kanban)
             npm list -g vibe-kanban 2>/dev/null | grep 'vibe-kanban' | cut -d'@' -f2 || echo "not installed"
             ;;
@@ -274,8 +268,6 @@ save_versions() {
     echo "claude=$(get_version claude)" >> "$TOOLS_VERSION_FILE"
     echo "gemini=$(get_version gemini)" >> "$TOOLS_VERSION_FILE"
     echo "codex=$(get_version codex)" >> "$TOOLS_VERSION_FILE"
-    echo "aider=$(get_version aider)" >> "$TOOLS_VERSION_FILE"
-    echo "cursor=$(get_version cursor)" >> "$TOOLS_VERSION_FILE"
     echo "vibe-kanban=$(get_version vibe-kanban)" >> "$TOOLS_VERSION_FILE"
 }
 

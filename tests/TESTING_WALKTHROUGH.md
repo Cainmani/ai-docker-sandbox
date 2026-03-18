@@ -15,7 +15,7 @@
 
 ```powershell
 # Open PowerShell in project directory
-cd C:\path\to\ai-docker-cli-setup
+cd C:\path\to\ai-docker-sandbox
 
 # Run automated tests
 powershell -ExecutionPolicy Bypass -File run_tests.ps1

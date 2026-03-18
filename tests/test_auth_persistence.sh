@@ -78,11 +78,11 @@ run_tool_auth_logic() {
     TOOL_AUTH_DIR="$HOME/.tool-auth"
     mkdir -p "$TOOL_AUTH_DIR"
 
-    for tool_dir in gh openai gemini shell_gpt codex; do
+    for tool_dir in gh openai gemini codex; do
         mkdir -p "$TOOL_AUTH_DIR/$tool_dir"
     done
 
-    for tool_dir in gh openai gemini shell_gpt; do
+    for tool_dir in gh openai gemini; do
         config_path="$HOME/.config/$tool_dir"
         volume_path="$TOOL_AUTH_DIR/$tool_dir"
         if [ -d "$config_path" ] && [ ! -L "$config_path" ]; then
@@ -113,7 +113,6 @@ assert_file_contains "claude root json has onboarding key" "$HOME/.claude/_claud
 assert_symlink "~/.config/gh is symlink" "$HOME/.config/gh" "$HOME/.tool-auth/gh"
 assert_symlink "~/.config/openai is symlink" "$HOME/.config/openai" "$HOME/.tool-auth/openai"
 assert_symlink "~/.config/gemini is symlink" "$HOME/.config/gemini" "$HOME/.tool-auth/gemini"
-assert_symlink "~/.config/shell_gpt is symlink" "$HOME/.config/shell_gpt" "$HOME/.tool-auth/shell_gpt"
 assert_symlink "~/.codex is symlink" "$HOME/.codex" "$HOME/.tool-auth/codex"
 # Writing through symlink should land in volume
 echo "test-token" > "$HOME/.config/gh/hosts.yml"
@@ -145,7 +144,7 @@ setup
 # Simulate volume already having data from a previous run
 # (subdirs exist because a prior entrypoint created them)
 echo '{"hasCompletedOnboarding":true,"userId":"u123"}' > "$HOME/.claude/_claude_root.json"
-for d in gh openai gemini shell_gpt codex; do mkdir -p "$HOME/.tool-auth/$d"; done
+for d in gh openai gemini codex; do mkdir -p "$HOME/.tool-auth/$d"; done
 echo "gh-existing" > "$HOME/.tool-auth/gh/hosts.yml"
 echo "sk-existing" > "$HOME/.tool-auth/openai/api_key"
 echo '{"token":"existing"}' > "$HOME/.tool-auth/codex/auth.json"
@@ -166,10 +165,10 @@ setup
 # First run
 echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude/_claude_root.json"
 ln -sf "$HOME/.claude/_claude_root.json" "$HOME/.claude.json"
-for tool_dir in gh openai gemini shell_gpt codex; do
+for tool_dir in gh openai gemini codex; do
     mkdir -p "$HOME/.tool-auth/$tool_dir"
 done
-for tool_dir in gh openai gemini shell_gpt; do
+for tool_dir in gh openai gemini; do
     ln -sfn "$HOME/.tool-auth/$tool_dir" "$HOME/.config/$tool_dir"
 done
 ln -sfn "$HOME/.tool-auth/codex" "$HOME/.codex"

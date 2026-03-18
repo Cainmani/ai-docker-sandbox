@@ -213,22 +213,9 @@ fi
 BASHRC_EOF
             fi
 
-            # Configure shell-gpt (write key safely using printf)
-            mkdir -p "${HOME}/.config/shell_gpt"
-            cat > "${HOME}/.config/shell_gpt/.sgptrc" << 'SGPT_EOF'
-DEFAULT_MODEL=gpt-4
-CHAT_CACHE_PATH=/tmp/sgpt_cache
-CHAT_CACHE_LENGTH=100
-REQUEST_TIMEOUT=60
-DEFAULT_COLOR=magenta
-SGPT_EOF
-            printf 'OPENAI_API_KEY=%s\n' "$api_key" >> "${HOME}/.config/shell_gpt/.sgptrc"
-            chmod 600 "${HOME}/.config/shell_gpt/.sgptrc"
-
             export OPENAI_API_KEY="$api_key"
             print_success "OpenAI API configured successfully"
             config_log "INFO" "OpenAI: API key configured"
-            echo "You can now use: sgpt, aider, and other OpenAI-based tools"
         else
             print_warning "No API key provided, skipping OpenAI configuration"
             config_log "WARN" "OpenAI: configuration skipped (no API key provided)"

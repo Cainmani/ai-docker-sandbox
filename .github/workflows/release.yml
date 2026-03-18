@@ -8,8 +8,15 @@ on:
 permissions:
   contents: write
 
+# Prevent duplicate release builds if a tag is pushed multiple times
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-release:
+    # ps2exe compiles PowerShell to a Windows .NET Framework .exe — Windows is required.
+    # This job cannot run on the self-hosted Ubuntu runner.
     runs-on: windows-latest
 
     steps:
