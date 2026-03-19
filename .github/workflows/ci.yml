@@ -113,12 +113,16 @@ jobs:
       - name: Run bash tests
         shell: bash
         run: |
-          set -e
+          exit_code=0
           for test_file in tests/test_*.sh; do
             echo "=== Running $test_file ==="
             chmod +x "$test_file"
-            bash "$test_file"
+            if ! bash "$test_file"; then
+              echo "FAILED: $test_file"
+              exit_code=1
+            fi
           done
+          exit $exit_code
 
       - name: Upload test results
         if: always()

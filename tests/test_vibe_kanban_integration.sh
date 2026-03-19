@@ -16,13 +16,13 @@ TESTS_FAILED=0
 
 pass() {
     echo -e "${GREEN}[PASS]${NC} $1"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}[FAIL]${NC} $1"
     echo -e "       $2"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 header() {
@@ -54,10 +54,10 @@ else
     fail "docker-compose.yml missing ports section" "Port mapping not configured"
 fi
 
-if grep -q "3000:.*3000" docker/docker-compose.yml; then
-    pass "docker-compose.yml maps port 3000"
+if grep -q '${VIBE_KANBAN_PORT:-3000}' docker/docker-compose.yml; then
+    pass "docker-compose.yml maps Vibe Kanban port"
 else
-    fail "docker-compose.yml not mapping port 3000" "Port mapping incorrect"
+    fail "docker-compose.yml not mapping Vibe Kanban port" "Port mapping incorrect"
 fi
 
 if grep -q "vibe-kanban-data" docker/docker-compose.yml; then
@@ -92,10 +92,11 @@ fi
 echo ""
 echo "Testing auto_update.sh changes..."
 
-if grep -q "vibe-kanban" docker/auto_update.sh; then
-    pass "auto_update.sh includes vibe-kanban in update checks"
+# vibe-kanban is updated via "npm update -g" (covers all global npm packages)
+if grep -q "npm update -g" docker/auto_update.sh; then
+    pass "auto_update.sh updates global npm packages (includes vibe-kanban)"
 else
-    fail "auto_update.sh missing vibe-kanban" "Auto-update not configured"
+    fail "auto_update.sh missing npm update" "Auto-update not configured"
 fi
 
 # Test 4: launch_vibe_kanban.ps1 exists
