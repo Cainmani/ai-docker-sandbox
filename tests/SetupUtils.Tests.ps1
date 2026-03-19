@@ -82,3 +82,53 @@ Describe 'Replace-PasswordWithPlaceholder' {
         Join-Path $TestDrive '.secrets' | Should -Exist
     }
 }
+
+Describe 'Test-NpmFunctional' {
+    It 'Returns Valid=$false with NeedsInstall when npm not found' {
+        Mock Get-Command { $null }
+        $result = Test-NpmFunctional
+        $result.Valid | Should -BeFalse
+        $result.NeedsInstall | Should -BeTrue
+        $result.Error | Should -Match 'not found'
+    }
+
+    It 'Returns Valid=$true with version when npm works' -Skip:(-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        # Only runs if npm is actually installed on the CI runner
+        $result = Test-NpmFunctional
+        $result.Valid | Should -BeTrue
+        $result.Version | Should -Not -BeNullOrEmpty
+    }
+
+    It 'Returns hashtable with expected keys on failure' {
+        Mock Get-Command { $null }
+        $result = Test-NpmFunctional
+        $result | Should -BeOfType [hashtable]
+        $result.ContainsKey('Valid') | Should -BeTrue
+        $result.ContainsKey('Error') | Should -BeTrue
+    }
+
+    It 'Returns NeedsRepair when npm execution throws' {
+        Mock Get-Command { [PSCustomObject]@{ Source = '/usr/bin/npm' } }
+        Mock npm { throw 'execution failed' }
+        $result = Test-NpmFunctional
+        $result.Valid | Should -BeFalse
+        $result.NeedsRepair | Should -BeTrue
+    }
+}
+
+Describe 'Repair-NpmInstallation' {
+    It 'Returns result from Test-NpmFunctional' {
+        Mock Get-Command { $null }
+        Mock npm { }
+        $result = Repair-NpmInstallation
+        # After repair attempt, it calls Test-NpmFunctional
+        # With npm mocked to not exist, should return Valid=$false
+        $result.Valid | Should -BeFalse
+    }
+
+    It 'Does not throw on PATH refresh failure' {
+        Mock Get-Command { $null }
+        Mock npm { }
+        { Repair-NpmInstallation } | Should -Not -Throw
+    }
+}

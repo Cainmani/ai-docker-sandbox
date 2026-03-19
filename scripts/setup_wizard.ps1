@@ -116,65 +116,6 @@ function Show-Info([string]$msg) {
     [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Information') | Out-Null
 }
 
-# Function to validate npm is working correctly (prevents "Unknown command: pm" errors)
-# NOTE: Parallel implementation exists in docker/install_cli_tools.sh (validate_npm)
-#       for the Linux container. Keep both in sync when making changes.
-function Test-NpmFunctional {
-    Write-Host "[INFO] Validating npm installation..." -ForegroundColor Cyan
-
-    # Check if npm command exists
-    $npmPath = Get-Command npm -ErrorAction SilentlyContinue
-    if (-not $npmPath) {
-        Write-Host "[ERROR] npm not found in PATH" -ForegroundColor Red
-        return @{ Valid = $false; Error = "npm not found in PATH"; NeedsInstall = $true }
-    }
-
-    # Verify npm can actually execute (catches "Unknown command: pm" type errors)
-    try {
-        $npmVersion = & npm --version 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "[ERROR] npm --version failed: $npmVersion" -ForegroundColor Red
-            return @{ Valid = $false; Error = "npm not functioning: $npmVersion"; NeedsRepair = $true }
-        }
-    } catch {
-        Write-Host "[ERROR] npm execution failed: $($_.Exception.Message)" -ForegroundColor Red
-        return @{ Valid = $false; Error = $_.Exception.Message; NeedsRepair = $true }
-    }
-
-    # Test npm can list global packages
-    try {
-        $listResult = & npm list -g --depth=0 2>&1
-        if ($LASTEXITCODE -ne 0 -and $listResult -notmatch "empty") {
-            Write-Host "[WARNING] npm global list had issues, but may still work" -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "[WARNING] Could not list npm global packages" -ForegroundColor Yellow
-    }
-
-    Write-Host "[OK] npm is functional (version: $npmVersion)" -ForegroundColor Green
-    return @{ Valid = $true; Version = $npmVersion; Path = $npmPath.Source }
-}
-
-# Function to attempt npm repair
-# NOTE: Parallel implementation exists in docker/install_cli_tools.sh (repair_npm)
-function Repair-NpmInstallation {
-    Write-Host "[INFO] Attempting to repair npm installation..." -ForegroundColor Yellow
-
-    # Refresh PATH from system
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-    # Clear npm cache
-    try {
-        & npm cache clean --force 2>&1 | Out-Null
-        Write-Host "[INFO] npm cache cleared" -ForegroundColor Cyan
-    } catch {
-        Write-Host "[WARNING] Could not clear npm cache" -ForegroundColor Yellow
-    }
-
-    # Re-test npm
-    return Test-NpmFunctional
-}
-
 $script:runningProcess = $null
 
 # ============================================================
