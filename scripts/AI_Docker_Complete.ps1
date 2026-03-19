@@ -151,6 +151,8 @@ $script:EmbeddedFiles = @{
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
     'log_utils.ps1' = 'LOG_UTILS_PS1_BASE64_HERE'
+    'docker_helpers.ps1' = 'DOCKER_HELPERS_PS1_BASE64_HERE'
+    'setup_utils.ps1' = 'SETUP_UTILS_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
@@ -569,6 +571,14 @@ $btnSetup.Add_Click({
                 Write-AppLog "Log utils helper written to: [$logUtilsScript]" "DEBUG"
             }
 
+            # Extract setup_utils.ps1 (dot-sourced by setup_wizard.ps1 for Fix-LineEndings and password cleanup)
+            $setupUtilsContent = Get-EmbeddedFileContent 'setup_utils.ps1'
+            if ($setupUtilsContent) {
+                $setupUtilsScript = Join-Path $filesDir "setup_utils.ps1"
+                [System.IO.File]::WriteAllText($setupUtilsScript, $setupUtilsContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "Setup utils helper written to: [$setupUtilsScript]" "DEBUG"
+            }
+
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
                 [System.Windows.Forms.Application]::DoEvents()
@@ -746,10 +756,14 @@ $btnLaunch.Add_Click({
             Write-AppLog "Writing launch script to: [$launchScript]" "DEBUG"
             [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
 
-            # Extract log_utils.ps1 (dot-sourced by launch script)
+            # Extract log_utils.ps1 and docker_helpers.ps1 (dot-sourced by launch script)
             $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
             if ($logUtilsContent) {
                 [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+            }
+            $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
+            if ($dockerHelpersContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
             }
             Write-AppLog "Launch script written successfully" "DEBUG"
 
@@ -865,10 +879,14 @@ $btnVibeKanban.Add_Click({
                 Write-AppLog "Writing Vibe Kanban script to: [$vibeScript]" "DEBUG"
                 [System.IO.File]::WriteAllText($vibeScript, $vibeContent, [System.Text.UTF8Encoding]::new($false))
 
-                # Extract log_utils.ps1 (dot-sourced by launch script)
+                # Extract log_utils.ps1 and docker_helpers.ps1 (dot-sourced by launch script)
                 $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
                 if ($logUtilsContent) {
                     [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+                }
+                $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
+                if ($dockerHelpersContent) {
+                    [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
                 }
                 Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
 

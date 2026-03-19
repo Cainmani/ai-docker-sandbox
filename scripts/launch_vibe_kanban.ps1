@@ -9,6 +9,7 @@ Add-Type -AssemblyName System.Windows.Forms
 # ============================================================
 $script:LogComponent = "VIBE_KANBAN"
 . "$PSScriptRoot\log_utils.ps1"
+. "$PSScriptRoot\docker_helpers.ps1"
 
 Write-AppLog "========================================" "INFO"
 Write-AppLog "Vibe Kanban Launcher Started" "INFO"
@@ -28,44 +29,6 @@ Write-AppLog "Script path: [$scriptPath]" "DEBUG"
 
 function ShowMsg($text, $icon='Information') {
     [System.Windows.Forms.MessageBox]::Show($text, "Vibe Kanban Launcher", 'OK', $icon) | Out-Null
-}
-
-function Find-Docker() {
-    Write-AppLog "Finding Docker executable..." "DEBUG"
-    $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
-    if ($dockerCmd) {
-        Write-AppLog "Docker found in PATH: $($dockerCmd.Source)" "DEBUG"
-        return $dockerCmd.Source
-    }
-
-    $possiblePaths = @(
-        "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe",
-        "${env:ProgramFiles(x86)}\Docker\Docker\resources\bin\docker.exe",
-        "$env:ProgramW6432\Docker\Docker\resources\bin\docker.exe"
-    )
-
-    foreach ($path in $possiblePaths) {
-        if (Test-Path $path) {
-            Write-AppLog "Docker found at: $path" "DEBUG"
-            return $path
-        }
-    }
-
-    Write-AppLog "Docker executable not found" "WARN"
-    return $null
-}
-
-function DockerOk() {
-    Write-AppLog "Checking if Docker is running..." "DEBUG"
-    try {
-        $dockerPath = Find-Docker
-        if (-not $dockerPath) { return $false }
-        $p = Start-Process -FilePath $dockerPath -ArgumentList "info" -WindowStyle Hidden -PassThru -Wait
-        return $p.ExitCode -eq 0
-    } catch {
-        Write-AppLog "Error checking Docker status: $($_.Exception.Message)" "ERROR"
-        return $false
-    }
 }
 
 # ============================================================
