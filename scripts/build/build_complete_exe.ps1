@@ -23,6 +23,8 @@ $filesToEmbed = @(
    "..\launch_claude.ps1",
    "..\launch_vibe_kanban.ps1",
    "..\log_utils.ps1",
+   "..\docker_helpers.ps1",
+   "..\setup_utils.ps1",
    "..\..\docker\docker-compose.yml",
    "..\..\docker\Dockerfile",
    "..\..\docker\.dockerignore",
