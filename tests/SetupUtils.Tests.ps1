@@ -6,39 +6,41 @@ BeforeAll {
 
 Describe 'Fix-LineEndings' {
     BeforeEach {
-        $dockerDir = Join-Path $TestDrive 'docker'
-        New-Item -ItemType Directory -Path $dockerDir -Force | Out-Null
+        # Fix-LineEndings looks for files relative to scriptPath:
+        # - If path contains 'AI-Docker-CLI*docker-files', looks in scriptPath directly
+        # - Otherwise, looks in scriptPath/../docker
+        # We simulate the embedded exe path so it looks in our test dir directly
+        $script:TestDockerDir = Join-Path $TestDrive 'AI-Docker-CLI' 'docker-files'
+        New-Item -ItemType Directory -Path $script:TestDockerDir -Force | Out-Null
     }
 
     It 'Converts CRLF to LF in shell scripts' {
-        $file = Join-Path $TestDrive 'docker' 'entrypoint.sh'
+        $file = Join-Path $script:TestDockerDir 'entrypoint.sh'
         $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
         [System.IO.File]::WriteAllText($file, "#!/bin/bash`r`necho hello`r`n", $utf8NoBom)
-        Fix-LineEndings -scriptPath $TestDrive | Out-Null
+        Fix-LineEndings -scriptPath $script:TestDockerDir | Out-Null
         $content = [System.IO.File]::ReadAllText($file)
-        $content | Should -Not -Match "`r`n"
-        $content | Should -Match "`n"
+        $content | Should -Not -Match "`r"
     }
 
     It 'Returns $true when files were fixed' {
-        $file = Join-Path $TestDrive 'docker' 'entrypoint.sh'
+        $file = Join-Path $script:TestDockerDir 'entrypoint.sh'
         $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
         [System.IO.File]::WriteAllText($file, "line1`r`nline2`r`n", $utf8NoBom)
-        $result = Fix-LineEndings -scriptPath $TestDrive
+        $result = Fix-LineEndings -scriptPath $script:TestDockerDir
         $result | Should -BeTrue
     }
 
     It 'Returns $false when no files need fixing' {
-        $file = Join-Path $TestDrive 'docker' 'entrypoint.sh'
+        $file = Join-Path $script:TestDockerDir 'entrypoint.sh'
         $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
         [System.IO.File]::WriteAllText($file, "line1`nline2`n", $utf8NoBom)
-        $result = Fix-LineEndings -scriptPath $TestDrive
+        $result = Fix-LineEndings -scriptPath $script:TestDockerDir
         $result | Should -BeFalse
     }
 
     It 'Returns $false when target files do not exist' {
-        # docker dir exists but no shell scripts in it
-        $result = Fix-LineEndings -scriptPath $TestDrive
+        $result = Fix-LineEndings -scriptPath $script:TestDockerDir
         $result | Should -BeFalse
     }
 }
