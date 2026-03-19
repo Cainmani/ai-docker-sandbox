@@ -110,6 +110,20 @@ jobs:
           $config.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $config
 
+      - name: Run bash tests
+        shell: bash
+        run: |
+          exit_code=0
+          for test_file in tests/test_*.sh; do
+            echo "=== Running $test_file ==="
+            chmod +x "$test_file"
+            if ! bash "$test_file"; then
+              echo "FAILED: $test_file"
+              exit_code=1
+            fi
+          done
+          exit $exit_code
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -4,54 +4,11 @@
 Add-Type -AssemblyName System.Windows.Forms  # Only needed for error dialogs
 
 # ============================================================
-# CENTRALIZED LOGGING SYSTEM
+# CENTRALIZED LOGGING SYSTEM (shared module)
 # Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
 # ============================================================
-$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
-$script:LogFile = Join-Path $script:LogDir "ai-docker.log"
-
-# Ensure log directory exists
-if (-not (Test-Path $script:LogDir)) {
-    New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
-}
-
-# Container username read from .env (set later, used by Sanitize-LogMessage)
-$script:ContainerUsername = $null
-
-function Sanitize-LogMessage {
-    param([string]$Message)
-    # Redact Windows username in paths
-    $username = $env:USERNAME
-    if ($username) {
-        $Message = $Message -replace "\\$username\\", "\<USER>\"
-        $Message = $Message -replace "/$username/", "/<USER>/"
-    }
-    # Redact container username (from .env) in log messages
-    if ($script:ContainerUsername) {
-        $Message = $Message -replace "\b$([regex]::Escape($script:ContainerUsername))\b", "<USER>"
-    }
-    $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
-    $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
-    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
-    $Message = $Message -replace "gh[pousr]_[a-zA-Z0-9]{36,}", "<REDACTED_TOKEN>"
-    $Message = $Message -replace "([Pp]assword)[=:]\s*[^\s]+", "`$1=<REDACTED>"
-    return $Message
-}
-
-function Write-AppLog {
-    param(
-        [string]$Message,
-        [string]$Level = "INFO"  # INFO, WARN, ERROR, DEBUG
-    )
-    try {
-        $sanitizedMessage = Sanitize-LogMessage -Message $Message
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-        $logEntry = "[$timestamp] [$Level] [LAUNCH_CLAUDE] $sanitizedMessage"
-        Add-Content -Path $script:LogFile -Value $logEntry -ErrorAction SilentlyContinue
-    } catch {
-        # Silently fail if logging doesn't work - don't break the app
-    }
-}
+$script:LogComponent = "LAUNCH_CLAUDE"
+. "$PSScriptRoot\log_utils.ps1"
 
 Write-AppLog "========================================" "INFO"
 Write-AppLog "Launch Claude Script Started (Direct Launch Mode)" "INFO"

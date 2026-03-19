@@ -34,7 +34,7 @@ jobs:
       - name: Install ps2exe
         shell: pwsh
         run: |
-          Install-Module -Name ps2exe -Force -Scope CurrentUser
+          Install-Module -Name ps2exe -RequiredVersion 1.0.17 -Force -Scope CurrentUser
           Import-Module ps2exe
 
       - name: Build executable

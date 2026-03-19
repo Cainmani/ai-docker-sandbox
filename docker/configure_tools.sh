@@ -378,53 +378,54 @@ show_status() {
 
 # Function for interactive configuration
 interactive_configure() {
-    clear
-    print_header "AI CLI Tools Configuration Wizard"
-    echo ""
-    echo "This wizard will help you configure various AI CLI tools."
-    echo "You can skip any tool and configure it later."
-    echo ""
+    while true; do
+        clear
+        print_header "AI CLI Tools Configuration Wizard"
+        echo ""
+        echo "This wizard will help you configure various AI CLI tools."
+        echo "You can skip any tool and configure it later."
+        echo ""
 
-    show_status
+        show_status
 
-    echo "Select tools to configure:"
-    echo ""
-    echo "1. Claude Code CLI"
-    echo "2. GitHub CLI"
-    echo "3. OpenAI/GPT Tools (Python SDK)"
-    echo "4. OpenAI Codex CLI"
-    echo "5. Google Gemini"
-    echo "A. Configure All"
-    echo "0. Exit"
-    echo ""
+        echo "Select tools to configure:"
+        echo ""
+        echo "1. Claude Code CLI"
+        echo "2. GitHub CLI"
+        echo "3. OpenAI/GPT Tools (Python SDK)"
+        echo "4. OpenAI Codex CLI"
+        echo "5. Google Gemini"
+        echo "A. Configure All"
+        echo "0. Exit"
+        echo ""
 
-    read -rp "Enter your choice (0-5, A): " choice
+        read -rp "Enter your choice (0-5, A): " choice
 
-    case $choice in
-        1) configure_claude; interactive_configure ;;
-        2) configure_github; interactive_configure ;;
-        3) configure_openai; interactive_configure ;;
-        4) configure_codex; interactive_configure ;;
-        5) configure_gemini; interactive_configure ;;
-        [Aa])
-            configure_claude
-            configure_github
-            configure_openai
-            configure_codex
-            configure_gemini
-            show_status
-            ;;
-        0)
-            echo "Configuration complete!"
-            show_status
-            exit 0
-            ;;
-        *)
-            print_error "Invalid choice"
-            sleep 2
-            interactive_configure
-            ;;
-    esac
+        case $choice in
+            1) configure_claude ;;
+            2) configure_github ;;
+            3) configure_openai ;;
+            4) configure_codex ;;
+            5) configure_gemini ;;
+            [Aa])
+                configure_claude
+                configure_github
+                configure_openai
+                configure_codex
+                configure_gemini
+                show_status
+                ;;
+            0)
+                echo "Configuration complete!"
+                show_status
+                exit 0
+                ;;
+            *)
+                print_error "Invalid choice"
+                sleep 2
+                ;;
+        esac
+    done
 }
 
 # Main execution
