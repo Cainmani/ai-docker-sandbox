@@ -3,11 +3,16 @@
 # Usage: . "$PSScriptRoot\log_utils.ps1"
 
 # Log file location: %LOCALAPPDATA%\AI-Docker-CLI\logs\ai-docker.log
-$script:LogDir = Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+# On non-Windows (e.g., Linux CI), fall back to temp directory
+$script:LogDir = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA "AI-Docker-CLI\logs"
+} else {
+    Join-Path ([System.IO.Path]::GetTempPath()) "AI-Docker-CLI\logs"
+}
 $script:LogFile = Join-Path $script:LogDir "ai-docker.log"
 
 # Ensure log directory exists
-if ($env:LOCALAPPDATA -and -not (Test-Path $script:LogDir)) {
+if (-not (Test-Path $script:LogDir)) {
     New-Item -ItemType Directory -Path $script:LogDir -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
