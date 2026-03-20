@@ -153,6 +153,7 @@ $script:EmbeddedFiles = @{
     'log_utils.ps1' = 'LOG_UTILS_PS1_BASE64_HERE'
     'docker_helpers.ps1' = 'DOCKER_HELPERS_PS1_BASE64_HERE'
     'setup_utils.ps1' = 'SETUP_UTILS_PS1_BASE64_HERE'
+    'env_utils.ps1' = 'ENV_UTILS_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
@@ -765,6 +766,10 @@ $btnLaunch.Add_Click({
             if ($dockerHelpersContent) {
                 [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
             }
+            $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
+            if ($envUtilsContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
+            }
             Write-AppLog "Launch script written successfully" "DEBUG"
 
             $form.Hide()
@@ -887,6 +892,10 @@ $btnVibeKanban.Add_Click({
                 $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
                 if ($dockerHelpersContent) {
                     [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
+                }
+                $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
+                if ($envUtilsContent) {
+                    [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
                 }
                 Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
 

@@ -10,6 +10,7 @@ Add-Type -AssemblyName System.Windows.Forms  # Only needed for error dialogs
 $script:LogComponent = "LAUNCH_CLAUDE"
 . "$PSScriptRoot\log_utils.ps1"
 . "$PSScriptRoot\docker_helpers.ps1"
+. "$PSScriptRoot\env_utils.ps1"
 
 Write-AppLog "========================================" "INFO"
 Write-AppLog "Launch Claude Script Started (Direct Launch Mode)" "INFO"
@@ -138,40 +139,29 @@ if ($containerStatus -ne "ai-cli") {
 }
 
 # Read username from .env file - REQUIRED, no fallback
-$userName = $null
 Write-AppLog "Reading username from .env..." "DEBUG"
+$envFile = Join-Path $scriptPath ".env"
+Write-AppLog "Attempting to read .env from: [$envFile]" "DEBUG"
+$envData = Read-EnvFile -Path $envFile
 
-try {
-    $envFile = Join-Path $scriptPath ".env"
-    Write-AppLog "Attempting to read .env from: [$envFile]" "DEBUG"
-
-    if (Test-Path $envFile) {
-        Write-AppLog ".env file found, reading username..." "DEBUG"
-        $envContent = Get-Content $envFile
-        foreach ($line in $envContent) {
-            if ($line -match '^USER_NAME=(.+)$') {
-                $userName = $matches[1]
-                $script:ContainerUsername = $userName
-                Write-AppLog "Username from .env: [$userName]" "DEBUG"
-                break
-            }
-        }
-    } else {
-        Write-AppLog ".env file not found at [$envFile]" "ERROR"
-    }
-} catch {
-    Write-AppLog "ERROR reading .env file: $($_.Exception.Message)" "ERROR"
+if ($envData.Count -eq 0) {
+    Write-AppLog ".env file not found or empty at [$envFile]" "ERROR"
 }
 
-# If username not found, show error and exit - do NOT use fallback
+$userResult = Get-EnvVar -EnvData $envData -Name 'USER_NAME' -ValidationPattern '^[a-z_][a-z0-9_-]{0,31}$'
+$userName = $userResult.Value
+if ($userName) {
+    $script:ContainerUsername = $userName
+    Write-AppLog "Username from .env: [$userName]" "DEBUG"
+}
+
 if (-not $userName) {
     Write-AppLog "ERROR: Could not determine username - .env file missing or invalid" "ERROR"
     ShowMsg "Configuration error: .env file is missing or invalid.`n`nPlease run 'First Time Setup' again to fix this." 'Error'
     exit 1
 }
 
-# Validate username format to prevent command injection
-if ($userName -notmatch '^[a-z_][a-z0-9_-]{0,31}$') {
+if (-not $userResult.Valid) {
     Write-AppLog "ERROR: Invalid username format in .env: [$userName]" "ERROR"
     ShowMsg "Configuration error: invalid username '$userName' in .env file.`n`nPlease run 'First Time Setup' again." 'Error'
     exit 1
