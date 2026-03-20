@@ -129,3 +129,35 @@ Describe 'Repair-NpmInstallation' {
         { Repair-NpmInstallation } | Should -Not -Throw
     }
 }
+
+Describe 'New-SecurePasswordFile' {
+    It 'Creates password file with correct content' {
+        $dockerPath = Join-Path $TestDrive 'docker-test'
+        New-Item -ItemType Directory -Path $dockerPath -Force | Out-Null
+        $result = New-SecurePasswordFile -Password 'testpass123' -DockerPath $dockerPath
+        $content = [System.IO.File]::ReadAllText($result)
+        $content | Should -Be 'testpass123'
+    }
+
+    It 'Creates .secrets directory if missing' {
+        $dockerPath = Join-Path $TestDrive 'docker-test2'
+        New-SecurePasswordFile -Password 'pass' -DockerPath $dockerPath | Out-Null
+        Join-Path $dockerPath '.secrets' | Should -Exist
+    }
+
+    It 'Returns path to created file' {
+        $dockerPath = Join-Path $TestDrive 'docker-test3'
+        $result = New-SecurePasswordFile -Password 'pass' -DockerPath $dockerPath
+        $result | Should -Not -BeNullOrEmpty
+        $result | Should -Exist
+        $result | Should -BeLike '*.secrets*password.txt'
+    }
+
+    It 'Sets restrictive ACL permissions' -Skip:(-not $IsWindows) {
+        $dockerPath = Join-Path $TestDrive 'docker-test4'
+        $result = New-SecurePasswordFile -Password 'pass' -DockerPath $dockerPath
+        $acl = Get-Acl $result
+        # Should have inheritance disabled
+        $acl.AreAccessRulesProtected | Should -BeTrue
+    }
+}

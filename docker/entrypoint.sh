@@ -33,7 +33,7 @@ get_password_from_secret() {
     local secret_file="/run/secrets/user_password"
     if [ -f "$secret_file" ]; then
         # Read password, trim whitespace
-        cat "$secret_file" | tr -d '\n\r'
+        tr -d '\n\r' < "$secret_file"
         return 0
     fi
     return 1
@@ -354,4 +354,4 @@ else
 fi
 
 # Keep container running
-exec tail -f /dev/null
+exec sleep infinity

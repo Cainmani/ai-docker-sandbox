@@ -131,6 +131,45 @@ for script in docker/add_ssh_key.sh docker/setup_remote_connection.sh; do
     fi
 done
 
+# Phase 5: Security fixes and dead code cleanup
+echo ""
+echo "--- Phase 5: Security fixes + dead code ---"
+
+# CQ-008: claude_wrapper.sh removed
+if [ ! -f "docker/claude_wrapper.sh" ]; then
+    pass "claude_wrapper.sh has been removed (CQ-008)"
+else
+    fail "claude_wrapper.sh still exists"
+fi
+
+# CQ-020: entrypoint uses sleep infinity
+if grep -q 'sleep infinity' docker/entrypoint.sh; then
+    pass "entrypoint.sh uses 'sleep infinity' (CQ-020)"
+else
+    fail "entrypoint.sh still uses 'tail -f /dev/null'"
+fi
+
+# BP-028: no useless cat in entrypoint
+if grep -q 'cat.*secret_file.*tr' docker/entrypoint.sh; then
+    fail "entrypoint.sh still has useless use of cat (BP-028)"
+else
+    pass "entrypoint.sh uses input redirection instead of cat (BP-028)"
+fi
+
+# SEC-015: crypto RNG in setup_utils
+if grep -q 'RandomNumberGenerator' scripts/setup_utils.ps1; then
+    pass "setup_utils.ps1 uses cryptographic RNG (SEC-015)"
+else
+    fail "setup_utils.ps1 still uses System.Random"
+fi
+
+# New-SecurePasswordFile in setup_utils
+if grep -q 'function New-SecurePasswordFile' scripts/setup_utils.ps1; then
+    pass "New-SecurePasswordFile defined in setup_utils.ps1"
+else
+    fail "New-SecurePasswordFile missing from setup_utils.ps1"
+fi
+
 echo ""
 echo "========================================="
 echo "Results: $PASS passed, $FAIL failed"

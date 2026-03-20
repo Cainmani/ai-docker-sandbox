@@ -30,7 +30,6 @@ $filesToEmbed = @(
    "..\..\docker\Dockerfile",
    "..\..\docker\.dockerignore",
    "..\..\docker\entrypoint.sh",
-   "..\..\docker\claude_wrapper.sh",
    "..\..\docker\install_cli_tools.sh",
    "..\..\docker\auto_update.sh",
    "..\..\docker\configure_tools.sh",

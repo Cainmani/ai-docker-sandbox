@@ -158,7 +158,6 @@ $script:EmbeddedFiles = @{
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
     'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
-    'claude_wrapper.sh' = 'CLAUDE_WRAPPER_SH_BASE64_HERE'
     'install_cli_tools.sh' = 'INSTALL_CLI_TOOLS_SH_BASE64_HERE'
     'auto_update.sh' = 'AUTO_UPDATE_SH_BASE64_HERE'
     'configure_tools.sh' = 'CONFIGURE_TOOLS_SH_BASE64_HERE'
@@ -236,7 +235,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'claude_wrapper.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
