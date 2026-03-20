@@ -434,7 +434,7 @@ $form.Controls.Add($btnVibeKanban)
 $lblVibeKanbanInfo = New-Object System.Windows.Forms.Label
 $lblVibeKanbanInfo.Left = 70; $lblVibeKanbanInfo.Top = 455
 $lblVibeKanbanInfo.Width = 460; $lblVibeKanbanInfo.Height = 20
-$lblVibeKanbanInfo.Text = "Opens AI agent orchestration web UI (http://localhost:3000)"
+$lblVibeKanbanInfo.Text = "Orchestrate AI agents in parallel via web interface"
 $lblVibeKanbanInfo.ForeColor = $script:MatrixGreen
 $lblVibeKanbanInfo.BackColor = 'Transparent'
 $lblVibeKanbanInfo.Font = New-Object System.Drawing.Font('Consolas', 8)

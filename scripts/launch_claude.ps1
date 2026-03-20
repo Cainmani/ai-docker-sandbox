@@ -169,7 +169,7 @@ if (-not $userResult.Valid) {
 Write-AppLog "Final username: [$userName]" "INFO"
 
 # Build the docker exec command - connect as the user and start at /workspace
-$dockerCmd = "`"$dockerPath`" exec -it -u $userName -w /workspace ai-cli bash -l"
+$dockerCmd = "`"$dockerPath`" exec -it -u `"$userName`" -w /workspace ai-cli bash -l"
 Write-AppLog "Docker command: $dockerCmd" "DEBUG"
 
 # Open terminal at /workspace directory

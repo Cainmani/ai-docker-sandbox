@@ -13,7 +13,7 @@ function Fix-LineEndings {
         # Running from project directory - docker files are in ../docker
         Join-Path $scriptPath '..\docker'
     }
-    $files = @('entrypoint.sh', 'setup.sh', 'claude_wrapper.sh')
+    $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
     $fixed = $false
 
     foreach ($file in $files) {

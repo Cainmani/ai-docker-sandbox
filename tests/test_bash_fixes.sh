@@ -204,6 +204,45 @@ else
     fail "auto_update.sh does not strip ANSI codes"
 fi
 
+# Phase 7: Remaining actionable fixes
+echo ""
+echo "--- Phase 7: Remaining fixes ---"
+
+# SEC-005/DEP-017: pipx removed from Dockerfile
+if ! grep -q 'install.*pipx' docker/Dockerfile; then
+    pass "Dockerfile does not install pipx (SEC-005/DEP-017)"
+else
+    fail "Dockerfile still installs unused pipx"
+fi
+
+# CQ-024: Fix-LineEndings no stale claude_wrapper.sh reference
+if ! grep -q 'claude_wrapper' scripts/setup_utils.ps1; then
+    pass "setup_utils.ps1 Fix-LineEndings list updated (CQ-024)"
+else
+    fail "setup_utils.ps1 still references deleted claude_wrapper.sh"
+fi
+
+# CQ-029: SSH key validation exists
+if grep -q 'ssh-ed25519\|ssh-rsa' docker/setup_remote_connection.sh; then
+    pass "setup_remote_connection.sh validates SSH key format (CQ-029)"
+else
+    fail "setup_remote_connection.sh missing SSH key validation"
+fi
+
+# BP-026: CONTRIBUTING.md uses correct convention
+if grep -q 'set -euo pipefail' CONTRIBUTING.md; then
+    pass "CONTRIBUTING.md recommends set -euo pipefail (BP-026)"
+else
+    fail "CONTRIBUTING.md still recommends only set -e"
+fi
+
+# UX-024: $userName quoted in docker exec
+if grep -q '"\$userName"' scripts/launch_claude.ps1 2>/dev/null || grep -q 'userName`"' scripts/launch_claude.ps1 2>/dev/null; then
+    pass "launch_claude.ps1 quotes \$userName in docker exec (UX-024)"
+else
+    fail "launch_claude.ps1 has unquoted \$userName"
+fi
+
 echo ""
 echo "========================================="
 echo "Results: $PASS passed, $FAIL failed"

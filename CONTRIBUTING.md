@@ -165,7 +165,7 @@ function getcreds($u) {
 - Use snake_case for variables: `user_name`, `config_path`
 - Use functions for reusable code
 - Always quote variables: `"$variable"`
-- Add `set -e` for fail-fast behavior
+- Add `set -euo pipefail` for strict mode (catches undefined variables and pipe failures)
 
 ### Documentation
 

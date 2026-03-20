@@ -126,11 +126,18 @@ main() {
     if [ -z "$ssh_key" ]; then
         print_warning "No key entered - you can add it later with: add-ssh-key \"your-key\""
     else
-        echo ""
-        if /usr/local/bin/add-ssh-key "$ssh_key" 2>/dev/null || echo "$ssh_key" >> ~/.ssh/authorized_keys 2>/dev/null; then
-            print_success "SSH key added!"
+        # Validate SSH key format
+        if ! echo "$ssh_key" | grep -qE '^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]+ '; then
+            print_error "Invalid SSH key format"
+            print_info "Key must start with: ssh-rsa, ssh-ed25519, ssh-dss, or ecdsa-sha2-*"
+            print_info "Example: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... my-phone"
         else
-            print_warning "Could not add key automatically. Try: add-ssh-key \"your-key\""
+            echo ""
+            if /usr/local/bin/add-ssh-key "$ssh_key" 2>/dev/null || echo "$ssh_key" >> ~/.ssh/authorized_keys 2>/dev/null; then
+                print_success "SSH key added!"
+            else
+                print_warning "Could not add key automatically. Try: add-ssh-key \"your-key\""
+            fi
         fi
     fi
 
