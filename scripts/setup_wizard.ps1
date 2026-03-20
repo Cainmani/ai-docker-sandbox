@@ -478,47 +478,6 @@ $script:envPath = Join-Path $PSScriptRoot '.env'
 # This prevents password from appearing in docker inspect or environment variables.
 # =============================================================================
 
-# Function to create secure password file for Docker Secrets
-function New-SecurePasswordFile {
-    param([string]$Password, [string]$DockerPath)
-
-    $secretsDir = Join-Path $DockerPath ".secrets"
-    $passwordFile = Join-Path $secretsDir "password.txt"
-
-    Write-Host "[SECURITY] Creating secure password file..." -ForegroundColor Cyan
-
-    # Create .secrets directory if it doesn't exist
-    if (-not (Test-Path $secretsDir)) {
-        New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null
-        Write-Host "[SECURITY] Created .secrets directory" -ForegroundColor Green
-    }
-
-    # Write password to file (plain text - Docker will mount it as tmpfs)
-    # Using UTF8 without BOM for Linux compatibility
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($passwordFile, $Password, $utf8NoBom)
-
-    # Set restrictive permissions (Windows equivalent of chmod 600)
-    try {
-        $acl = Get-Acl $passwordFile
-        $acl.SetAccessRuleProtection($true, $false)  # Disable inheritance
-        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $currentUser,
-            "FullControl",
-            "Allow"
-        )
-        $acl.SetAccessRule($rule)
-        Set-Acl -Path $passwordFile -AclObject $acl
-        Write-Host "[SECURITY] Password file permissions restricted" -ForegroundColor Green
-    } catch {
-        Write-Host "[WARNING] Could not set restrictive permissions: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-
-    Write-Host "[SECURITY] Password file created at: $passwordFile" -ForegroundColor Green
-    return $passwordFile
-}
-
 Write-Host "[INIT] Checking for existing .env file..." -ForegroundColor Yellow
 # Load existing .env file if present (for retry scenarios)
 # Note: Password is NOT stored in .env anymore - it uses Docker Secrets
