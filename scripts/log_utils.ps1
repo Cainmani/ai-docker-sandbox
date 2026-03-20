@@ -39,12 +39,13 @@ function Sanitize-LogMessage {
         $Message = $Message -replace "\b$([regex]::Escape($script:ContainerUsername))\b", "<USER>"
     }
 
-    # Sanitize API keys (OpenAI sk-proj-... and sk-... patterns)
+    # Sanitize API keys — most-specific prefixes first to avoid partial matches
+    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
-    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
 
-    # Sanitize GitHub tokens
+    # Sanitize GitHub tokens (classic and fine-grained github_pat_)
+    $Message = $Message -replace "github_pat_[a-zA-Z0-9]{22,}", "<REDACTED_TOKEN>"
     $Message = $Message -replace "gh[pousr]_[a-zA-Z0-9]{36,}", "<REDACTED_TOKEN>"
 
     # Sanitize generic tokens/secrets/passwords

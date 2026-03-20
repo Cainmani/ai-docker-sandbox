@@ -255,12 +255,13 @@ configure_codex() {
     local config_file="${HOME}/.codex/config.toml"
     if [ ! -f "$config_file" ]; then
         print_status "Creating default Codex config.toml..."
-        cat > "$config_file" << 'TOML'
+            local codex_model="${CODEX_MODEL:-gpt-5.2-codex}"
+        cat > "$config_file" << TOML
 # Codex CLI Configuration
 # See: https://developers.openai.com/codex/config-reference/
 
-# Model settings
-model = "gpt-5.2-codex"
+# Model settings (override with CODEX_MODEL env var)
+model = "$codex_model"
 model_provider = "openai"
 
 # Safety settings

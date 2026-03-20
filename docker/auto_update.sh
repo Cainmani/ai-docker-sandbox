@@ -44,12 +44,13 @@ UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 # Uses the shared logging library if available, otherwise falls back to simple logging
 update_log() {
     local msg="$1"
+    # Strip ANSI color codes (literal \033[...m sequences) for clean log output
+    local clean_msg
+    clean_msg=$(printf '%s' "$msg" | sed 's/\\033\[[0-9;]*m//g')
     if [ "$LOGGING_LIBRARY_AVAILABLE" = "1" ]; then
-        # Use the shared logging library
-        log_info "UPDATE" "$msg" "$LOG_FILE"
+        log_info "UPDATE" "$clean_msg" "$LOG_FILE"
     else
-        # Fallback to simple logging (with basic sanitization)
-        local sanitized="$msg"
+        local sanitized="$clean_msg"
         local user_name
         user_name="$(whoami 2>/dev/null || echo '')"
         if [ -n "$user_name" ]; then
@@ -57,8 +58,9 @@ update_log() {
         fi
         sanitized="$(echo "$sanitized" | sed -E 's/sk-(proj-|ant-)?[a-zA-Z0-9_-]{20,}/<REDACTED_API_KEY>/g; s/gh[pousr]_[a-zA-Z0-9]{36,}/<REDACTED_TOKEN>/g')"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $sanitized" >> "$LOG_FILE"
-        echo -e "$msg"
     fi
+    # Always echo with colors to terminal
+    echo -e "$msg"
 }
 
 # Function to check if update is needed

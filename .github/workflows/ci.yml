@@ -88,6 +88,40 @@ jobs:
 
           Write-Host "Validation complete"
 
+      - name: Lint shell scripts (shellcheck)
+        shell: bash
+        continue-on-error: true
+        run: |
+          if ! command -v shellcheck &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          fi
+          echo "shellcheck version: $(shellcheck --version | grep '^version:' || true)"
+          echo ""
+          failed=0
+          for script in docker/*.sh docker/lib/*.sh; do
+            [ -f "$script" ] || continue
+            echo "=== Checking $script ==="
+            if shellcheck -S warning "$script"; then
+              echo "  OK"
+            else
+              failed=$((failed + 1))
+            fi
+            echo ""
+          done
+          echo "shellcheck: $failed script(s) with warnings"
+
+      - name: Lint Dockerfile (hadolint)
+        shell: bash
+        continue-on-error: true
+        run: |
+          if ! command -v hadolint &>/dev/null; then
+            sudo curl -sL "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64" -o /usr/local/bin/hadolint
+            sudo chmod +x /usr/local/bin/hadolint
+          fi
+          echo "hadolint version: $(hadolint --version)"
+          echo ""
+          hadolint docker/Dockerfile
+
       - name: Install Pester
         shell: pwsh
         run: |

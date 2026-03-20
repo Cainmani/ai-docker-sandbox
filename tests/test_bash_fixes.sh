@@ -170,6 +170,40 @@ else
     fail "New-SecurePasswordFile missing from setup_utils.ps1"
 fi
 
+# Phase 6: Sanitization pattern order and CI linting
+echo ""
+echo "--- Phase 6: Sanitization + batch fixes ---"
+
+# SEC-020: sk-ant- must appear before generic sk- in logging.sh
+ant_line=$(grep -n 'sk-ant-' docker/lib/logging.sh | head -1 | cut -d: -f1)
+generic_line=$(grep -n 'sk-\[a-zA-Z0-9\]' docker/lib/logging.sh | head -1 | cut -d: -f1)
+if [ -n "$ant_line" ] && [ -n "$generic_line" ] && [ "$ant_line" -lt "$generic_line" ]; then
+    pass "logging.sh: sk-ant- before generic sk- (SEC-020)"
+else
+    fail "logging.sh: sk-ant- must come before generic sk-"
+fi
+
+# SEC-019: github_pat_ pattern exists in logging.sh
+if grep -q 'github_pat_' docker/lib/logging.sh; then
+    pass "logging.sh has github_pat_ pattern (SEC-019)"
+else
+    fail "logging.sh missing github_pat_ pattern"
+fi
+
+# SEC-019: github_pat_ pattern exists in log_utils.ps1
+if grep -q 'github_pat_' scripts/log_utils.ps1; then
+    pass "log_utils.ps1 has github_pat_ pattern (SEC-019)"
+else
+    fail "log_utils.ps1 missing github_pat_ pattern"
+fi
+
+# CQ-017: update_log strips ANSI codes
+if grep -q 'clean_msg' docker/auto_update.sh; then
+    pass "auto_update.sh strips ANSI codes in update_log (CQ-017)"
+else
+    fail "auto_update.sh does not strip ANSI codes"
+fi
+
 echo ""
 echo "========================================="
 echo "Results: $PASS passed, $FAIL failed"

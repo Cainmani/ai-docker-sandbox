@@ -1139,7 +1139,7 @@ $btnCancel.Add_Click({
             $script:runningProcess.WaitForExit(5000)
             Write-Host '[INFO] Process terminated' -ForegroundColor Green
         } catch {
-            Write-Host '[WARNING] Could not kill process: $($_.Exception.Message)' -ForegroundColor Yellow
+            Write-Host "[WARNING] Could not kill process: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     }
 
