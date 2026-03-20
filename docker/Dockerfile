@@ -59,8 +59,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install pipx for isolated tool installations
-RUN python3 -m pip install --no-cache-dir --break-system-packages pipx
+# Note: pipx was removed (SEC-005/DEP-017) — installed but never used
 
 
 # Create working directory

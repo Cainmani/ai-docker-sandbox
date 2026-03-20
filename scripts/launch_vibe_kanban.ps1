@@ -110,7 +110,7 @@ $vibeKanbanRunning = $false
 try {
     # Check if something is actually listening on the vibe-kanban port inside the container
     # Use netstat/ss to check for actual listeners, not pgrep which can match itself
-    $portCheck = & $dockerPath exec -u $userName ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort ' || echo 'NOT_LISTENING'" 2>&1
+    $portCheck = & $dockerPath exec -u "$userName" ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort ' || echo 'NOT_LISTENING'" 2>&1
     if ($portCheck -and $portCheck -notmatch 'NOT_LISTENING' -and $portCheck -match ':' + $vibeKanbanPort) {
         $vibeKanbanRunning = $true
         Write-AppLog "Vibe Kanban is listening on port $vibeKanbanPort inside container" "INFO"
@@ -130,7 +130,7 @@ if ($vibeKanbanRunning) {
 
 # Check if Vibe Kanban is installed
 Write-AppLog "Checking if Vibe Kanban is installed..." "DEBUG"
-$vibeKanbanCheck = & $dockerPath exec -u $userName ai-cli bash -c "npm list -g vibe-kanban 2>/dev/null | grep vibe-kanban" 2>&1
+$vibeKanbanCheck = & $dockerPath exec -u "$userName" ai-cli bash -c "npm list -g vibe-kanban 2>/dev/null | grep vibe-kanban" 2>&1
 if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
     Write-AppLog "Vibe Kanban not installed" "WARN"
     $result = [System.Windows.Forms.MessageBox]::Show(
@@ -146,11 +146,11 @@ if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
         Write-AppLog "Installing Vibe Kanban..." "INFO"
         ShowMsg "Installing Vibe Kanban...`n`nThis may take a few minutes. Please wait." 'Information'
 
-        $installResult = & $dockerPath exec -u $userName ai-cli bash -c "npm install -g vibe-kanban@latest" 2>&1
+        $installResult = & $dockerPath exec -u "$userName" ai-cli bash -c "npm install -g vibe-kanban@latest" 2>&1
         Write-AppLog "Install result: $installResult" "DEBUG"
 
         # Verify installation
-        $vibeKanbanCheck = & $dockerPath exec -u $userName ai-cli bash -c "npm list -g vibe-kanban 2>/dev/null | grep vibe-kanban" 2>&1
+        $vibeKanbanCheck = & $dockerPath exec -u "$userName" ai-cli bash -c "npm list -g vibe-kanban 2>/dev/null | grep vibe-kanban" 2>&1
         if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
             Write-AppLog "ERROR: Vibe Kanban installation failed" "ERROR"
             ShowMsg "Failed to install Vibe Kanban.`n`nPlease try running the setup wizard again." 'Error'
@@ -169,18 +169,18 @@ Write-AppLog "NOTE: First run may take 1-2 minutes to download required files (~
 
 # First verify vibe-kanban binary location
 # Use bash -l (login shell) to ensure PATH includes npm global bin directory
-$whichResult = & $dockerPath exec -u $userName ai-cli bash -l -c "which vibe-kanban 2>&1" 2>&1
+$whichResult = & $dockerPath exec -u "$userName" ai-cli bash -l -c "which vibe-kanban 2>&1" 2>&1
 Write-AppLog "vibe-kanban location: $whichResult" "DEBUG"
 
 if (-not $whichResult -or $whichResult -match "not found" -or $whichResult -match "no vibe-kanban") {
     Write-AppLog "ERROR: vibe-kanban binary not found in PATH" "ERROR"
 
     # Check npm global bin directory (npm bin -g was removed in npm v9+)
-    $npmBin = & $dockerPath exec -u $userName ai-cli bash -c 'echo $(npm config get prefix)/bin' 2>&1
+    $npmBin = & $dockerPath exec -u "$userName" ai-cli bash -c 'echo $(npm config get prefix)/bin' 2>&1
     Write-AppLog "npm global bin: $npmBin" "DEBUG"
 
     # Check if vibe-kanban exists there
-    $checkNpmBin = & $dockerPath exec -u $userName ai-cli bash -c 'ls -la $(npm config get prefix)/bin/vibe-kanban 2>&1' 2>&1
+    $checkNpmBin = & $dockerPath exec -u "$userName" ai-cli bash -c 'ls -la $(npm config get prefix)/bin/vibe-kanban 2>&1' 2>&1
     Write-AppLog "vibe-kanban in npm bin: $checkNpmBin" "DEBUG"
 
     ShowMsg "Vibe Kanban binary not found in PATH.`n`nThe installation may have failed. Please run First Time Setup again with 'Force Rebuild' checked." 'Error'
@@ -196,7 +196,7 @@ $startCmd = "export PATH=`$HOME/.npm-global/bin:`$HOME/.local/bin:`$PATH && cd /
 Write-AppLog "Start command: $startCmd" "DEBUG"
 
 # Use bash -l (login shell) to source .profile, combined with explicit PATH for redundancy
-$execResult = & $dockerPath exec -u $userName -w /workspace ai-cli bash -l -c $startCmd 2>&1
+$execResult = & $dockerPath exec -u "$userName" -w /workspace ai-cli bash -l -c $startCmd 2>&1
 if ($execResult) {
     Write-AppLog "Exec output: $execResult" "DEBUG"
 }
@@ -205,11 +205,11 @@ if ($execResult) {
 Start-Sleep -Milliseconds 500
 
 # Check if log file was created
-$logExists = & $dockerPath exec -u $userName ai-cli bash -c "test -f /tmp/vibe-kanban.log && echo EXISTS || echo MISSING" 2>&1
+$logExists = & $dockerPath exec -u "$userName" ai-cli bash -c "test -f /tmp/vibe-kanban.log && echo EXISTS || echo MISSING" 2>&1
 Write-AppLog "Log file status: $logExists" "DEBUG"
 
 # Check for immediate errors in log
-$earlyLog = & $dockerPath exec -u $userName ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null | head -10" 2>&1
+$earlyLog = & $dockerPath exec -u "$userName" ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null | head -10" 2>&1
 if ($earlyLog) {
     Write-AppLog "Early log output: $earlyLog" "DEBUG"
 }
@@ -240,15 +240,15 @@ if (-not $serverStarted) {
     Write-AppLog "ERROR: Vibe Kanban failed to start within $maxWait seconds" "ERROR"
 
     # Try to get logs for debugging
-    $logs = & $dockerPath exec -u $userName ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null" 2>&1
+    $logs = & $dockerPath exec -u "$userName" ai-cli bash -c "cat /tmp/vibe-kanban.log 2>/dev/null" 2>&1
     Write-AppLog "Vibe Kanban full log: $logs" "ERROR"
 
     # Check if process is running at all
-    $processCheck = & $dockerPath exec -u $userName ai-cli bash -c "ps aux | grep -v grep | grep vibe-kanban" 2>&1
+    $processCheck = & $dockerPath exec -u "$userName" ai-cli bash -c "ps aux | grep -v grep | grep vibe-kanban" 2>&1
     Write-AppLog "Process check: $processCheck" "DEBUG"
 
     # Check if port is in use by something else
-    $portInUse = & $dockerPath exec -u $userName ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort'" 2>&1
+    $portInUse = & $dockerPath exec -u "$userName" ai-cli bash -c "netstat -tlnp 2>/dev/null | grep ':$vibeKanbanPort'" 2>&1
     Write-AppLog "Port $vibeKanbanPort status: $portInUse" "DEBUG"
 
     # Build error message with log excerpt
