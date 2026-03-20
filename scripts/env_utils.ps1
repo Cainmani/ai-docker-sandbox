@@ -44,7 +44,7 @@ function Get-EnvVar {
 
     $value = if ($EnvData.ContainsKey($Name)) { $EnvData[$Name] } else { $Default }
 
-    if ($null -eq $value) {
+    if ([string]::IsNullOrEmpty($value) -and -not $EnvData.ContainsKey($Name)) {
         return @{ Found = $false; Value = $null; Valid = $false }
     }
 
