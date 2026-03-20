@@ -27,15 +27,6 @@ config_log() {
     fi
 }
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-NC='\033[0m' # No Color
-
 # Configuration file
 # Use $HOME instead of USER_NAME since this runs as the user
 CONFIG_FILE="${HOME}/.cli_tools_config"
@@ -46,22 +37,6 @@ print_header() {
     echo -e "${CYAN}================================================================================================================================${NC}"
     echo -e "${CYAN}  $1${NC}"
     echo -e "${CYAN}================================================================================================================================${NC}"
-}
-
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[OK]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 # Function to check if a tool is configured

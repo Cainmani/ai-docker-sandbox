@@ -31,6 +31,9 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # ============================================================================
@@ -272,6 +275,24 @@ get_log_dir() {
     echo "$LOG_DIR"
 }
 
+# Basic print functions for colored terminal output
+# Scripts needing custom behavior (e.g., dual-logging) can override these.
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[OK]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 # ============================================================================
 # Export for use in subshells
 # ============================================================================
@@ -279,3 +300,5 @@ get_log_dir() {
 export LOG_DIR
 export -f sanitize_message log_message log_info log_warn log_error log_debug
 export -f init_logging rotate_log run_logged get_log_dir
+export RED GREEN YELLOW BLUE CYAN MAGENTA BOLD NC
+export -f print_status print_success print_warning print_error

@@ -15,14 +15,10 @@
 
 set -euo pipefail
 
-# Colors for user-friendly output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-BOLD='\033[1m'
+# Source logging library for color variables
+if [ -f "/usr/local/lib/logging.sh" ]; then
+    source "/usr/local/lib/logging.sh"
+fi
 
 # SSH authorized_keys file
 AUTH_KEYS="$HOME/.ssh/authorized_keys"

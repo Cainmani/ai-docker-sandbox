@@ -90,11 +90,44 @@ done
 # Shared module files exist
 echo ""
 echo "--- Shared module existence ---"
-for module in scripts/log_utils.ps1 scripts/docker_helpers.ps1 scripts/setup_utils.ps1; do
+for module in scripts/log_utils.ps1 scripts/docker_helpers.ps1 scripts/setup_utils.ps1 scripts/env_utils.ps1; do
     if [ -f "$module" ]; then
         pass "$module exists"
     else
         fail "$module missing"
+    fi
+done
+
+# Phase 4: Color dedup - logging.sh exports color vars
+echo ""
+echo "--- Phase 4: logging.sh color exports ---"
+if grep -q 'export RED GREEN' docker/lib/logging.sh; then
+    pass "logging.sh exports color variables"
+else
+    fail "logging.sh does not export color variables"
+fi
+
+if grep -q "CYAN=" docker/lib/logging.sh && grep -q "BOLD=" docker/lib/logging.sh; then
+    pass "logging.sh defines CYAN and BOLD"
+else
+    fail "logging.sh missing CYAN or BOLD"
+fi
+
+# Color vars should NOT be redefined in scripts that source logging.sh
+for script in docker/configure_tools.sh docker/install_cli_tools.sh docker/auto_update.sh; do
+    if grep -qE "^RED='" "$script" 2>/dev/null; then
+        fail "$script still defines its own color vars"
+    else
+        pass "$script uses shared color vars from logging.sh"
+    fi
+done
+
+# add_ssh_key.sh and setup_remote_connection.sh should source logging.sh
+for script in docker/add_ssh_key.sh docker/setup_remote_connection.sh; do
+    if grep -q 'source.*logging.sh' "$script"; then
+        pass "$script sources logging.sh"
+    else
+        fail "$script does not source logging.sh"
     fi
 done
 

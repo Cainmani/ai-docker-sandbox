@@ -28,13 +28,6 @@ if type init_logging >/dev/null 2>&1; then
     LOG_FILE=$(init_logging "INSTALL" "install")
 fi
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # Installation tracking file
 # Use $HOME instead of $USER_NAME since $HOME is set by 'su -' but $USER_NAME is not passed
 INSTALL_MARKER="${HOME}/.cli_tools_installed"
