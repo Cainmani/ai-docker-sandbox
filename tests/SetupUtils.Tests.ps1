@@ -107,8 +107,8 @@ Describe 'Test-NpmFunctional' {
         $result.ContainsKey('Error') | Should -BeTrue
     }
 
-    It 'Returns NeedsRepair when npm execution throws' {
-        Mock Get-Command { [PSCustomObject]@{ Source = '/usr/bin/npm' } }
+    It 'Returns NeedsRepair when npm execution throws' -Skip:(-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        # Can only mock npm when it exists on the system
         Mock npm { throw 'execution failed' }
         $result = Test-NpmFunctional
         $result.Valid | Should -BeFalse
@@ -117,18 +117,15 @@ Describe 'Test-NpmFunctional' {
 }
 
 Describe 'Repair-NpmInstallation' {
-    It 'Returns result from Test-NpmFunctional' {
+    It 'Returns Valid=$false when npm not available' {
         Mock Get-Command { $null }
-        Mock npm { }
         $result = Repair-NpmInstallation
-        # After repair attempt, it calls Test-NpmFunctional
-        # With npm mocked to not exist, should return Valid=$false
+        # With Get-Command mocked to return null, Test-NpmFunctional returns NeedsInstall
         $result.Valid | Should -BeFalse
     }
 
     It 'Does not throw on PATH refresh failure' {
         Mock Get-Command { $null }
-        Mock npm { }
         { Repair-NpmInstallation } | Should -Not -Throw
     }
 }
