@@ -55,14 +55,13 @@ sanitize_message() {
     msg=$(echo "$msg" | sed -E "s|C:\\\\Users\\\\[^\\\\]+\\\\|C:\\\\Users\\\\<USER>\\\\|g")
     msg=$(echo "$msg" | sed -E "s|C:/Users/[^/]+/|C:/Users/<USER>/|g")
 
-    # Sanitize API keys (OpenAI sk-... and sk-proj-... patterns)
+    # Sanitize API keys — most-specific prefixes first to avoid partial matches
+    msg=$(echo "$msg" | sed -E "s|sk-ant-[a-zA-Z0-9_-]{20,}|<REDACTED_API_KEY>|g")
     msg=$(echo "$msg" | sed -E "s|sk-proj-[a-zA-Z0-9_-]{20,}|<REDACTED_API_KEY>|g")
     msg=$(echo "$msg" | sed -E "s|sk-[a-zA-Z0-9]{20,}|<REDACTED_API_KEY>|g")
 
-    # Sanitize Anthropic API keys
-    msg=$(echo "$msg" | sed -E "s|sk-ant-[a-zA-Z0-9_-]{20,}|<REDACTED_API_KEY>|g")
-
-    # Sanitize GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
+    # Sanitize GitHub tokens (classic ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained github_pat_)
+    msg=$(echo "$msg" | sed -E "s|github_pat_[a-zA-Z0-9]{22,}|<REDACTED_TOKEN>|g")
     msg=$(echo "$msg" | sed -E "s|gh[pousr]_[a-zA-Z0-9]{36,}|<REDACTED_TOKEN>|g")
 
     # Sanitize generic tokens/secrets (token=xxx, TOKEN: xxx, secret=xxx)

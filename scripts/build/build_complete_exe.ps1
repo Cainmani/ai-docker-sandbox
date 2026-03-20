@@ -158,9 +158,9 @@ try {
         -outputFile $exePath `
         -title "AI Docker Manager" `
         -description "Complete AI CLI Docker Setup System" `
-        -company "Your Company" `
+        -company "AI Docker Sandbox" `
         -product "AI Docker CLI Setup" `
-        -version "2.0.0.0" `
+        -version "1.2.2.0" `
         -noConsole
 
     if (Test-Path $exePath) {

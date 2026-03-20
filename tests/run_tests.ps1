@@ -424,6 +424,7 @@ Test-Assertion "CLI_TOOLS_GUIDE.md documents Vibe Kanban" {
     }
 } "Vibe Kanban not documented in CLI guide"
 
+$userManualFile = Join-Path $projectRoot 'docs\USER_MANUAL.md'
 Test-Assertion "USER_MANUAL.md documents Vibe Kanban" {
     if (Test-Path $userManualFile) {
         $content = Get-Content $userManualFile -Raw

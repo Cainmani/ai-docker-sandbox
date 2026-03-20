@@ -44,6 +44,12 @@ Describe 'Sanitize-LogMessage' {
         Sanitize-LogMessage -Message $msg | Should -Be 'found <REDACTED_TOKEN> here'
     }
 
+    It 'Redacts fine-grained GitHub tokens (github_pat_)' {
+        $token = 'github_pat_' + ('C' * 22)
+        $msg = "pat: $token"
+        Sanitize-LogMessage -Message $msg | Should -Be 'pat: <REDACTED_TOKEN>'
+    }
+
     It 'Redacts password values' {
         Sanitize-LogMessage -Message 'Password=mysecret123' | Should -Be 'Password=<REDACTED>'
         Sanitize-LogMessage -Message 'password: hunter2' | Should -Be 'password=<REDACTED>'
