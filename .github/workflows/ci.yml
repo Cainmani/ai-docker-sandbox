@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly Monday 06:00 UTC — keeps the pinned-version check running
+    # even when the repo is idle, so stale tool pins get flagged
+    - cron: '0 6 * * 1'
 
 # Restrict token to read-only — CI does not need write access
 permissions:

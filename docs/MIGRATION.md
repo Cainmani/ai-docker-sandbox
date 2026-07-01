@@ -128,6 +128,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
+| v1.2.4 | 2026-07 | None — dependency refresh (force rebuild recommended to get updated AI CLI tools) |
 | v1.2.3 | 2026-07 | None — audit remediation release (force rebuild recommended to pick up container script fixes) |
 | v1.2.2 | 2026-02 | None — credentials now persist across rebuilds (force rebuild recommended to pick up fixes) |
 | v1.1.3 | 2026-01 | Claude Code migrated to native installer (requires force rebuild + one-time re-auth) |

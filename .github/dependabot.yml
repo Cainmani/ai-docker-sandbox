@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Keep GitHub Actions pins current (security + Node runtime deprecations)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

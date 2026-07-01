@@ -39,5 +39,5 @@ npm-debug.log*
 # Secrets
 .secrets/
 
-# Claude
-CLAUDE.md
+# Claude (root-level personal context file only — docs/CLAUDE.md is tracked project documentation)
+/CLAUDE.md

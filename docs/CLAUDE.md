@@ -1,0 +1,208 @@
+# Claude AI Context File - AI Docker CLI Manager Project
+
+**Last Updated:** July 1, 2026
+**Project Version:** 1.2.4
+
+---
+
+## Project Overview
+
+AI Docker CLI Manager is a Windows .exe that sets up a Docker container with multiple AI CLI tools pre-installed. Users run a setup wizard, which builds a Docker image, creates a container, and installs all tools automatically.
+
+### Architecture
+
+```
+Windows (.exe)                          Docker Container (Linux)
+┌─────────────────────┐                ┌──────────────────────────┐
+│ AI_Docker_Complete   │  builds/runs  │ entrypoint.sh            │
+│   ├─ setup_wizard    │──────────────>│   ├─ install_cli_tools   │
+│   ├─ launch_claude   │  docker exec  │   ├─ configure_tools     │
+│   └─ launch_vibe     │──────────────>│   └─ auto_update         │
+└─────────────────────┘                └──────────────────────────┘
+```
+
+### How the .exe Works
+
+1. `AI_Docker_Complete.ps1` is the template — all project files are Base64-embedded at build time
+2. `build_complete_exe.ps1` reads files, encodes them, replaces placeholders, compiles via ps2exe
+3. At runtime, the .exe extracts Docker files to `%LOCALAPPDATA%\AI-Docker-CLI\docker-files\`
+4. Setup wizard runs as a separate PowerShell process from that directory
+
+### Installed AI Tools
+
+| Tool | Command | Install Method |
+|------|---------|----------------|
+| Claude Code CLI | `claude` | Native installer (`~/.local/bin/claude`) |
+| GitHub CLI | `gh` | apt |
+| Google Gemini CLI | `gemini` | npm (`@google/gemini-cli`) |
+| OpenAI Codex CLI | `codex` | npm (`@openai/codex`) |
+| OpenAI Python SDK | `python3 -c "import openai"` | pip |
+| Vibe Kanban | `vibe-kanban` | npm |
+
+---
+
+## Key Architecture Decisions
+
+### Auth Persistence (v1.2.2)
+
+Credentials persist across container rebuilds via Docker volumes + symlinks:
+
+| Volume | Persists |
+|--------|----------|
+| `claude-config` | `~/.claude/` (OAuth creds, settings, conversations) |
+| `tool-auth` | `~/.config/gh/`, `~/.config/openai/`, `~/.config/gemini/`, `~/.config/shell_gpt/`, `~/.codex/` |
+
+`~/.claude.json` (onboarding flag) is symlinked into the `claude-config` volume.
+Each tool config dir is symlinked into the `tool-auth` volume (e.g., `~/.config/gh` → `~/.tool-auth/gh`).
+
+### Shell Script Strict Mode
+
+All shell scripts use `set -euo pipefail`. This means:
+- **Always use `${VAR:-}` for optional variables** (not `$VAR`)
+- **Always use `${1:-}` for optional positional args** (not `$1`)
+- Unguarded variables cause immediate script termination
+
+### Install Marker
+
+`~/.cli_tools_installed` is created only after successful installation. The entrypoint does NOT use an EXIT trap for this — if the script crashes, the marker is not created, allowing retries on next start.
+
+### Log Sanitization
+
+All logging functions sanitize before writing to disk:
+- **PowerShell**: `Sanitize-LogMessage` in each script (redacts Windows username, container username, API keys, tokens)
+- **Shell**: `sanitize_message()` in `lib/logging.sh` (same patterns)
+- Fallback logging paths also sanitize
+
+---
+
+## Build System
+
+### Adding a New File to the .exe
+
+When adding a new file that must be embedded in the .exe, update ALL of these:
+
+1. **`scripts/build/build_complete_exe.ps1`** — add to `$filesToEmbed` array
+2. **`scripts/AI_Docker_Complete.ps1`** — add to `$script:EmbeddedFiles` hashtable with `FILENAME_EXT_BASE64_HERE` placeholder
+3. **`scripts/AI_Docker_Complete.ps1`** — if it's a script dependency (like `wsl_config.ps1`), add extraction logic where it's needed
+4. **`docker/Dockerfile`** — add COPY and chmod if it goes in the container
+5. **`scripts/fix_line_endings.ps1`** — add `.sh` files to the line endings fixer
+
+### Build & Release Process
+
+```bash
+# After merging to main:
+git tag v1.X.Y
+git push origin v1.X.Y
+# GitHub Actions builds the .exe and creates the release automatically
+```
+
+### Docker Build Cache
+
+When shell scripts change but the Dockerfile doesn't, Docker may serve cached COPY layers. Users need **Force Rebuild** (which passes `--no-cache`) to pick up script changes.
+
+---
+
+## Developer Mode
+
+Mount scripts directly from host for live editing (no rebuild needed):
+
+```bash
+# In docker/.env:
+DEV_MODE=1
+
+# Then:
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+Scripts are mounted read-only. Only for local development.
+
+---
+
+## File Structure
+
+### Windows-side (PowerShell)
+
+| File | Purpose |
+|------|---------|
+| `scripts/AI_Docker_Complete.ps1` | Main app template with embedded files |
+| `scripts/AI_Docker_Launcher.ps1` | Lightweight launcher (no setup wizard) |
+| `scripts/setup_wizard.ps1` | WinForms setup wizard |
+| `scripts/wsl_config.ps1` | WSL detection functions (dot-sourced by wizard) |
+| `scripts/launch_claude.ps1` | Launches Docker exec terminal |
+| `scripts/launch_vibe_kanban.ps1` | Launches Vibe Kanban web UI |
+| `scripts/build/build_complete_exe.ps1` | Builds the .exe from template |
+
+### Container-side (Bash)
+
+| File | Purpose |
+|------|---------|
+| `docker/entrypoint.sh` | Container init: user setup, volumes, .bashrc, tool install |
+| `docker/install_cli_tools.sh` | Installs all CLI tools (runs on first start) |
+| `docker/configure_tools.sh` | Interactive tool configuration wizard |
+| `docker/auto_update.sh` | Weekly auto-update via cron |
+| `docker/lib/logging.sh` | Centralized logging with sanitization and rotation |
+
+### Docker Volumes
+
+| Volume | Mount | Purpose |
+|--------|-------|---------|
+| `claude-config` | `~/.claude` | Claude credentials, settings, conversations |
+| `tool-auth` | `~/.tool-auth` | Auth configs for gh, openai, gemini, codex, shell_gpt |
+| `workspace` | `/workspace` | User's project files (bind mount to host) |
+| `vibe-kanban-data` | `~/.vibe-kanban` | Vibe Kanban state |
+| `ssh-keys` | `~/.ssh` | SSH keys for mobile access |
+
+---
+
+## PowerShell Gotchas
+
+- **`-match`/`-notmatch` are case-insensitive** — use `-cmatch`/`-cnotmatch` for case-sensitive matching
+- **`$PSScriptRoot`** — directory of the running script, NOT the working directory
+- **WinForms runs in a separate process** — setup wizard is launched via `Start-Process powershell.exe`
+- **Dot-sourced files must exist at `$PSScriptRoot`** — the .exe must extract dependencies alongside the script
+
+---
+
+## CI/CD
+
+### GitHub Actions Workflows
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `ci.yml` | Push/PR to main | PowerShell syntax check, Pester tests, Dockerfile validation, pinned version check |
+| `release.yml` | Push `v*.*.*` tag | Builds .exe on windows-latest, creates GitHub release with checksum |
+
+### Pester Tests
+
+`tests/WSLConfig.Tests.ps1` — tests for `wsl_config.ps1` functions (RAM detection, CPU detection, profile recommendation, config parsing).
+
+---
+
+## Git Configuration
+
+### Author Email (IMPORTANT)
+
+Commits must use the personal GitHub noreply email so they're attributed to the correct account:
+
+```
+git config user.email "100510814+CaideSpries@users.noreply.github.com"
+```
+
+A pre-commit hook in `.git/hooks/pre-commit` enforces this — commits will be rejected if the email is wrong. If you clone fresh, the hook needs to be recreated (git hooks aren't tracked).
+
+**Why:** The old email `Cainmani@users.noreply.github.com` attributes commits to the org account, not the personal GitHub profile.
+
+---
+
+## Version Bump Checklist
+
+Before creating a release:
+
+- [ ] `scripts/AI_Docker_Complete.ps1` — `$script:AppVersion = "X.Y.Z"`
+- [ ] `scripts/AI_Docker_Launcher.ps1` — `$script:AppVersion = "X.Y.Z"`
+- [ ] `scripts/build/build_complete_exe.ps1` — ps2exe `-version "X.Y.Z.0"`
+- [ ] `README.md` — download badge version
+- [ ] `CHANGELOG.md` — new version section
+- [ ] `docs/MIGRATION.md` — version history row
+- [ ] `docs/CLAUDE.md` — project version + last updated date
+- [ ] Docs updated if user-facing features changed

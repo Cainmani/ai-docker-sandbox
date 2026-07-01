@@ -5,6 +5,25 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-07-01
+
+Dependency refresh release. Force Rebuild recommended to pick up the updated tools.
+
+### Changed
+- **Updated pinned AI CLI tool versions** (fresh installs and rebuilds were getting months-old tools):
+  - `@openai/codex` 0.98.0 → 0.142.5
+  - `@google/gemini-cli` 0.27.3 → 0.49.0
+  - `vibe-kanban` 0.1.7 → 0.1.44
+  - `openai` (pip) 2.18.0 → 2.44.0
+- **Refreshed Ubuntu 24.04 base image digest** to pull in upstream security patches
+
+### Added
+- **Weekly scheduled CI run** (Mondays 06:00 UTC) so the pinned-version check flags stale tools even when the repo is idle
+- **Dependabot for GitHub Actions** — keeps workflow action pins current automatically (also resolves the Node 20 runtime deprecation warnings)
+
+### Fixed
+- **`docs/CLAUDE.md` was never in the repository**: the `.gitignore` pattern `CLAUDE.md` (meant for a personal root-level context file) also matched `docs/CLAUDE.md`, so the project's developer context doc only existed locally and `docs/DEVELOPMENT.md` linked to a missing file. The rule is now anchored to the root (`/CLAUDE.md`) and the docs copy is tracked
+
 ## [1.2.3] - 2026-07-01
 
 Maintenance release shipping the full-application audit remediation (131 findings reviewed across UI/UX, security, dependencies, best practices, and code quality — PRs #43–#50). No new features and no migration steps required.
