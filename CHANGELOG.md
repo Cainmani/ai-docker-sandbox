@@ -5,6 +5,40 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-07-01
+
+Maintenance release shipping the full-application audit remediation (131 findings reviewed across UI/UX, security, dependencies, best practices, and code quality — PRs #43–#50). No new features and no migration steps required.
+
+### Security
+- **Cryptographic RNG for password file overwrite**: The 3-pass secure overwrite in the setup wizard now uses a cryptographic random number generator instead of `System.Random`
+- **Log sanitization hardening**: Added redaction for GitHub fine-grained tokens (`github_pat_...`) in both PowerShell and bash logging libraries, and fixed API key pattern ordering so `sk-ant-` / `sk-proj-` keys are fully redacted instead of partially matched by the generic `sk-` pattern
+- **SSH key format validation**: `setup_remote_connection.sh` now validates public key format before adding it to `authorized_keys`
+- **Quoted usernames in docker exec**: `launch_claude.ps1` and `launch_vibe_kanban.ps1` quote the container username in all `docker exec` commands
+- **Removed unused pipx** from the Docker image (smaller attack surface)
+- Added `.secrets/` to `.gitignore`
+
+### Fixed
+- **`update-container-tools` environment variable handling**: `Get-EnvVar` returned the wrong value when a variable was set to an empty string (PowerShell coerces `$null` defaults to `""`)
+- **Interactive configure menu recursion**: `configure_tools.sh` interactive menu converted from recursion to a loop, preventing stack growth on long sessions
+- **ANSI color codes written to log files** by `auto_update.sh` are now stripped
+- **Exception messages not interpolated** in setup wizard error logging (single-quote string bug)
+- **`run_tests.ps1` variable used before definition** when reporting user manual path
+- **Fix-LineEndings file list** updated to match actual embedded scripts (removed deleted `claude_wrapper.sh`, added missing scripts)
+- **Build metadata**: .exe version info now shows the real project name and version instead of "Your Company" / 2.0.0.0
+
+### Changed
+- **Shared module extraction (DRY)**: Duplicate logic across launcher scripts and the setup wizard consolidated into `docker_helpers.ps1`, `setup_utils.ps1`, `env_utils.ps1`, and `log_utils.ps1`; bash scripts now share colors/print helpers via `lib/logging.sh`
+- **Removed obsolete `claude_wrapper.sh`**: the Claude native installer is on PATH, making the wrapper dead code
+- **Container idle process**: `sleep infinity` replaces `tail -f /dev/null` for proper signal handling
+- **Codex model configurable** via `CODEX_MODEL` environment variable instead of a hardcoded model string
+- **CI**: migrated to self-hosted runner, added bash test suites to CI, added shellcheck (docker/*.sh) and hadolint (Dockerfile) linting, pinned ps2exe to v1.0.17 in the release workflow
+
+### Added
+- **Bash structural regression test suite** (`tests/test_bash_fixes.sh`, 38 assertions) guarding all audit fixes against regression, plus ~30 new Pester tests covering the extracted PowerShell modules
+
+### Removed
+- Internal audit and validation working documents (`AUDIT_REPORT.md`, `docker/VALIDATION_COMPLETE.md`, `docker/NPM_PERMISSION_FIX.md`, `docs/validation_report.md`) — point-in-time artifacts now captured by this changelog and the git history
+
 ## [1.2.2] - 2026-02-11
 
 ### Added

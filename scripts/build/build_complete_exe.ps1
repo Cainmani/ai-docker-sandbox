@@ -160,7 +160,7 @@ try {
         -description "Complete AI CLI Docker Setup System" `
         -company "AI Docker Sandbox" `
         -product "AI Docker CLI Setup" `
-        -version "1.2.2.0" `
+        -version "1.2.3.0" `
         -noConsole
 
     if (Test-Path $exePath) {
