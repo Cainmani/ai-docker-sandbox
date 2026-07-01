@@ -31,7 +31,8 @@ Maintenance release shipping the full-application audit remediation (131 finding
 - **Removed obsolete `claude_wrapper.sh`**: the Claude native installer is on PATH, making the wrapper dead code
 - **Container idle process**: `sleep infinity` replaces `tail -f /dev/null` for proper signal handling
 - **Codex model configurable** via `CODEX_MODEL` environment variable instead of a hardcoded model string
-- **CI**: migrated to self-hosted runner, added bash test suites to CI, added shellcheck (docker/*.sh) and hadolint (Dockerfile) linting, pinned ps2exe to v1.0.17 in the release workflow
+- **CI**: added bash test suites to CI, added shellcheck (docker/*.sh) and hadolint (Dockerfile) linting, pinned ps2exe to v1.0.17 in the release workflow
+- **CI back on GitHub-hosted runners**: the self-hosted runner introduced in PR #43 was deregistered after the repo went idle (GitHub removes runners offline 14+ days), leaving CI permanently queued; GitHub-hosted runners are free for public repos and avoid the fork-PR code-execution risk of self-hosted runners
 
 ### Added
 - **Bash structural regression test suite** (`tests/test_bash_fixes.sh`, 38 assertions) guarding all audit fixes against regression, plus ~30 new Pester tests covering the extracted PowerShell modules
