@@ -5,6 +5,14 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-07-07
+
+Fixes the root cause of CLI tools never finishing installation after a rebuild. Force Rebuild required to pick up the new entrypoint.
+
+### Fixed
+- **Container startup stalled for 15+ minutes on "Setting ownership of /workspace", so the CLI tools installer never ran** (no `claude`/`gh` after rebuild, no install status, no login spinner, and the Ubuntu sudo hint appeared because `.bashrc` was never written — everything downstream of the stall). `/workspace` is a bind mount of a Windows folder, where every file operation is a slow Windows↔WSL round trip and ownership is dictated by Docker's mount options rather than per-file inodes, so the blocking recursive `chown` was both extremely slow on large workspaces and pointless. The entrypoint now chowns only the mount point synchronously, skips the recursive pass when chown has no effect (Windows-backed mount), and otherwise runs it in the background — startup can no longer block on workspace size. Workspace files are never modified by any of this; only ownership metadata.
+- **Workaround for containers built with older images:** if a rebuild appears stuck installing tools, run `docker exec ai-cli pkill -f "chown -R"` — the entrypoint logs a warning and proceeds with installation.
+
 ## [1.3.2] - 2026-07-07
 
 ### Fixed
