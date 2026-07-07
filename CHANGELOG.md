@@ -5,6 +5,23 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-07
+
+Adds unified AI router tools (9router / OmniRoute) and fixes reaching their dashboards from the Windows host browser. Force Rebuild recommended so the container picks up the new tools and the updated port mapping.
+
+### Added
+- **9router and OmniRoute now install automatically** alongside the other CLI tools. These unified "AI router" gateways expose multiple AI subscriptions behind one OpenAI-compatible endpoint. Pinned to `9router@0.5.18` and `omniroute@3.8.45`; both are the real npm packages (not forked) and update via the weekly container tool updater.
+- **"AI Router" entry in `configure-tools`** (option 6). 9router and OmniRoute are interchangeable and share one dashboard port, so the wizard runs only one at a time: pick a router, it stops any other and starts the chosen one bound to `0.0.0.0`, then prints the dashboard URL. `config-status` shows the slot as configured once either is installed.
+- **Router data now persists across rebuilds.** A new `router-data` Docker volume holds each router's SQLite DB and linked-provider credentials (`DATA_DIR=~/.router-data/<tool>`, a separate subdir per tool), so you don't have to re-link your subscriptions after a Force Rebuild.
+
+### Fixed
+- **9router / OmniRoute dashboards were unreachable from the host browser** (`localhost:20128` refused to connect). Two root causes, both addressed:
+  - The port was never published from the container — `docker-compose.yml` now publishes the shared router port (`AI_ROUTER_PORT`, default `20128`).
+  - The routers bind to `localhost` (127.0.0.1) inside the container by default, which Docker's published port cannot reach — the `~/.bashrc` `9router`/`omniroute` wrappers now launch the real binaries bound to `0.0.0.0`, and stop any other router first so the shared port never double-binds.
+
+### Notes
+- Recreate the container to pick up the new port mapping and volume: `docker compose up -d --force-recreate` (or Force Rebuild in the launcher). Your workspace, tool logins, and router subscriptions persist — they live on mounted volumes, not in the container layer.
+
 ## [1.2.4] - 2026-07-01
 
 Dependency refresh release. Force Rebuild recommended to pick up the updated tools.

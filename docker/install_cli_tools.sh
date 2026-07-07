@@ -248,6 +248,12 @@ get_version() {
         vibe-kanban)
             npm list -g vibe-kanban 2>/dev/null | grep 'vibe-kanban' | cut -d'@' -f2 || echo "not installed"
             ;;
+        9router)
+            npm list -g 9router 2>/dev/null | grep '9router' | cut -d'@' -f2 || echo "not installed"
+            ;;
+        omniroute)
+            npm list -g omniroute 2>/dev/null | grep 'omniroute' | cut -d'@' -f2 || echo "not installed"
+            ;;
         *)
             echo "unknown"
             ;;
@@ -262,6 +268,8 @@ save_versions() {
     echo "gemini=$(get_version gemini)" >> "$TOOLS_VERSION_FILE"
     echo "codex=$(get_version codex)" >> "$TOOLS_VERSION_FILE"
     echo "vibe-kanban=$(get_version vibe-kanban)" >> "$TOOLS_VERSION_FILE"
+    echo "9router=$(get_version 9router)" >> "$TOOLS_VERSION_FILE"
+    echo "omniroute=$(get_version omniroute)" >> "$TOOLS_VERSION_FILE"
 }
 
 # Main installation function
@@ -461,6 +469,26 @@ install_cli_tools() {
         print_warning "Vibe Kanban installation failed - can be installed manually with: npm install -g vibe-kanban"
     fi
 
+    # 6. Install 9router (unified AI API router - links multiple AI subscriptions behind one
+    # OpenAI-compatible endpoint; web dashboard served on port 20128, bound to 0.0.0.0 by the
+    # 9router() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
+    update_install_status "9router" "npm"
+    if npm_install_with_retry "9router@0.5.18" "/tmp/9router_install.log"; then
+        print_success "9router installed successfully"
+    else
+        print_warning "9router installation failed - can be installed manually with: npm install -g 9router"
+    fi
+
+    # 7. Install OmniRoute (unified AI gateway - same family of tool as 9router; web dashboard
+    # served on port 20129 by default to avoid colliding with 9router's 20128, bound to 0.0.0.0
+    # by the omniroute() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
+    update_install_status "OmniRoute" "npm"
+    if npm_install_with_retry "omniroute@3.8.45" "/tmp/omniroute_install.log"; then
+        print_success "OmniRoute installed successfully"
+    else
+        print_warning "OmniRoute installation failed - can be installed manually with: npm install -g omniroute"
+    fi
+
     # Save versions to file
     save_versions
 
@@ -504,6 +532,18 @@ create_marker_file() {
         echo "[OK] Vibe Kanban: installed" >> "$INSTALL_MARKER"
     else
         echo "[ERROR] Vibe Kanban: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if npm list -g 9router >/dev/null 2>&1; then
+        echo "[OK] 9router: installed" >> "$INSTALL_MARKER"
+    else
+        echo "[ERROR] 9router: failed" >> "$INSTALL_MARKER"
+    fi
+
+    if npm list -g omniroute >/dev/null 2>&1; then
+        echo "[OK] OmniRoute: installed" >> "$INSTALL_MARKER"
+    else
+        echo "[ERROR] OmniRoute: failed" >> "$INSTALL_MARKER"
     fi
 
     print_success "Installation marker file created at: $INSTALL_MARKER"
@@ -575,6 +615,8 @@ cleanup_old_installations() {
     npm uninstall -g @google/gemini-cli 2>/dev/null || true
     npm uninstall -g @openai/codex 2>/dev/null || true
     npm uninstall -g vibe-kanban 2>/dev/null || true
+    npm uninstall -g 9router 2>/dev/null || true
+    npm uninstall -g omniroute 2>/dev/null || true
 
     # Clear npm cache to avoid stale package issues
     npm cache clean --force 2>/dev/null || true

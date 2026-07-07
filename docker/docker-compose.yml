@@ -8,6 +8,8 @@ services:
       USER_NAME: ${USER_NAME}
       # Vibe Kanban configuration
       VIBE_KANBAN_PORT: ${VIBE_KANBAN_PORT:-3000}
+      # AI router dashboard port (shared by 9router and OmniRoute - only one runs at a time)
+      AI_ROUTER_PORT: ${AI_ROUTER_PORT:-20128}
       # Force CLI tools reinstallation (set by setup wizard when Force Rebuild is checked)
       FORCE_CLI_REINSTALL: ${FORCE_CLI_REINSTALL:-}
       # Mobile access configuration (SSH + Mosh + tmux)
@@ -21,6 +23,9 @@ services:
     ports:
       # Vibe Kanban web UI - accessible from Windows browser at http://localhost:3000
       - "${VIBE_KANBAN_PORT:-3000}:${VIBE_KANBAN_PORT:-3000}"
+      # AI router dashboard (9router or OmniRoute) - reachable from the Windows browser at
+      # http://localhost:20128/dashboard. One shared port; only one router runs at a time.
+      - "${AI_ROUTER_PORT:-20128}:${AI_ROUTER_PORT:-20128}"
       # SSH for mobile access (only exposed when ENABLE_MOBILE_ACCESS=1)
       - "${SSH_PORT:-2222}:${SSH_PORT:-2222}"
       # Mosh UDP ports for persistent mobile connections (5 concurrent connections)
@@ -34,6 +39,8 @@ services:
       - ssh-keys:/home/${USER_NAME}/.ssh
       # Tool auth persistence (survives container rebuilds)
       - tool-auth:/home/${USER_NAME}/.tool-auth
+      # AI router data persistence (9router / OmniRoute SQLite DB + linked provider credentials)
+      - router-data:/home/${USER_NAME}/.router-data
     tty: true
     stdin_open: true
     healthcheck:
@@ -62,4 +69,6 @@ volumes:
   ssh-keys:
     driver: local
   tool-auth:
+    driver: local
+  router-data:
     driver: local
