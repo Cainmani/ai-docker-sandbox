@@ -92,7 +92,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.3.3"
+$script:AppVersion = "1.3.4"
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 

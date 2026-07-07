@@ -392,10 +392,24 @@ configure_ai_router() {
     esac
 
     # Stop whichever router is running (enforces one-at-a-time), then start the chosen one.
+    # Escalate SIGTERM -> SIGKILL and WAIT for the shared port to be released before starting;
+    # otherwise the new router hits EADDRINUSE and the dashboard shows "Internal Server Error".
     print_status "Stopping any running router..."
-    pkill -f '9router'   2>/dev/null || true
-    pkill -f 'omniroute' 2>/dev/null || true
-    sleep 1
+    if pgrep -f '9router|omniroute' >/dev/null 2>&1; then
+        pkill -TERM -f '9router'   2>/dev/null || true
+        pkill -TERM -f 'omniroute' 2>/dev/null || true
+        local stop_waited=0
+        while pgrep -f '9router|omniroute' >/dev/null 2>&1 && [ "$stop_waited" -lt 5 ]; do
+            sleep 1; stop_waited=$((stop_waited + 1))
+        done
+        pkill -KILL -f '9router'   2>/dev/null || true
+        pkill -KILL -f 'omniroute' 2>/dev/null || true
+    fi
+    # Wait for the shared port to actually be free (TIME_WAIT / slow teardown) before launching.
+    local port_waited=0
+    while netstat -tln 2>/dev/null | grep -q ":$port " && [ "$port_waited" -lt 10 ]; do
+        sleep 1; port_waited=$((port_waited + 1))
+    done
 
     print_status "Starting $tool on 0.0.0.0:$port ..."
     config_log "INFO" "AI router: starting $tool on port $port"
