@@ -5,6 +5,12 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-07-07
+
+### Fixed
+- **"Set-Acl: The process does not possess the 'SeSecurityPrivilege' privilege" error during password-file creation.** `Set-Acl` writes the owner/SACL sections of the security descriptor in addition to the permission list, which requires a privilege that non-elevated PowerShell sessions don't hold. The chmod-600-equivalent lockdown now uses `icacls /inheritance:r /grant:r`, which only modifies the permission list and works without elevation. Impact of the old bug was low: the file lives under the user profile (already restricted by inherited permissions) and is scrubbed to a placeholder after setup — but the hardening now actually applies.
+- **Misleading "[SECURITY] Password file permissions restricted" success message after the ACL step had just failed.** The `Set-Acl` error was non-terminating, so the failure handler never ran; the icacls exit code is now checked explicitly and failures report a warning instead of a false success.
+
 ## [1.3.1] - 2026-07-07
 
 Fixes the scary-but-harmless errors the setup wizard showed after rebuilding for 1.3.0. No container changes - the container itself was installing fine; the wizard just gave up waiting too early and hit a PowerShell 5.1 incompatibility during cleanup.

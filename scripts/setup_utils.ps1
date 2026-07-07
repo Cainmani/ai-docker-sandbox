@@ -192,20 +192,21 @@ function New-SecurePasswordFile {
     [System.IO.File]::WriteAllText($passwordFile, $Password, $utf8NoBom)
 
     # Set restrictive permissions (Windows equivalent of chmod 600)
-    try {
-        $acl = Get-Acl $passwordFile
-        $acl.SetAccessRuleProtection($true, $false)  # Disable inheritance
-        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $currentUser,
-            "FullControl",
-            "Allow"
-        )
-        $acl.SetAccessRule($rule)
-        Set-Acl -Path $passwordFile -AclObject $acl
-        Write-Host "[SECURITY] Password file permissions restricted" -ForegroundColor Green
-    } catch {
-        Write-Host "[WARNING] Could not set restrictive permissions: $($_.Exception.Message)" -ForegroundColor Yellow
+    # Use icacls rather than Set-Acl: Set-Acl also writes the owner/SACL sections of the
+    # security descriptor, which requires SeSecurityPrivilege and fails ("does not possess
+    # the 'SeSecurityPrivilege' privilege") in a normal non-elevated PowerShell session.
+    # icacls only touches the DACL, which the file owner can always modify.
+    if ($env:OS -eq 'Windows_NT') {
+        try {
+            $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $icaclsOutput = & icacls.exe $passwordFile /inheritance:r /grant:r "${currentUser}:F" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "icacls exited with code ${LASTEXITCODE}: $icaclsOutput"
+            }
+            Write-Host "[SECURITY] Password file permissions restricted" -ForegroundColor Green
+        } catch {
+            Write-Host "[WARNING] Could not set restrictive permissions: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
 
     Write-Host "[SECURITY] Password file created at: $passwordFile" -ForegroundColor Green
