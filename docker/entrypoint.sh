@@ -346,6 +346,14 @@ else
   fi
 fi
 
+# Suppress Ubuntu's first-login sudo hint ('To run a command as administrator (user "root"),
+# use "sudo <command>". See "man sudo_root" for details.'). /etc/bash.bashrc prints it whenever
+# a sudo-group user logs in and ~/.sudo_as_admin_successful doesn't exist - which is every
+# rebuild, since the home directory is recreated. Harmless, but it reads like an error in the
+# wizard console, so pre-create the flag file.
+touch "/home/$USER_NAME/.sudo_as_admin_successful"
+chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.sudo_as_admin_successful"
+
 # Install CLI tools on first run (runs as the user)
 # If FORCE_CLI_REINSTALL is set, force reinstallation even if marker file exists
 entrypoint_log "INFO" "Checking CLI tools installation..."

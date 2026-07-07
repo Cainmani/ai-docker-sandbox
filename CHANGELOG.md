@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **"Set-Acl: The process does not possess the 'SeSecurityPrivilege' privilege" error during password-file creation.** `Set-Acl` writes the owner/SACL sections of the security descriptor in addition to the permission list, which requires a privilege that non-elevated PowerShell sessions don't hold. The chmod-600-equivalent lockdown now uses `icacls /inheritance:r /grant:r`, which only modifies the permission list and works without elevation. Impact of the old bug was low: the file lives under the user profile (already restricted by inherited permissions) and is scrubbed to a placeholder after setup — but the hardening now actually applies.
 - **Misleading "[SECURITY] Password file permissions restricted" success message after the ACL step had just failed.** The `Set-Acl` error was non-terminating, so the failure handler never ran; the icacls exit code is now checked explicitly and failures report a warning instead of a false success.
+- **Ubuntu's first-login sudo hint no longer appears in the wizard console.** The 'To run a command as administrator (user "root"), use "sudo <command>"' message is a stock Ubuntu hint printed on a sudo-group user's first login, and every rebuild re-triggered it (fresh home directory = missing `~/.sudo_as_admin_successful` flag). It was harmless but read like an error, so the entrypoint now pre-creates the flag file. Requires a container rebuild to take effect.
 
 ## [1.3.1] - 2026-07-07
 
