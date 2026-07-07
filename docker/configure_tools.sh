@@ -84,6 +84,13 @@ is_configured() {
                 return 0  # API key fallback
             fi
             ;;
+        ai_router)
+            # 9router / OmniRoute are configured in their web dashboard (you link each AI
+            # subscription there), not via a CLI key. Treat "either installed" as ready-to-use.
+            if npm list -g 9router >/dev/null 2>&1 || npm list -g omniroute >/dev/null 2>&1; then
+                return 0
+            fi
+            ;;
     esac
     return 1
 }
@@ -327,6 +334,101 @@ TOML
     fi
 }
 
+# Function to configure the AI router slot (9router / OmniRoute)
+# 9router and OmniRoute are interchangeable unified-router tools that share one dashboard port,
+# so only ONE runs at a time. This helper shows which (if any) is running, lets the user pick
+# one, stops any other router, and starts the chosen one bound to 0.0.0.0 so the host browser
+# can reach it. Subscriptions are linked inside the dashboard, not from this menu.
+configure_ai_router() {
+    print_header "Configure AI Router (9router / OmniRoute)"
+    config_log "INFO" "User initiated AI router configuration"
+
+    local port="${AI_ROUTER_PORT:-20128}"
+
+    # Which routers are installed?
+    local have_9router=false have_omniroute=false
+    npm list -g 9router   >/dev/null 2>&1 && have_9router=true
+    npm list -g omniroute >/dev/null 2>&1 && have_omniroute=true
+
+    if [ "$have_9router" = false ] && [ "$have_omniroute" = false ]; then
+        print_error "Neither 9router nor OmniRoute is installed"
+        echo ""
+        echo "They normally install automatically during setup - try 'update-container-tools',"
+        echo "or install manually: npm install -g 9router   (or)   npm install -g omniroute"
+        echo ""
+        read -rp "Press Enter to continue..." _
+        return 1
+    fi
+
+    print_status "9router and OmniRoute both link multiple AI subscriptions behind one"
+    print_status "OpenAI-compatible endpoint. They share port $port, so only one runs at a time."
+    echo ""
+    echo "  Note: you sign into each AI provider in the router's web dashboard - not here."
+    echo ""
+
+    # Report which router (if any) is currently running
+    local running=""
+    if pgrep -f '9router'   >/dev/null 2>&1; then running="9router"; fi
+    if pgrep -f 'omniroute' >/dev/null 2>&1; then running="omniroute"; fi
+    if [ -n "$running" ]; then
+        print_success "Currently running: $running  ->  http://localhost:$port/dashboard"
+        echo ""
+    fi
+
+    # Offer only the installed routers
+    echo "Which router do you want to run?"
+    [ "$have_9router"   = true ] && echo "  1. 9router"
+    [ "$have_omniroute" = true ] && echo "  2. OmniRoute"
+    echo "  0. Keep current / skip"
+    echo ""
+    read -rp "Enter your choice: " router_choice
+
+    local tool=""
+    case "$router_choice" in
+        1) if [ "$have_9router" = true ];   then tool="9router";   else print_error "9router is not installed";   read -rp "Press Enter to continue..." _; return 1; fi ;;
+        2) if [ "$have_omniroute" = true ]; then tool="omniroute"; else print_error "OmniRoute is not installed"; read -rp "Press Enter to continue..." _; return 1; fi ;;
+        0|"") print_status "No change."; read -rp "Press Enter to continue..." _; return 0 ;;
+        *) print_error "Invalid choice"; read -rp "Press Enter to continue..." _; return 1 ;;
+    esac
+
+    # Stop whichever router is running (enforces one-at-a-time), then start the chosen one.
+    print_status "Stopping any running router..."
+    pkill -f '9router'   2>/dev/null || true
+    pkill -f 'omniroute' 2>/dev/null || true
+    sleep 1
+
+    print_status "Starting $tool on 0.0.0.0:$port ..."
+    config_log "INFO" "AI router: starting $tool on port $port"
+    # Bind 0.0.0.0 (not localhost) so Docker's published port reaches it. DATA_DIR points at the
+    # tool's own persisted data dir (survives rebuilds). Detached.
+    local data_dir="$HOME/.router-data/$tool"
+    mkdir -p "$data_dir"
+    HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="$port" DATA_DIR="$data_dir" nohup "$tool" > "/tmp/$tool.log" 2>&1 &
+    disown 2>/dev/null || true
+
+    # Wait for it to listen (first run may download assets)
+    local waited=0
+    while [ $waited -lt 30 ]; do
+        netstat -tlnp 2>/dev/null | grep -q ":$port " && break
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+        print_success "$tool started."
+        config_log "INFO" "AI router: $tool started on port $port"
+    else
+        print_warning "$tool did not report ready within 30s - it may still be starting."
+        print_warning "Check /tmp/$tool.log for details."
+        config_log "WARN" "AI router: $tool not listening within timeout on port $port"
+    fi
+    echo ""
+    echo "  Open the dashboard from your host browser and link your subscriptions there:"
+    echo "    http://localhost:$port/dashboard"
+    echo ""
+    read -rp "Press Enter to continue..." _
+}
+
 # Function to show configuration status
 show_status() {
     print_header "CLI Tools Configuration Status"
@@ -338,6 +440,7 @@ show_status() {
         "openai:OpenAI/GPT Tools"
         "codex:OpenAI Codex CLI"
         "gemini:Google Gemini"
+        "ai_router:AI Router (9router / OmniRoute)"
     )
 
     for tool_info in "${tools[@]}"; do
@@ -371,11 +474,12 @@ interactive_configure() {
         echo "3. OpenAI/GPT Tools (Python SDK)"
         echo "4. OpenAI Codex CLI"
         echo "5. Google Gemini"
+        echo "6. AI Router (9router / OmniRoute)"
         echo "A. Configure All"
         echo "0. Exit"
         echo ""
 
-        read -rp "Enter your choice (0-5, A): " choice
+        read -rp "Enter your choice (0-6, A): " choice
 
         case $choice in
             1) configure_claude ;;
@@ -383,12 +487,14 @@ interactive_configure() {
             3) configure_openai ;;
             4) configure_codex ;;
             5) configure_gemini ;;
+            6) configure_ai_router ;;
             [Aa])
                 configure_claude
                 configure_github
                 configure_openai
                 configure_codex
                 configure_gemini
+                configure_ai_router
                 show_status
                 ;;
             0)
@@ -424,12 +530,16 @@ case "${1:-}" in
     --codex)
         configure_codex
         ;;
+    --ai-router|--9router|--omniroute)
+        configure_ai_router
+        ;;
     --all)
         configure_claude
         configure_github
         configure_openai
         configure_codex
         configure_gemini
+        configure_ai_router
         show_status
         ;;
     --help|-h)
@@ -442,6 +552,7 @@ case "${1:-}" in
         echo "  --openai, --gpt  Configure OpenAI/GPT tools (Python SDK)"
         echo "  --codex          Configure OpenAI Codex CLI"
         echo "  --gemini         Configure Google Gemini"
+        echo "  --ai-router      Choose/start the AI router (9router or OmniRoute)"
         echo "  --all            Configure all tools"
         echo "  --help, -h       Show this help message"
         echo ""

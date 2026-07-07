@@ -188,6 +188,14 @@ chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
 chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG"
 entrypoint_log "INFO" "Tool-auth persistence setup complete"
 
+# Ensure the AI router data volume exists with correct ownership. 9router and OmniRoute each
+# keep their SQLite DB + linked-provider credentials under their own subdir (DATA_DIR is set to
+# these by the launch wrappers), so both persist across container rebuilds without clashing.
+entrypoint_log "INFO" "Setting up AI router data persistence"
+ROUTER_DATA_DIR="/home/$USER_NAME/.router-data"
+mkdir -p "$ROUTER_DATA_DIR/9router" "$ROUTER_DATA_DIR/omniroute"
+chown -R "$USER_NAME:$USER_NAME" "$ROUTER_DATA_DIR"
+
 # Configure npm to use user-local directory for global packages
 su - "$USER_NAME" -c "mkdir -p /home/$USER_NAME/.npm-global"
 su - "$USER_NAME" -c "npm config set prefix '/home/$USER_NAME/.npm-global'"
@@ -251,6 +259,8 @@ if [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|   * gemini       - Google Gemini CLI                        |"
   echo "|   * codex        - OpenAI Codex CLI                         |"
   echo "|   * python3      - OpenAI Python SDK (import openai)        |"
+  echo "|   * 9router      - Unified AI router (dashboard :20128)     |"
+  echo "|   * omniroute    - Unified AI router (alt. to 9router)      |"
   echo "|                                                             |"
   echo "| Management Commands:                                        |"
   echo "|   * configure-tools         - Set up API keys/authentication|"
@@ -284,6 +294,30 @@ else
     echo 'export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"' >> "/home/$USER_NAME/.bashrc"
     chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
   fi
+fi
+
+# Ensure the AI router dashboards (9router / OmniRoute) bind to 0.0.0.0 so they are reachable
+# from the Windows host. Both are Next.js apps that bind to localhost (127.0.0.1) inside the
+# container by default, which Docker's published port cannot reach. These wrappers inject
+# HOST/HOSTNAME=0.0.0.0 and the shared port only for the router process - no global pollution.
+# They call the real npm-installed binaries via `command`, so normal updates
+# (npm update -g ...) apply unchanged - nothing here is a fork.
+#
+# 9router and OmniRoute are interchangeable and share one port, so only ONE runs at a time.
+# Each wrapper stops any router already running before starting, so switching is seamless and
+# the port never double-binds. Idempotent + applied to both fresh and pre-existing .bashrc.
+if ! grep -q "^9router()" "/home/$USER_NAME/.bashrc" 2>/dev/null; then
+  cat >> "/home/$USER_NAME/.bashrc" << 'EOF'
+
+# AI router wrappers (9router / OmniRoute): bind the dashboard to 0.0.0.0 so it is reachable
+# from the host browser at http://localhost:20128/dashboard (port overridable via
+# AI_ROUTER_PORT). DATA_DIR points each router at its own persisted data dir. Only one router
+# runs at a time - starting one stops the other.
+__ai_router_stop() { pkill -f '9router' 2>/dev/null; pkill -f 'omniroute' 2>/dev/null; return 0; }
+9router()   { __ai_router_stop; mkdir -p "$HOME/.router-data/9router";   HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/9router"   command 9router "$@"; }
+omniroute() { __ai_router_stop; mkdir -p "$HOME/.router-data/omniroute"; HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/omniroute" command omniroute "$@"; }
+EOF
+  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
 fi
 
 # Create .profile to set PATH for login shells (used by 'su -')
