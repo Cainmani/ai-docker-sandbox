@@ -1697,12 +1697,12 @@ $btnNext.Add_Click({
             # AI CLI tools will be auto-installed by entrypoint.sh
             $status.Text = 'Installing AI CLI tools suite...'
             Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
-            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex..." -ForegroundColor Yellow
-            Write-Host "[INFO] This will take 3-5 minutes on first run..." -ForegroundColor Yellow
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex, Vibe Kanban, 9router, OmniRoute..." -ForegroundColor Yellow
+            Write-Host "[INFO] This will take 5-10 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
             # Wait for the entrypoint to run the installation
-            $status.Text = 'Waiting for CLI tools installation (3-5 minutes)...'
+            $status.Text = 'Waiting for CLI tools installation (5-10 minutes)...'
 
             # Initialize terminal display
             $script:terminalBox.Text = ">> Installation starting...`r`n"
@@ -1758,7 +1758,9 @@ $btnNext.Add_Click({
             }
 
             # Check installation progress by looking for the marker file
-            $maxWaitTime = 300  # 5 minutes
+            # 8 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
+            # 9router, OmniRoute) - 5 minutes was routinely exceeded after the routers were added
+            $maxWaitTime = 600  # 10 minutes
             $waitedTime = 0
             $checkInterval = 3  # Check more frequently for better UI updates
 
@@ -1793,13 +1795,17 @@ $btnNext.Add_Click({
                         $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
                         Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
 
-                        # Update progress based on which tool is currently installing (5 tools total)
+                        # Update progress based on which tool is currently installing (8 tools total)
+                        # Names must match update_install_status calls in docker/install_cli_tools.sh
                         $toolProgress = switch ($toolName) {
-                            'GitHub CLI' { 20 }
-                            'Claude Code CLI' { 40 }
-                            'Google Gemini CLI' { 60 }
-                            'OpenAI Python SDK' { 80 }
-                            'OpenAI Codex CLI' { 95 }
+                            'GitHub CLI' { 15 }
+                            'Claude Code CLI' { 30 }
+                            'Google Gemini CLI' { 45 }
+                            'OpenAI Python SDK' { 55 }
+                            'OpenAI Codex CLI' { 65 }
+                            'Vibe Kanban' { 80 }
+                            '9router' { 90 }
+                            'OmniRoute' { 95 }
                             default { $progress.Value }  # Keep current if unknown
                         }
                         $progress.Value = $toolProgress
@@ -1819,6 +1825,9 @@ $btnNext.Add_Click({
 
             if ($waitedTime -ge $maxWaitTime) {
                 Write-Host "[WARNING] Installation is taking longer than expected, but will continue in background" -ForegroundColor Yellow
+                Write-Host "[INFO] This is not an error - the container keeps installing after this window closes" -ForegroundColor Cyan
+                Write-Host "[INFO] Watch progress with: docker logs -f ai-cli" -ForegroundColor Cyan
+                Write-Host "[INFO] Or check status inside the container: cat ~/.cli_tools_installed" -ForegroundColor Cyan
                 $script:terminalBox.AppendText("`r`n>> Installation taking longer than expected, continuing in background...`r`n")
             }
 
@@ -1833,7 +1842,8 @@ $btnNext.Add_Click({
             if ($r3a.Ok -and $r3a.StdOut -match 'Claude found') {
                 Write-Host "[SUCCESS] Claude CLI verified" -ForegroundColor Green
             } else {
-                Write-Host "[WARNING] Claude CLI not found yet, will be installed in background" -ForegroundColor Yellow
+                Write-Host "[WARNING] Claude CLI not found yet - it will finish installing in the background" -ForegroundColor Yellow
+                Write-Host "[INFO] Your shell will show an 'Installing...' spinner until it's ready" -ForegroundColor Cyan
             }
 
             # Test 2: Check if GitHub CLI exists

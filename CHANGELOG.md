@@ -5,6 +5,17 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-07-07
+
+Fixes the scary-but-harmless errors the setup wizard showed after rebuilding for 1.3.0. No container changes - the container itself was installing fine; the wizard just gave up waiting too early and hit a PowerShell 5.1 incompatibility during cleanup.
+
+### Fixed
+- **Wizard timed out during CLI tool installation after the 1.3.0 rebuild** ("Installation is taking longer than expected", "Claude CLI not found yet"). The wizard only waited 5 minutes, but a Force Rebuild now installs 8 tools sequentially (9router and OmniRoute were added in 1.3.0), which routinely takes longer. The wait is now 10 minutes, and the timeout/verification messages explain that installation genuinely continues in the background (your shell shows an "Installing..." spinner until it finishes - `claude` and the other tools appear once it completes).
+- **"Secure replacement failed: RandomNumberGenerator does not contain a method named 'Fill'"** during password-file cleanup. `RandomNumberGenerator::Fill()` only exists in PowerShell 7 (.NET Core); Windows PowerShell 5.1 users hit the fallback path. Now uses `Create()`/`GetBytes()`, which works on both. The fallback did still replace the password with a placeholder, so no security impact - the overwrite passes just didn't run.
+
+### Changed
+- **Wizard install progress now tracks all 8 tools** (previously only the original 5), so the progress bar no longer stalls at 95% while Vibe Kanban, 9router, and OmniRoute install.
+
 ## [1.3.0] - 2026-07-07
 
 Adds unified AI router tools (9router / OmniRoute) and fixes reaching their dashboards from the Windows host browser. Force Rebuild recommended so the container picks up the new tools and the updated port mapping.

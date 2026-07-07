@@ -61,11 +61,18 @@ function Replace-PasswordWithPlaceholder {
             if ($fileSize -eq 0) { $fileSize = 64 }  # Minimum overwrite size
 
             # Overwrite with random data (3 passes for security)
-            for ($pass = 1; $pass -le 3; $pass++) {
-                $randomBytes = New-Object byte[] $fileSize
-                [System.Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes)
-                [System.IO.File]::WriteAllBytes($passwordFile, $randomBytes)
-                Write-Host "[SECURITY] Overwrite pass $pass complete" -ForegroundColor DarkGray
+            # Use Create()/GetBytes() rather than the static Fill() - Fill() only exists in
+            # .NET Core 2.1+ (PowerShell 7), not in Windows PowerShell 5.1 (.NET Framework)
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            try {
+                for ($pass = 1; $pass -le 3; $pass++) {
+                    $randomBytes = New-Object byte[] $fileSize
+                    $rng.GetBytes($randomBytes)
+                    [System.IO.File]::WriteAllBytes($passwordFile, $randomBytes)
+                    Write-Host "[SECURITY] Overwrite pass $pass complete" -ForegroundColor DarkGray
+                }
+            } finally {
+                $rng.Dispose()
             }
 
             # Replace with placeholder instead of deleting
