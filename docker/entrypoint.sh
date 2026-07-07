@@ -320,6 +320,11 @@ fi
 # 9router and OmniRoute are interchangeable and share one port, so only ONE runs at a time.
 # Each wrapper stops any router already running before starting, so switching is seamless and
 # the port never double-binds. Idempotent + applied to both fresh and pre-existing .bashrc.
+#
+# Switching used to hang on "server starting" / show "Internal Server Error" because the old
+# router had not released the shared port before the new one tried to bind it. The stop helper
+# below escalates SIGTERM -> SIGKILL and then WAITS for the port to be free before returning,
+# so the incoming router always gets a clean socket.
 if ! grep -q "^9router()" "/home/$USER_NAME/.bashrc" 2>/dev/null; then
   cat >> "/home/$USER_NAME/.bashrc" << 'EOF'
 
@@ -327,7 +332,41 @@ if ! grep -q "^9router()" "/home/$USER_NAME/.bashrc" 2>/dev/null; then
 # from the host browser at http://localhost:20128/dashboard (port overridable via
 # AI_ROUTER_PORT). DATA_DIR points each router at its own persisted data dir. Only one router
 # runs at a time - starting one stops the other.
-__ai_router_stop() { pkill -f '9router' 2>/dev/null; pkill -f 'omniroute' 2>/dev/null; return 0; }
+
+# True if the given TCP port has a listener (prefers ss, falls back to netstat).
+__ai_router_port_busy() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnH 2>/dev/null | grep -q ":$port "
+  else
+    netstat -tln 2>/dev/null | grep -q ":$port "
+  fi
+}
+
+# Stop any running router and wait for it to actually exit and release the shared port.
+# Escalates SIGTERM -> SIGKILL; returns only once the port is free (or after ~15s) so the
+# next router can bind without hitting EADDRINUSE ("Internal Server Error" in the dashboard).
+__ai_router_stop() {
+  local port="${AI_ROUTER_PORT:-20128}" waited=0
+  if pgrep -f '9router|omniroute' >/dev/null 2>&1; then
+    pkill -TERM -f '9router'   2>/dev/null || true
+    pkill -TERM -f 'omniroute' 2>/dev/null || true
+    # Give a graceful shutdown up to ~5s.
+    while pgrep -f '9router|omniroute' >/dev/null 2>&1 && [ "$waited" -lt 5 ]; do
+      sleep 1; waited=$((waited + 1))
+    done
+    # Anything still alive gets SIGKILL.
+    pkill -KILL -f '9router'   2>/dev/null || true
+    pkill -KILL -f 'omniroute' 2>/dev/null || true
+  fi
+  # Wait for the socket to be released (TIME_WAIT / slow teardown) before returning.
+  waited=0
+  while __ai_router_port_busy "$port" && [ "$waited" -lt 10 ]; do
+    sleep 1; waited=$((waited + 1))
+  done
+  return 0
+}
+
 9router()   { __ai_router_stop; mkdir -p "$HOME/.router-data/9router";   HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/9router"   command 9router "$@"; }
 omniroute() { __ai_router_stop; mkdir -p "$HOME/.router-data/omniroute"; HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/omniroute" command omniroute "$@"; }
 EOF

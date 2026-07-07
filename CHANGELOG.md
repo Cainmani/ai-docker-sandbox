@@ -5,6 +5,14 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-07-07
+
+Fixes switching between the two AI routers. Force Rebuild (or `docker compose up -d --force-recreate`) recommended so the container regenerates the updated `~/.bashrc` router wrappers.
+
+### Fixed
+- **Switching from 9router to OmniRoute (or vice versa) hung on "server starting" and the dashboard showed "Internal Server Error."** The old router had not released the shared port (`20128`) before the new one tried to bind it, so the incoming router failed with `EADDRINUSE`. The `~/.bashrc` wrappers and the `configure-tools` AI Router wizard now escalate `SIGTERM → SIGKILL` when stopping a router and then **wait for the port to actually be free** before starting the next one. Also removed a `pkill -f` self-match hazard by waiting for process exit rather than assuming an instant kill.
+- **Corrected a misleading comment** in `install_cli_tools.sh` that claimed OmniRoute serves on port `20129`; both routers share `20128` (only one runs at a time).
+
 ## [1.3.3] - 2026-07-07
 
 Fixes the root cause of CLI tools never finishing installation after a rebuild. Force Rebuild required to pick up the new entrypoint.

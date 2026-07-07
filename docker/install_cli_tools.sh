@@ -479,9 +479,10 @@ install_cli_tools() {
         print_warning "9router installation failed - can be installed manually with: npm install -g 9router"
     fi
 
-    # 7. Install OmniRoute (unified AI gateway - same family of tool as 9router; web dashboard
-    # served on port 20129 by default to avoid colliding with 9router's 20128, bound to 0.0.0.0
-    # by the omniroute() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
+    # 7. Install OmniRoute (unified AI gateway - same family of tool as 9router; interchangeable
+    # with it and shares the SAME dashboard port 20128, so only one router runs at a time. Bound
+    # to 0.0.0.0 by the omniroute() wrapper in ~/.bashrc so it is reachable from the host browser;
+    # the wrapper stops any other router and waits for the port before starting.)
     update_install_status "OmniRoute" "npm"
     if npm_install_with_retry "omniroute@3.8.45" "/tmp/omniroute_install.log"; then
         print_success "OmniRoute installed successfully"
