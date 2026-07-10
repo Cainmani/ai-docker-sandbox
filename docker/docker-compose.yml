@@ -78,7 +78,9 @@ services:
       resources:
         limits:
           memory: 4G
-          cpus: '4.0'
+          # Keep the default compatible with 2-core hosts and CI runners;
+          # higher-capacity machines can override this in docker/.env.
+          cpus: '${AI_DOCKER_CPU_LIMIT:-2.0}'
 
 # Docker secrets for secure password handling
 # Password is stored in tmpfs (memory-only) at /run/secrets/user_password
