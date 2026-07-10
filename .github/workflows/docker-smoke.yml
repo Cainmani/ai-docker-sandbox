@@ -114,7 +114,7 @@ jobs:
           # --diagnose must report TLS=ok given real egress: the probe treats any
           # HTTP response (even the APIs' bare-root 404/421) as transport success.
           docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc '
-            out=$(configure-tools --diagnose 2>/dev/null || true)
+            out=$(/usr/local/bin/configure_tools.sh --diagnose 2>/dev/null || true)
             printf "%s\n" "$out"
             echo "$out" | grep -q "^TLS=ok$"
             echo "$out" | grep -q "^HTTP_STATUS_anthropic="
