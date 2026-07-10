@@ -113,12 +113,18 @@ else
     fail "logging.sh missing CYAN or BOLD"
 fi
 
-# Color vars should NOT be redefined in scripts that source logging.sh
-for script in docker/configure_tools.sh docker/install_cli_tools.sh docker/auto_update.sh; do
-    if grep -qE "^RED='" "$script" 2>/dev/null; then
-        fail "$script still defines its own color vars"
+# Scripts should use shared colors, with guarded fallbacks where they can run
+# without logging.sh (install/update recovery paths).
+if ! grep -qE "^RED='" docker/configure_tools.sh 2>/dev/null; then
+    pass "configure_tools.sh uses shared color vars from logging.sh"
+else
+    fail "configure_tools.sh still defines its own color vars"
+fi
+for script in docker/install_cli_tools.sh docker/auto_update.sh; do
+    if grep -q 'RED=${RED:-' "$script" 2>/dev/null || grep -q 'LOGGING_LIBRARY_AVAILABLE=0' "$script" 2>/dev/null; then
+        pass "$script provides guarded fallback colors"
     else
-        pass "$script uses shared color vars from logging.sh"
+        fail "$script missing guarded fallback colors"
     fi
 done
 

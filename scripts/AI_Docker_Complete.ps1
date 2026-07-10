@@ -53,9 +53,10 @@ function Sanitize-LogMessage {
     if ($script:ContainerUsername) {
         $Message = $Message -replace "\b$([regex]::Escape($script:ContainerUsername))\b", "<USER>"
     }
+    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-proj-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
     $Message = $Message -replace "sk-[a-zA-Z0-9]{20,}", "<REDACTED_API_KEY>"
-    $Message = $Message -replace "sk-ant-[a-zA-Z0-9_-]{20,}", "<REDACTED_API_KEY>"
+    $Message = $Message -replace "github_pat_[a-zA-Z0-9]{22,}", "<REDACTED_TOKEN>"
     $Message = $Message -replace "gh[pousr]_[a-zA-Z0-9]{36,}", "<REDACTED_TOKEN>"
     $Message = $Message -replace "([Tt]oken)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
     $Message = $Message -replace "([Ss]ecret)[=:]\s*[a-zA-Z0-9_-]{20,}", "`$1=<REDACTED>"
@@ -64,6 +65,7 @@ function Sanitize-LogMessage {
     $Message = $Message -replace "AIza[a-zA-Z0-9_-]{35}", "<REDACTED_GCP_KEY>"
     $Message = $Message -replace "Bearer [a-zA-Z0-9_.-]{20,}", "Bearer <REDACTED>"
     $Message = $Message -replace "eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*", "<REDACTED_JWT>"
+    $Message = $Message -replace "-----BEGIN [A-Z ]+ PRIVATE KEY-----", "<REDACTED_PRIVATE_KEY>"
     return $Message
 }
 
@@ -92,7 +94,7 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.3.4"
+$script:AppVersion = "1.4.0"  # Keep in sync with root VERSION file
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -155,6 +157,9 @@ $script:EmbeddedFiles = @{
     'setup_utils.ps1' = 'SETUP_UTILS_PS1_BASE64_HERE'
     'env_utils.ps1' = 'ENV_UTILS_PS1_BASE64_HERE'
     'docker-compose.yml' = 'DOCKER_COMPOSE_YML_BASE64_HERE'
+    'docker-compose.mobile.yml' = 'DOCKER_COMPOSE_MOBILE_YML_BASE64_HERE'
+    'docker-compose.ca.yml' = 'DOCKER_COMPOSE_CA_YML_BASE64_HERE'
+    'uninstall.ps1' = 'UNINSTALL_PS1_BASE64_HERE'
     'Dockerfile' = 'DOCKERFILE_BASE64_HERE'
     '.dockerignore' = '_DOCKERIGNORE_BASE64_HERE'
     'entrypoint.sh' = 'ENTRYPOINT_SH_BASE64_HERE'
@@ -167,6 +172,8 @@ $script:EmbeddedFiles = @{
     'tmux.conf' = 'TMUX_CONF_BASE64_HERE'
     'fail2ban-jail.local' = 'FAIL2BAN_JAIL_LOCAL_BASE64_HERE'
     'lib/logging.sh' = 'LOGGING_SH_BASE64_HERE'
+    'lib/router_utils.sh' = 'ROUTER_UTILS_SH_BASE64_HERE'
+    'lib/entrypoint_helpers.sh' = 'ENTRYPOINT_HELPERS_SH_BASE64_HERE'
     'fix_line_endings.ps1' = 'FIX_LINE_ENDINGS_PS1_BASE64_HERE'
     '.gitattributes' = '_GITATTRIBUTES_BASE64_HERE'
     'README.md' = 'README_MD_BASE64_HERE'
@@ -235,7 +242,7 @@ function Get-EmbeddedFileContent {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -243,7 +250,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
@@ -269,25 +276,18 @@ function Extract-DockerFiles {
     if ($needsUpdate -and $oldHash -ne "") {
         # Note: Removed Write-Host to prevent console window from appearing during updates
 
-        # Check if container exists
-        $existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
-        if ($existingContainer -eq "ai-cli") {
-            # CRITICAL: Never delete the container automatically - user data is preserved
-            # Only remove the old image to force rebuild
+        # Remove the canonical image plus any legacy-named images so the next
+        # setup run rebuilds with the updated files.
+        # CRITICAL: Never delete the container automatically - user data is preserved.
+        $imageNames = @('ai-docker-cli', 'docker-files-ai', 'ai-docker-ai')
+        foreach ($imageName in $imageNames) {
             try {
-                $existingImage = docker images -q docker-files-ai 2>$null
+                $existingImage = docker images -q $imageName 2>$null
                 if ($existingImage) {
-                    $null = docker rmi docker-files-ai 2>$null
+                    $null = docker rmi $imageName 2>$null
                 }
             } catch {
-                # Ignore errors - image might be in use
-            }
-        } else {
-            # No container exists - safe to remove image
-            try {
-                $null = docker rmi docker-files-ai 2>$null
-            } catch {
-                # Ignore errors - image might not exist
+                # Ignore errors - image might be in use or not exist
             }
         }
     }
@@ -508,7 +508,7 @@ $lblReportIssue.Add_LinkClicked({
         "To report an issue:`n" +
         "1. Drag and drop the log files into the GitHub issue form`n" +
         "2. Describe your issue`n`n" +
-        "Log files are already sanitized - safe to share publicly.",
+        "Log files are sanitized; review them before sharing.",
         "Report Issue",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
@@ -579,6 +579,19 @@ $btnSetup.Add_Click({
                 Write-AppLog "Setup utils helper written to: [$setupUtilsScript]" "DEBUG"
             }
 
+            # Extract docker_helpers.ps1 and env_utils.ps1 (dot-sourced by setup_wizard.ps1
+            # for Wait-ContainerReady, image name constants, and .env helpers)
+            $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
+            if ($dockerHelpersContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "Docker helpers written for setup wizard" "DEBUG"
+            }
+            $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
+            if ($envUtilsContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
+                Write-AppLog "Env utils written for setup wizard" "DEBUG"
+            }
+
             try {
                 $lblStatus.Text = ">>> LAUNCHING WIZARD... <<<"
                 [System.Windows.Forms.Application]::DoEvents()
@@ -593,6 +606,11 @@ $btnSetup.Add_Click({
                 # Run the setup wizard from subfolder
                 # Build argument list - ensure -DevMode is properly passed as separate argument
                 $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$setupScript`""
+                # Pass the launcher's product version so the wizard can propagate it
+                # into docker/.env as AI_DOCKER_VERSION (single source of truth).
+                if ($script:AppVersion) {
+                    $argList = "$argList -AppVersion `"$($script:AppVersion)`""
+                }
                 if ($devModeArg) {
                     $argList = "$argList -DevMode"
                     Write-AppLog "Launch arguments: $argList" "DEBUG"
@@ -652,15 +670,8 @@ $btnSetup.Add_Click({
                 # Handle different exit codes
                 if ($process.ExitCode -eq 0) {
                     Write-AppLog "Setup completed successfully" "INFO"
-                    # Success - show completion message
-                    # Check if .env was created in docker-files folder, then move it to main app directory
-                    $envFileInSubfolder = Join-Path $filesDir ".env"
-                    $envFileMain = Join-Path $appDataDir ".env"
-
-                    if (Test-Path $envFileInSubfolder) {
-                        # Move .env to main app directory for easier access
-                        Copy-Item $envFileInSubfolder $envFileMain -Force
-                    }
+                    # docker-files\.env is the canonical configuration file in
+                    # the packaged layout; do not maintain a synchronized copy.
 
                     # Different message for DEV mode
                     if ($devModeArg) {
@@ -725,20 +736,32 @@ $btnLaunch.Add_Click({
         if ($existingContainer -eq "ai-cli") {
         Write-AppLog "Container 'ai-cli' found - launching workspace..." "INFO"
 
+        # Warn once when the running container predates this launcher. This is
+        # non-blocking: users may continue, but rebuilding is recommended.
+        $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
+        $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
+        if ($dockerHelpersContent -and $logUtilsContent) {
+            [System.IO.File]::WriteAllText((Join-Path $filesDir 'docker_helpers.ps1'), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText((Join-Path $filesDir 'log_utils.ps1'), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+            . (Join-Path $filesDir 'log_utils.ps1')
+            . (Join-Path $filesDir 'docker_helpers.ps1')
+            $versionSkew = Test-ContainerVersionSkew -LauncherVersion $script:AppVersion
+            if ($versionSkew.SkewDetected) {
+                $containerVersionText = if ($versionSkew.ContainerVersion) { "v$($versionSkew.ContainerVersion)" } else { 'a legacy version' }
+                [System.Windows.Forms.MessageBox]::Show(
+                    "This launcher is v$script:AppVersion, but the running container uses $containerVersionText.`n`n" +
+                    "The workspace can still open, but Force Rebuild is recommended so the container receives the latest fixes.",
+                    'Container Update Recommended',
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                ) | Out-Null
+            }
+        }
+
         # Ensure docker-files subfolder exists
         if (-not (Test-Path $filesDir)) {
             Write-AppLog "Creating docker-files directory: [$filesDir]" "DEBUG"
             New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
-        }
-
-        # Copy .env if it exists, otherwise create a minimal one
-        $envFileInSubfolder = Join-Path $filesDir ".env"
-        $envFileMain = Join-Path $appDataDir ".env"
-        if (Test-Path $envFileMain) {
-            Write-AppLog "Copying .env from [$envFileMain] to [$envFileInSubfolder]" "DEBUG"
-            Copy-Item $envFileMain $envFileInSubfolder -Force
-        } else {
-            Write-AppLog ".env file not found at [$envFileMain]" "DEBUG"
         }
 
         # Re-extract Docker files if they were deleted
@@ -790,11 +813,11 @@ $btnLaunch.Add_Click({
     } else {
         Write-AppLog "Container 'ai-cli' not found - checking setup status..." "WARN"
 
-        # No container exists - check if setup was ever run
-        $envFileMain = Join-Path $appDataDir ".env"
-        Write-AppLog "Checking for .env file at: [$envFileMain]" "DEBUG"
+        # No container exists - check the canonical packaged .env.
+        $envFile = Join-Path $filesDir ".env"
+        Write-AppLog "Checking for .env file at: [$envFile]" "DEBUG"
 
-        if (-not (Test-Path $envFileMain)) {
+        if (-not (Test-Path $envFile)) {
             Write-AppLog ".env file not found - setup has not been completed" "WARN"
             # Neither container nor .env exists - user needs to run setup
             $result = [System.Windows.Forms.MessageBox]::Show(
@@ -858,14 +881,6 @@ $btnVibeKanban.Add_Click({
             if (-not (Test-Path $filesDir)) {
                 Write-AppLog "Creating docker-files directory: [$filesDir]" "DEBUG"
                 New-Item -ItemType Directory -Path $filesDir -Force | Out-Null
-            }
-
-            # Copy .env if it exists
-            $envFileInSubfolder = Join-Path $filesDir ".env"
-            $envFileMain = Join-Path $appDataDir ".env"
-            if (Test-Path $envFileMain) {
-                Write-AppLog "Copying .env from [$envFileMain] to [$envFileInSubfolder]" "DEBUG"
-                Copy-Item $envFileMain $envFileInSubfolder -Force
             }
 
             # Re-extract Docker files if they were deleted
@@ -948,12 +963,21 @@ $btnExit.Add_Click({
 # Check if Docker Desktop is running on startup
 Write-AppLog "Checking if Docker Desktop is running..." "DEBUG"
 function Test-DockerRunning {
-    try {
-        $result = docker info 2>&1
-        return $LASTEXITCODE -eq 0
-    } catch {
-        return $false
+    $dockerHelpers = Join-Path $filesDir 'docker_helpers.ps1'
+    $logUtils = Join-Path $filesDir 'log_utils.ps1'
+    if (-not (Test-Path $dockerHelpers) -or -not (Test-Path $logUtils)) {
+        Extract-DockerFiles
+        foreach ($helperName in @('log_utils.ps1', 'docker_helpers.ps1')) {
+            $helperContent = Get-EmbeddedFileContent $helperName
+            if ($helperContent) {
+                [System.IO.File]::WriteAllText((Join-Path $filesDir $helperName), $helperContent, [System.Text.UTF8Encoding]::new($false))
+            }
+        }
     }
+
+    . $logUtils
+    . $dockerHelpers
+    return DockerOk -TimeoutSeconds 30
 }
 
 $dockerRunning = Test-DockerRunning

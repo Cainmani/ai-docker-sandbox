@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
-**Last Updated:** July 1, 2026
-**Project Version:** 1.2.4
+**Last Updated:** July 10, 2026
+**Project Version:** 1.4.0
 
 ---
 
@@ -62,9 +62,9 @@ All shell scripts use `set -euo pipefail`. This means:
 - **Always use `${1:-}` for optional positional args** (not `$1`)
 - Unguarded variables cause immediate script termination
 
-### Install Marker
+### Structured Install Status
 
-`~/.cli_tools_installed` is created only after successful installation. The entrypoint does NOT use an EXIT trap for this — if the script crashes, the marker is not created, allowing retries on next start.
+`~/.cli_tools_installed` records `STATUS=ok` or `STATUS=partial`, failed tools, timestamp, and verified versions. A partial status triggers targeted `--repair` on a later start; working tools are never removed merely because another tool failed. Legacy marker files remain readable and are upgraded after verification.
 
 ### Log Sanitization
 

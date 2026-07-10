@@ -6,6 +6,10 @@ set -euo pipefail
 PASS=0
 FAIL=0
 TEST_DIR=""
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Exercise the production migration helpers rather than copied approximations.
+# shellcheck source=../docker/lib/entrypoint_helpers.sh
+source "$ROOT_DIR/docker/lib/entrypoint_helpers.sh"
 
 setup() {
     TEST_DIR=$(mktemp -d)
@@ -65,13 +69,13 @@ assert_file_contains() {
 run_claude_json_logic() {
     CLAUDE_ROOT_JSON="$HOME/.claude.json"
     CLAUDE_ROOT_JSON_VOLUME="$HOME/.claude/_claude_root.json"
-    if [ -f "$CLAUDE_ROOT_JSON" ] && [ ! -L "$CLAUDE_ROOT_JSON" ]; then
-        mv "$CLAUDE_ROOT_JSON" "$CLAUDE_ROOT_JSON_VOLUME"
-    fi
+    safe_migrate_file "$CLAUDE_ROOT_JSON" "$CLAUDE_ROOT_JSON_VOLUME"
     if [ ! -f "$CLAUDE_ROOT_JSON_VOLUME" ]; then
         echo '{"hasCompletedOnboarding":false}' > "$CLAUDE_ROOT_JSON_VOLUME"
     fi
-    ln -sf "$CLAUDE_ROOT_JSON_VOLUME" "$CLAUDE_ROOT_JSON"
+    if [ ! -f "$CLAUDE_ROOT_JSON" ] || [ -L "$CLAUDE_ROOT_JSON" ]; then
+        ln -sf "$CLAUDE_ROOT_JSON_VOLUME" "$CLAUDE_ROOT_JSON"
+    fi
 }
 
 run_tool_auth_logic() {
@@ -83,23 +87,10 @@ run_tool_auth_logic() {
     done
 
     for tool_dir in gh openai gemini; do
-        config_path="$HOME/.config/$tool_dir"
-        volume_path="$TOOL_AUTH_DIR/$tool_dir"
-        if [ -d "$config_path" ] && [ ! -L "$config_path" ]; then
-            cp -a "$config_path"/. "$volume_path"/ 2>/dev/null || true
-            rm -rf "$config_path"
-        fi
-        mkdir -p "$HOME/.config"
-        ln -sfn "$volume_path" "$config_path"
+        safe_migrate_dir "$HOME/.config/$tool_dir" "$TOOL_AUTH_DIR/$tool_dir"
     done
 
-    CODEX_CONFIG="$HOME/.codex"
-    CODEX_VOLUME="$TOOL_AUTH_DIR/codex"
-    if [ -d "$CODEX_CONFIG" ] && [ ! -L "$CODEX_CONFIG" ]; then
-        cp -a "$CODEX_CONFIG"/. "$CODEX_VOLUME"/ 2>/dev/null || true
-        rm -rf "$CODEX_CONFIG"
-    fi
-    ln -sfn "$CODEX_VOLUME" "$CODEX_CONFIG"
+    safe_migrate_dir "$HOME/.codex" "$TOOL_AUTH_DIR/codex"
 }
 
 # ========================== TEST CASES ==========================

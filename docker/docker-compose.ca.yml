@@ -1,0 +1,15 @@
+# Optional corporate CA override.
+# Set CUSTOM_CA_HOST_PATH in docker/.env to an absolute host path containing a
+# PEM-encoded .crt file, then include this file with the base Compose file.
+services:
+  ai:
+    environment:
+      CUSTOM_CA_CERT: /usr/local/share/ca-certificates/ai-docker-custom-ca.crt
+      NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/ai-docker-custom-ca.crt
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+    volumes:
+      - type: bind
+        source: ${CUSTOM_CA_HOST_PATH:?Set CUSTOM_CA_HOST_PATH to an absolute .crt file path}
+        target: /usr/local/share/ca-certificates/ai-docker-custom-ca.crt
+        read_only: true

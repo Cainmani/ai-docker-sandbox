@@ -527,6 +527,37 @@ pkg install mosh
 
 ---
 
+## Corporate Proxy and Custom CA
+
+The canonical configuration is `docker/.env` in source layouts and the extracted `docker-files/.env` in packaged layouts. Standard proxy variables are passed to both image builds and running tools:
+
+```dotenv
+HTTP_PROXY=http://proxy.example:8080
+HTTPS_PROXY=http://proxy.example:8080
+NO_PROXY=localhost,127.0.0.1,.internal.example
+ALL_PROXY=socks5://proxy.example:1080
+```
+
+Do not commit proxy URLs containing credentials. For an organization-issued CA, keep the certificate on the host as a readable `.crt`, set the host and in-container paths, and include the CA override explicitly:
+
+```dotenv
+CUSTOM_CA_HOST_PATH=C:/certificates/corporate-root.crt
+CUSTOM_CA_CERT=/usr/local/share/ca-certificates/ai-docker-custom.crt
+NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/ai-docker-custom.crt
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+```
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.ca.yml up -d --build
+```
+
+The override bind-mounts only the selected certificate read-only. Entrypoint startup rejects paths outside `/usr/local/share/ca-certificates/*.crt`, installs the CA idempotently, and makes the resulting system bundle available to Node, Python Requests, OpenSSL, npm, and pip. Run `configure-tools --diagnose` afterward; an API authentication HTTP response can still demonstrate successful DNS/TLS transport (the diagnostic reports `TLS=ok` plus the raw `HTTP_STATUS_*` codes, and only flags `TLS=failed` for genuine DNS/connection/timeout/SSL errors).
+
+Proxy and CA settings apply in every context, not just the entrypoint's own shell. The startup writes them to `/etc/profile.d/ai-docker-proxy.sh` so interactive `su -`/SSH login shells re-export them, whitelists them across the tool-installation `su -` calls, and has the weekly auto-update cron entry source that profile — so tool installs, updates, and manual sessions all honor the proxy/CA configuration on corporate networks.
+
+This feature extends local trust to the configured CA. Confirm the certificate fingerprint with your administrator before mounting it.
+
 ## Troubleshooting
 
 ### "Connection refused" on port 2222

@@ -10,6 +10,7 @@ Add-Type -AssemblyName System.Drawing
 # ============================================================
 $script:LogComponent = "LAUNCHER"
 . "$PSScriptRoot\log_utils.ps1"
+. "$PSScriptRoot\env_utils.ps1"
 
 Write-AppLog "========================================" "INFO"
 Write-AppLog "AI Docker Launcher Started" "INFO"
@@ -19,7 +20,7 @@ Write-AppLog "========================================" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.3.4"
+$script:AppVersion = "1.4.0"  # Keep in sync with root VERSION file
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -296,7 +297,7 @@ $lblReportIssue.Add_LinkClicked({
         "To report an issue:`n" +
         "1. Drag and drop the log files into the GitHub issue form`n" +
         "2. Describe your issue`n`n" +
-        "Log files are already sanitized - safe to share publicly.",
+        "Log files are sanitized; review them before sharing.",
         "Report Issue",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
@@ -433,7 +434,8 @@ $btnLaunch.Add_Click({
             Write-AppLog "Container 'ai-cli' not found - checking setup status..." "WARN"
 
             # No container exists - check if setup was ever run
-            $envFile = Join-Path $scriptPath ".env"
+            # (canonical .env lives next to docker-compose.yml; legacy installs kept it here)
+            $envFile = Resolve-EnvFilePath -ScriptPath $scriptPath
             Write-AppLog "Checking for .env file at: [$envFile]" "DEBUG"
 
             if (-not (Test-Path $envFile)) {

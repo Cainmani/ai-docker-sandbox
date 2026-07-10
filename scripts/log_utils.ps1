@@ -65,6 +65,9 @@ function Sanitize-LogMessage {
     # Sanitize JWT tokens
     $Message = $Message -replace "eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*", "<REDACTED_JWT>"
 
+    # Sanitize private key markers
+    $Message = $Message -replace "-----BEGIN [A-Z ]+ PRIVATE KEY-----", "<REDACTED_PRIVATE_KEY>"
+
     return $Message
 }
 

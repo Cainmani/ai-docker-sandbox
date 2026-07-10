@@ -28,6 +28,13 @@ else
     # Fallback to old location if library not available
     LOG_FILE="${HOME}/.cli_tools_update.log"
     LOGGING_LIBRARY_AVAILABLE=0
+    # Safe fallback color definitions - normally exported by logging.sh. With
+    # set -u, referencing them unset would crash the whole updater.
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m'
 fi
 
 # Migrate old log file if exists
@@ -56,7 +63,9 @@ update_log() {
         if [ -n "$user_name" ]; then
             sanitized="${sanitized//$user_name/<USER>}"
         fi
-        sanitized="$(echo "$sanitized" | sed -E 's/sk-(proj-|ant-)?[a-zA-Z0-9_-]{20,}/<REDACTED_API_KEY>/g; s/gh[pousr]_[a-zA-Z0-9]{36,}/<REDACTED_TOKEN>/g')"
+        # Keep the recovery logger aligned with the shared sanitizer when the
+        # library is missing or damaged.
+        sanitized="$(echo "$sanitized" | sed -E 's/sk-ant-[a-zA-Z0-9_-]{20,}/<REDACTED_API_KEY>/g; s/sk-proj-[a-zA-Z0-9_-]{20,}/<REDACTED_API_KEY>/g; s/sk-[a-zA-Z0-9]{20,}/<REDACTED_API_KEY>/g; s/github_pat_[a-zA-Z0-9]{22,}/<REDACTED_TOKEN>/g; s/gh[pousr]_[a-zA-Z0-9]{36,}/<REDACTED_TOKEN>/g; s/([Tt]oken|[Ss]ecret|[Pp]assword)[=:][[:space:]]*[^[:space:]]+/\1=<REDACTED>/g; s/AKIA[A-Z0-9]{16}/<REDACTED_AWS_KEY>/g; s/AIza[a-zA-Z0-9_-]{35}/<REDACTED_GCP_KEY>/g; s/Bearer [a-zA-Z0-9_.-]{20,}/Bearer <REDACTED>/g; s/eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/<REDACTED_JWT>/g; s/-----BEGIN [A-Z ]+ PRIVATE KEY-----/<REDACTED_PRIVATE_KEY>/g')"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $sanitized" >> "$LOG_FILE"
     fi
     # Always echo with colors to terminal
@@ -81,47 +90,79 @@ should_update() {
 }
 
 # Function to check for available updates
+# Shell-convention return codes:
+#   0 = updates available
+#   1 = everything up to date
+#   2 = the check itself failed (network/registry problem) - callers must NOT
+#       treat this as "no updates"
 check_updates() {
-    local updates_available=0
+    local updates_available=1
+    local check_failed=0
 
     update_log "${BLUE}[INFO]${NC} Checking for available updates..."
 
-    # Check ALL global npm packages for updates (dynamic, not hardcoded)
-    npm_outdated=$(npm outdated -g 2>/dev/null | tail -n +2 || true)
+    # Check ALL global npm packages for updates (dynamic, not hardcoded).
+    # npm outdated exits 1 when outdated packages exist, >1 on real errors.
+    # Capture before formatting so pipe status cannot obscure npm's result.
+    npm_outdated_raw=$(npm outdated -g 2>/dev/null)
+    npm_check_rc=$?
+    npm_outdated=$(printf '%s\n' "$npm_outdated_raw" | tail -n +2)
     if [ -n "$npm_outdated" ]; then
         update_log "${YELLOW}[UPDATE]${NC} npm packages have updates available:"
-        echo "$npm_outdated" | while read line; do
+        echo "$npm_outdated" | while read -r line; do
             update_log "  - $line"
         done
-        updates_available=1
+        updates_available=0
+    elif [ "$npm_check_rc" -gt 1 ]; then
+        update_log "${RED}[ERROR]${NC} npm update check failed (exit code: $npm_check_rc)"
+        check_failed=1
     fi
 
-    # Check ALL user pip packages for updates (dynamic, not hardcoded)
-    pip_outdated=$(pip3 list --user --outdated 2>/dev/null | tail -n +3 || true)
-    if [ -n "$pip_outdated" ]; then
-        update_log "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
-        echo "$pip_outdated" | while read line; do
-            update_log "  - $line"
-        done
-        updates_available=1
+    # Check ALL user pip packages for updates (dynamic, not hardcoded).
+    pip_outdated_raw=$(pip3 list --user --outdated 2>/dev/null)
+    pip_check_rc=$?
+    pip_outdated=$(printf '%s\n' "$pip_outdated_raw" | tail -n +3)
+    if [ "$pip_check_rc" -eq 0 ]; then
+        if [ -n "$pip_outdated" ]; then
+            update_log "${YELLOW}[UPDATE]${NC} Python packages have updates available:"
+            echo "$pip_outdated" | while read -r line; do
+                update_log "  - $line"
+            done
+            updates_available=0
+        fi
+    else
+        update_log "${RED}[ERROR]${NC} pip update check failed"
+        check_failed=1
     fi
 
     # Check apt updates for installed CLI tools (only gh is installed via apt)
-    sudo apt-get update -qq
+    if ! sudo apt-get update -qq; then
+        update_log "${RED}[ERROR]${NC} apt update check failed"
+        check_failed=1
+    fi
     apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "^gh/" || true)
     if [ -n "$apt_updates" ]; then
         update_log "${YELLOW}[UPDATE]${NC} System packages have updates available:"
-        echo "$apt_updates" | while read line; do
+        echo "$apt_updates" | while read -r line; do
             update_log "  - $line"
         done
-        updates_available=1
+        updates_available=0
     fi
 
-    return $updates_available
+    # Updates found trump a partial check failure; a failed check with no
+    # updates found must not masquerade as "everything is current".
+    if [ "$updates_available" -eq 0 ]; then
+        return 0
+    elif [ "$check_failed" -eq 1 ]; then
+        return 2
+    fi
+    return 1
 }
 
 # Function to apply updates
+# Returns 0 when every stage succeeded, 1 when any npm/pip/apt stage failed.
 apply_updates() {
+    local update_errors=0
     update_log "${BLUE}[INFO]${NC} Applying updates to container CLI tools..."
     update_log ""
     update_log "${YELLOW}NOTE:${NC} This updates tools INSIDE the Docker container only."
@@ -158,6 +199,7 @@ apply_updates() {
     else
         update_log "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
         echo "$npm_output" | while read line; do update_log "  $line"; done
+        update_errors=1
     fi
 
     # Reinstall any global package that the update removed instead of updating
@@ -182,6 +224,7 @@ apply_updates() {
             else
                 update_log "${RED}[ERROR]${NC} Could not reinstall $pkg - install manually with: npm install -g $pkg"
                 echo "$reinstall_output" | tail -n 20 | while read line; do update_log "  $line"; done
+                update_errors=1
             fi
         fi
     done <<< "$npm_packages_before"
@@ -199,6 +242,7 @@ apply_updates() {
             # Log both successes and failures for visibility
             echo "$pip_output" | grep -E "Successfully installed" | while read line; do update_log "  ${GREEN}$line${NC}"; done
             echo "$pip_output" | grep -iE "error|failed|could not" | while read line; do update_log "  ${RED}$line${NC}"; done
+            update_errors=1
         fi
     else
         update_log "  All Python packages are up to date"
@@ -213,9 +257,17 @@ apply_updates() {
     else
         update_log "${RED}[ERROR]${NC} apt upgrade failed (exit code: $apt_exit_code)"
         echo "$apt_output" | while read line; do update_log "  $line"; done
+        update_errors=1
     fi
 
-    update_log "${GREEN}[SUCCESS]${NC} Updates completed successfully"
+    # Honest summary: no success banner after a partial failure.
+    if [ "$update_errors" -eq 0 ]; then
+        update_log "${GREEN}[SUCCESS]${NC} Updates completed successfully"
+        return 0
+    else
+        update_log "${RED}[ERROR]${NC} Updates completed WITH ERRORS - review the messages above"
+        return 1
+    fi
 }
 
 # Function to run update check and apply if needed
@@ -237,20 +289,30 @@ run_auto_update() {
         return 0
     fi
 
-    # Check for updates
-    if check_updates || [ "${1:-}" == "--force" ]; then
-        apply_updates
+    # Check for updates (0 = available, 1 = up to date, 2 = check failed)
+    local run_result=0
+    check_updates
+    local check_rc=$?
+    if [ "$check_rc" -eq 0 ]; then
+        apply_updates || run_result=1
+    elif [ "$check_rc" -eq 2 ]; then
+        update_log "${RED}[ERROR]${NC} Update check failed - cannot determine whether updates exist. Try again later."
+        run_result=1
     else
         update_log "${GREEN}[INFO]${NC} All tools are up to date"
     fi
 
-    # Update the check timestamp
-    date > "$UPDATE_CHECK_FILE"
-    # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
-    chown "$(whoami)":"$(whoami)" "$UPDATE_CHECK_FILE"
+    # Update the check timestamp only on a successful run so a failed check
+    # is retried on the next start instead of being snoozed for a week.
+    if [ "$run_result" -eq 0 ]; then
+        date > "$UPDATE_CHECK_FILE"
+        # Use whoami instead of USER_NAME since cron doesn't pass USER_NAME
+        chown "$(whoami)":"$(whoami)" "$UPDATE_CHECK_FILE"
+    fi
 
     update_log "${BLUE}[INFO]${NC} Auto-update check completed"
     update_log "=========================================="
+    return $run_result
 }
 
 # Setup cron job for auto-updates if requested
@@ -263,8 +325,10 @@ setup_cron() {
         return 1
     fi
 
-    # Add cron job
-    (crontab -l 2>/dev/null; echo "$cron_schedule /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
+    # Add cron job. Source the proxy/CA login profile first: cron runs in a
+    # bare environment, so without it the updater loses proxy/CA config on
+    # corporate networks (same line entrypoint_helpers.sh installs).
+    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
     update_log "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
 }
 
@@ -272,11 +336,11 @@ setup_cron() {
 case "${1:-}" in
     --check|-c)
         check_updates
-        if [ $? -eq 0 ]; then
-            echo "No updates available"
-        else
-            echo "Updates are available. Run with --apply to install them."
-        fi
+        case $? in
+            0) echo "Updates are available. Run with --apply to install them." ;;
+            1) echo "No updates available" ;;
+            *) echo "Update check FAILED - could not determine update status." >&2; exit 2 ;;
+        esac
         ;;
     --apply|-a)
         apply_updates

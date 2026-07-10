@@ -324,7 +324,7 @@ Container logs are **sanitized at write time** for your privacy and security:
 - **Authentication tokens** are redacted
 - **Personal paths** containing usernames are preserved (needed for debugging)
 
-**Safe to Share:** Because logs are sanitized when written, they are safe to attach to bug reports without manual review. You can share them directly with support or include them in GitHub issues.
+**Review Before Sharing:** Logs are sanitized when written, but review them before attaching them to bug reports or sharing them with support. Sanitization reduces exposure; it cannot guarantee that every project-specific secret or sensitive path is removed.
 
 ### What's Logged
 

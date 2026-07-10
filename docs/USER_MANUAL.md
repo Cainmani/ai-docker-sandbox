@@ -321,6 +321,26 @@ exit
 
 Just launch AI_Docker_Manager.exe again and select "Launch AI Workspace"!
 
+### Task 5: Run Sanitized Diagnostics
+
+Inside the container, run:
+
+```bash
+configure-tools --diagnose
+```
+
+This reports CLI install status, required binaries, authentication/config presence, router-port ownership, proxy configuration, DNS/TLS transport, and container-version metadata without reading credential values. Diagnostic output and log files are sanitized, but always review them before sharing.
+
+### Task 6: Uninstall Safely
+
+Run `scripts\uninstall.ps1` from the extracted application directory. The supported levels are:
+
+1. Recreate/remove the container while preserving all data.
+2. Remove the container and image while preserving named volumes.
+3. Full uninstall, requiring explicit volume removal and a second confirmation.
+
+Workspace files are never deleted by the uninstall script, and volume deletion is never the default.
+
 ---
 
 ## Mobile Phone Access (Advanced)
@@ -398,7 +418,7 @@ For complete setup instructions, troubleshooting, and security best practices, s
 
 ## Security Features
 
-AI Docker Manager implements enterprise-level security practices to protect your credentials and data.
+AI Docker Manager uses layered protections for a single-user development environment. It is not a hostile multi-tenant security boundary: AI tools can modify files in the mounted workspace, and the container user intentionally has passwordless sudo. The Docker socket is not mounted.
 
 ### Password Security (Docker Secrets)
 
@@ -677,8 +697,8 @@ For complete troubleshooting documentation, see: [docs/LOGGING.md](LOGGING.md)
 
 ## Version Information
 
-**AI Docker Manager Version**: 2.0
-**Claude Code CLI**: @anthropic-ai/claude-code (latest)
+**AI Docker Manager Version**: 1.4.0
+**Claude Code CLI**: native Claude installer (version verified after installation)
 **Container OS**: Ubuntu 24.04
 **Required Docker Version**: Docker Desktop 4.0+
 

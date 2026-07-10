@@ -70,7 +70,7 @@ body:
 
         **Easiest method:** Click "Report Issue" in the app - it opens the logs folder so you can drag-and-drop files here.
 
-        🔒 **Logs are pre-sanitized** - API keys, passwords, and usernames are automatically redacted, so they're safe to share publicly.
+        🔒 **Logs are sanitized** - common API keys, passwords, and usernames are automatically redacted. Review files before sharing because project-specific sensitive data may remain.
 
   - type: textarea
     id: logs

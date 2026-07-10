@@ -150,6 +150,20 @@ Describe 'New-WSLConfig' {
         $content | Should -Match 'processors=6'
     }
 
+    It 'Assigns at least 1 processor when SystemCores is 0 (invariant)' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'light' -Path $path -SystemCores 0 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content | Should -Match 'processors=1'
+    }
+
+    It 'Assigns at least 1 processor when SystemCores is negative (invariant)' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'heavy' -Path $path -SystemCores -2 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content | Should -Match 'processors=1'
+    }
+
     It 'Caps processors to SystemCores' {
         $path = Join-Path $TestDrive '.wslconfig'
         New-WSLConfig -Profile 'heavy' -Path $path -SystemCores 2 | Should -Be $true
@@ -179,6 +193,80 @@ Describe 'New-WSLConfig' {
     It 'Returns $true on success' {
         $path = Join-Path $TestDrive '.wslconfig'
         New-WSLConfig -Profile 'light' -Path $path | Should -Be $true
+    }
+}
+
+Describe 'Get-ProfileProcessors' {
+    It 'Returns 2 for light on an 8-core host' {
+        Get-ProfileProcessors -Profile 'light' -SystemCores 8 | Should -Be 2
+    }
+
+    It 'Returns 4 for standard on an 8-core host' {
+        Get-ProfileProcessors -Profile 'standard' -SystemCores 8 | Should -Be 4
+    }
+
+    It 'Returns 6 for heavy on an 8-core host' {
+        Get-ProfileProcessors -Profile 'heavy' -SystemCores 8 | Should -Be 6
+    }
+
+    It 'Caps to the real core count' {
+        Get-ProfileProcessors -Profile 'heavy' -SystemCores 2 | Should -Be 2
+    }
+
+    It 'Assigns at least 1 core when detection returns 0' {
+        Get-ProfileProcessors -Profile 'light' -SystemCores 0 | Should -Be 1
+    }
+
+    It 'Assigns at least 1 core when detection returns negative' {
+        Get-ProfileProcessors -Profile 'heavy' -SystemCores -4 | Should -Be 1
+    }
+
+    It 'Returns 0 for an unknown profile' {
+        Get-ProfileProcessors -Profile 'turbo' -SystemCores 8 | Should -Be 0
+    }
+}
+
+Describe 'Resolve-ContainerCpuLimit' {
+    It 'Matches the WSL processor count for light (regression: 2-core-host CI failure)' {
+        # New-WSLConfig assigns this many processors; the container must not exceed it.
+        $procs = Get-ProfileProcessors -Profile 'light' -SystemCores 2
+        Resolve-ContainerCpuLimit -Profile 'light' -SystemCores 2 | Should -Be $procs
+    }
+
+    It 'Sizes standard to 4 on a large host (not the 2-core floor)' {
+        Resolve-ContainerCpuLimit -Profile 'standard' -SystemCores 16 | Should -Be 4
+    }
+
+    It 'Sizes heavy to 6 on a large host' {
+        Resolve-ContainerCpuLimit -Profile 'heavy' -SystemCores 16 | Should -Be 6
+    }
+
+    It 'Never exceeds the VM cores for any profile' {
+        foreach ($p in 'light','standard','heavy') {
+            $wsl = Get-ProfileProcessors -Profile $p -SystemCores 8
+            $cpu = Resolve-ContainerCpuLimit -Profile $p -SystemCores 8
+            $cpu | Should -BeLessOrEqual $wsl
+        }
+    }
+
+    It 'Honours an existing .wslconfig processor count when keeping current config' {
+        Resolve-ContainerCpuLimit -Profile 'keep' -SystemCores 16 -ExistingProcessors 3 | Should -Be 3
+    }
+
+    It 'Falls back to host cores for keep when the existing count is unknown' {
+        Resolve-ContainerCpuLimit -Profile 'keep' -SystemCores 8 -ExistingProcessors 0 | Should -Be 8
+    }
+
+    It 'Uses all host cores when WSL configuration is skipped' {
+        Resolve-ContainerCpuLimit -Profile 'skip' -SystemCores 8 | Should -Be 8
+    }
+
+    It 'Falls back to the compose floor (2) for an unknown profile' {
+        Resolve-ContainerCpuLimit -Profile 'turbo' -SystemCores 16 | Should -Be 2
+    }
+
+    It 'Never returns less than 1 core' {
+        Resolve-ContainerCpuLimit -Profile 'skip' -SystemCores 0 | Should -Be 1
     }
 }
 

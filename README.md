@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Cainmani/ai-docker-sandbox/releases/latest">
-    <img src="https://img.shields.io/badge/Download-v1.2.4-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
+    <img src="https://img.shields.io/badge/Download-v1.4.0-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
   &nbsp;
   <a href="LICENSE">
@@ -130,6 +130,10 @@ codex "explain this code"  # Use OpenAI Codex
 
 ## ⬆️ Upgrading
 
+### To v1.4.0
+
+Run **First Time Setup** with **Force Rebuild** once. The upgrade preserves the `claude-config`, `tool-auth`, `router-data`, `vibe-kanban-data`, and `ssh-keys` volumes. See the [Migration Guide](docs/MIGRATION.md) for status, Codex, router, proxy, and recovery checks.
+
 ### From v1.1.x to v1.2.x
 
 Run "First Time Setup" with **Force Rebuild** checked to pick up the latest scripts.
@@ -238,6 +242,18 @@ docker start ai-cli                   # Start
 docker stop ai-cli                    # Stop
 docker exec -it ai-cli bash           # Shell access
 ```
+
+### Corporate Proxy and Custom CA
+
+Proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`) can be set in `docker/.env`. For a corporate CA, set `CUSTOM_CA_HOST_PATH` to an absolute PEM `.crt` path and include `docker-compose.ca.yml` with the base Compose file. See [Remote Access](docs/REMOTE_ACCESS.md#corporate-proxy-and-custom-ca).
+
+### Diagnostics
+
+Inside the container, run `configure-tools --diagnose` for a sanitized classification of installation, binaries, authentication, router port, DNS/TLS, proxy, and container-version state.
+
+### Uninstall
+
+Run `scripts\uninstall.ps1`. By default it removes the container/image but preserves volumes and application data. Volume and app-data deletion require explicit switches and confirmation.
 
 ### Building from Source
 

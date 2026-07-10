@@ -41,7 +41,7 @@ NC='\033[0m' # No Color
 # ============================================================================
 
 # Sanitize sensitive data from log messages BEFORE writing
-# This ensures log files are always safe to share publicly
+# Logs are sanitized, but users should still review them before sharing.
 sanitize_message() {
     local msg="$1"
 

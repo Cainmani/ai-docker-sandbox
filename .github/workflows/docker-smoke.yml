@@ -1,0 +1,199 @@
+name: Docker Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-smoke.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: ai-docker-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+      USER_NAME: smokeuser
+      WORKSPACE_PATH: ${{ github.workspace }}/smoke-workspace
+      VIBE_KANBAN_PORT: '33000'
+      AI_ROUTER_PORT: '33001'
+      SSH_PORT: '33002'
+      MOSH_PORT_START: '33003'
+      MOSH_PORT_END: '33007'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Prepare disposable configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Single source of truth for the release version; keeps this workflow
+          # from drifting on version bumps.
+          echo "AI_DOCKER_VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
+          AI_DOCKER_VERSION=$(cat VERSION)
+          mkdir -p "$WORKSPACE_PATH" docker/.secrets
+          printf '%s\n' 'DisposableSmokePassword-1!' > docker/.secrets/password.txt
+          chmod 600 docker/.secrets/password.txt
+          cat > docker/.env <<EOF
+          AI_DOCKER_VERSION=$AI_DOCKER_VERSION
+          USER_NAME=$USER_NAME
+          WORKSPACE_PATH=$WORKSPACE_PATH
+          VIBE_KANBAN_PORT=$VIBE_KANBAN_PORT
+          AI_ROUTER_PORT=$AI_ROUTER_PORT
+          SSH_PORT=$SSH_PORT
+          MOSH_PORT_START=$MOSH_PORT_START
+          MOSH_PORT_END=$MOSH_PORT_END
+          ENABLE_MOBILE_ACCESS=0
+          EOF
+
+      - name: Validate base and mobile Compose configuration
+        working-directory: docker
+        run: |
+          docker compose -p "$COMPOSE_PROJECT_NAME" config --quiet
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f docker-compose.yml -f docker-compose.mobile.yml config --quiet
+
+      - name: Build and start disposable container
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" build
+          docker compose -p "$COMPOSE_PROJECT_NAME" up -d
+          for attempt in $(seq 1 90); do
+            state=$(docker inspect --format '{{.State.Status}}' ai-cli 2>/dev/null || true)
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ai-cli 2>/dev/null || true)
+            [ "$health" = healthy ] && exit 0
+            case "$state" in
+              exited|dead)
+                docker compose -p "$COMPOSE_PROJECT_NAME" logs
+                exit 1
+                ;;
+            esac
+            # Tool installation can outlast Compose's healthcheck start period.
+            # Treat transient "unhealthy" as bootstrap in progress and let this
+            # waiter's longer timeout decide when startup has truly stalled.
+            sleep 5
+          done
+          docker compose -p "$COMPOSE_PROJECT_NAME" logs
+          exit 1
+
+      - name: Verify readiness, tools, persistence, cron, and version
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc '
+            grep -q "^ENTRYPOINT=ok$" /run/ai-docker-ready
+            grep -Eq "^INSTALL_STATUS=(ok|legacy)$" /run/ai-docker-ready
+            test "$(cat /etc/ai-docker-version)" = "'"$AI_DOCKER_VERSION"'"
+            command -v claude
+            command -v codex
+            command -v configure-tools
+            test -L "$HOME/.config/gh"
+            test -L "$HOME/.codex"
+            crontab -l | grep -q auto_update.sh
+            pgrep -x cron
+          '
+
+      - name: Verify diagnostics and proxy/CA env propagation
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          # --diagnose must report TLS=ok given real egress: the probe treats any
+          # HTTP response (even the APIs' bare-root 404/421) as transport success.
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc '
+            out=$(/usr/local/bin/configure_tools.sh --diagnose 2>/dev/null || true)
+            printf "%s\n" "$out"
+            echo "$out" | grep -q "^TLS=ok$"
+            echo "$out" | grep -q "^HTTP_STATUS_anthropic="
+          '
+          # Proxy/CA vars set on the container must survive a `su -` login-shell
+          # reset (whitelisted) and be persisted for login shells via profile.d.
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user root \
+            -e HTTP_PROXY=http://proxy.smoke.invalid:3128 -e NO_PROXY=localhost ai bash -lc '
+            source /usr/local/lib/entrypoint_helpers.sh
+            write_proxy_ca_profile /etc/profile.d
+            test -f /etc/profile.d/ai-docker-proxy.sh
+            grep -q "proxy.smoke.invalid" /etc/profile.d/ai-docker-proxy.sh
+            got=$(su_preserving_env smokeuser "echo \$HTTP_PROXY")
+            test "$got" = "http://proxy.smoke.invalid:3128"
+            rm -f /etc/profile.d/ai-docker-proxy.sh
+          '
+
+      - name: Exercise partial repair and Codex migration
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user root ai bash -lc '
+            marker=/home/smokeuser/.cli_tools_installed
+            cp "$marker" "$marker.smoke-backup"
+            printf "STATUS=partial\nFAILED_TOOLS=none\n" > "$marker"
+            chown smokeuser:smokeuser "$marker"
+            config=/home/smokeuser/.tool-auth/codex/config.toml
+            mkdir -p "$(dirname "$config")"
+            printf "wire_api = \"chat\"\n" > "$config"
+            chown -R smokeuser:smokeuser /home/smokeuser/.tool-auth
+            source /usr/local/lib/entrypoint_helpers.sh
+            migrate_codex_wire_api "$config"
+            grep -q "wire_api = \"responses\"" "$config"
+            mv "$marker.smoke-backup" "$marker"
+            chown smokeuser:smokeuser "$marker"
+          '
+
+      - name: Exercise router switch and socket release
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc '
+            source /usr/local/lib/router_utils.sh
+            command -v ss
+            ai_router_port_busy "$AI_ROUTER_PORT" && exit 1 || test "$?" -eq 1
+          '
+
+      - name: Verify recreate preserves disposable volume data
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai \
+            bash -c 'printf preserved > "$HOME/.tool-auth/smoke-preserved"'
+          docker compose -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate
+          ready=false
+          for attempt in $(seq 1 60); do
+            if [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ai-cli 2>/dev/null || true)" = healthy ]; then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ready" != true ]; then
+            docker compose -p "$COMPOSE_PROJECT_NAME" logs
+            exit 1
+          fi
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai grep -Fxq preserved /home/smokeuser/.tool-auth/smoke-preserved
+
+      - name: Show logs on failure
+        if: failure()
+        working-directory: docker
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" logs || true
+
+      - name: Remove only disposable smoke resources
+        if: always()
+        working-directory: docker
+        run: |
+          docker compose -p "$COMPOSE_PROJECT_NAME" down --volumes --remove-orphans || true
+          rm -rf .secrets .env "$WORKSPACE_PATH"

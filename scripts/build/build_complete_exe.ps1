@@ -1,5 +1,22 @@
 # build_complete_exe.ps1 - Creates a single self-contained executable
 
+# Read the app version from the root VERSION file (single source of truth)
+$versionFilePath = Join-Path $PSScriptRoot "..\..\VERSION"
+$appVersion = "0.0.0"
+if (Test-Path $versionFilePath) {
+    $rawVersion = (Get-Content $versionFilePath -Raw).Trim()
+    $parsedVersion = $null
+    if ([Version]::TryParse($rawVersion, [ref]$parsedVersion)) {
+        $appVersion = $rawVersion
+    } else {
+        Write-Host "[WARNING] VERSION file contains invalid version '$rawVersion'; using $appVersion" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "[WARNING] VERSION file not found at $versionFilePath; using $appVersion" -ForegroundColor Yellow
+}
+# ps2exe expects a 4-part file version
+$exeFileVersion = "$appVersion.0"
+
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "   BUILDING COMPLETE AI DOCKER SETUP EXECUTABLE" -ForegroundColor Green
@@ -26,7 +43,10 @@ $filesToEmbed = @(
    "..\docker_helpers.ps1",
    "..\setup_utils.ps1",
    "..\env_utils.ps1",
+   "..\uninstall.ps1",
    "..\..\docker\docker-compose.yml",
+   "..\..\docker\docker-compose.mobile.yml",
+   "..\..\docker\docker-compose.ca.yml",
    "..\..\docker\Dockerfile",
    "..\..\docker\.dockerignore",
    "..\..\docker\entrypoint.sh",
@@ -39,6 +59,8 @@ $filesToEmbed = @(
    "..\..\docker\tmux.conf",
    "..\..\docker\fail2ban-jail.local",
    "..\..\docker\lib\logging.sh",
+   "..\..\docker\lib\router_utils.sh",
+   "..\..\docker\lib\entrypoint_helpers.sh",
    "..\fix_line_endings.ps1",
    "..\..\.gitattributes",
    "..\..\README.md",
@@ -160,7 +182,7 @@ try {
         -description "Complete AI CLI Docker Setup System" `
         -company "AI Docker Sandbox" `
         -product "AI Docker CLI Setup" `
-        -version "1.2.4.0" `
+        -version $exeFileVersion `
         -noConsole
 
     if (Test-Path $exePath) {

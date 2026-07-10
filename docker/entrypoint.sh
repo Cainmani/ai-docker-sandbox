@@ -18,6 +18,14 @@ entrypoint_log() {
     fi
 }
 
+# Route helper-module logging through the entrypoint logger, then source the
+# shared helpers (failure-safe migrations, Codex config migration, managed
+# .bashrc block, install-status parsing).
+eh_log() { entrypoint_log "$1" "$2"; }
+if [ -f "/usr/local/lib/entrypoint_helpers.sh" ]; then
+    source "/usr/local/lib/entrypoint_helpers.sh"
+fi
+
 # =============================================================================
 # SECURITY: Docker Secrets Password Handling
 # =============================================================================
@@ -48,6 +56,38 @@ cleanup_credentials() {
     unset PASSWORD 2>/dev/null || true
     entrypoint_log "INFO" "Credential cleanup complete"
 }
+
+# Optional corporate CA. The host file is mounted explicitly by the documented
+# CA override; only the in-container path is accepted here. Never bake private
+# trust material into the image.
+if [ -n "${CUSTOM_CA_CERT:-}" ]; then
+  case "$CUSTOM_CA_CERT" in
+    /usr/local/share/ca-certificates/*.crt)
+      if [ -r "$CUSTOM_CA_CERT" ]; then
+        entrypoint_log "INFO" "Installing configured corporate CA certificate"
+        update-ca-certificates >/dev/null
+        export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$CUSTOM_CA_CERT}"
+        export REQUESTS_CA_BUNDLE="${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
+        export SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}"
+      else
+        entrypoint_log "ERROR" "CUSTOM_CA_CERT is configured but unreadable"
+        exit 1
+      fi
+      ;;
+    *)
+      entrypoint_log "ERROR" "CUSTOM_CA_CERT must point inside /usr/local/share/ca-certificates"
+      exit 1
+      ;;
+  esac
+fi
+
+# Persist proxy/custom-CA trust settings for login shells (su -, SSH mobile
+# access) and cron. The container env from compose only reaches PID 1; login
+# shells and cron reset it, so tools run there (install_cli_tools.sh,
+# auto_update.sh, configure-tools) would otherwise lose proxy/CA config.
+if type write_proxy_ca_profile >/dev/null 2>&1; then
+  write_proxy_ca_profile /etc/profile.d || true
+fi
 
 # Required: USER_NAME from environment (.env or compose)
 : "${USER_NAME:?Set USER_NAME env}"
@@ -148,18 +188,20 @@ chmod 755 "/home/$USER_NAME/.claude"
 entrypoint_log "INFO" "Setting up ~/.claude.json persistence"
 CLAUDE_ROOT_JSON="/home/$USER_NAME/.claude.json"
 CLAUDE_ROOT_JSON_VOLUME="/home/$USER_NAME/.claude/_claude_root.json"
-if [ -f "$CLAUDE_ROOT_JSON" ] && [ ! -L "$CLAUDE_ROOT_JSON" ]; then
-    # Real file exists (pre-persistence migration): move into volume
-    entrypoint_log "INFO" "Migrating existing ~/.claude.json into claude-config volume"
-    mv "$CLAUDE_ROOT_JSON" "$CLAUDE_ROOT_JSON_VOLUME"
+# Failure-aware migration: original file is kept working if the copy fails.
+if ! safe_migrate_file "$CLAUDE_ROOT_JSON" "$CLAUDE_ROOT_JSON_VOLUME"; then
+    entrypoint_log "WARN" "~/.claude.json migration failed - keeping the existing file in place"
 fi
 if [ ! -f "$CLAUDE_ROOT_JSON_VOLUME" ]; then
     # First run: create minimal file so symlink target exists
     echo '{"hasCompletedOnboarding":false}' > "$CLAUDE_ROOT_JSON_VOLUME"
 fi
-# (Re)create symlink (handles rebuilds where container layer is fresh)
-ln -sf "$CLAUDE_ROOT_JSON_VOLUME" "$CLAUDE_ROOT_JSON"
-chown -h "$USER_NAME:$USER_NAME" "$CLAUDE_ROOT_JSON"
+# (Re)create symlink (handles rebuilds where container layer is fresh), but
+# never clobber a real file that a failed migration preserved.
+if [ ! -f "$CLAUDE_ROOT_JSON" ] || [ -L "$CLAUDE_ROOT_JSON" ]; then
+    ln -sf "$CLAUDE_ROOT_JSON_VOLUME" "$CLAUDE_ROOT_JSON"
+    chown -h "$USER_NAME:$USER_NAME" "$CLAUDE_ROOT_JSON"
+fi
 chown "$USER_NAME:$USER_NAME" "$CLAUDE_ROOT_JSON_VOLUME"
 
 # Persist tool auth configs across container rebuilds via symlinks into tool-auth volume
@@ -172,34 +214,37 @@ for tool_dir in gh openai gemini codex; do
     mkdir -p "$TOOL_AUTH_DIR/$tool_dir"
 done
 
-# Symlink ~/.config/<tool> directories
+# Symlink ~/.config/<tool> directories. safe_migrate_dir verifies the copy
+# before removing the source: on failure the original directory (and its
+# credentials) stays in place and in use, and no broken symlink is created.
+mkdir -p "/home/$USER_NAME/.config"
 for tool_dir in gh openai gemini; do
     config_path="/home/$USER_NAME/.config/$tool_dir"
     volume_path="$TOOL_AUTH_DIR/$tool_dir"
-    if [ -d "$config_path" ] && [ ! -L "$config_path" ]; then
-        # Real directory exists (pre-persistence migration): copy contents into volume
-        entrypoint_log "INFO" "Migrating $config_path into tool-auth volume"
-        cp -a "$config_path"/. "$volume_path"/ 2>/dev/null || true
-        rm -rf "$config_path"
+    if ! safe_migrate_dir "$config_path" "$volume_path"; then
+        entrypoint_log "WARN" "Migration of $config_path failed - continuing with the original directory"
     fi
-    # Ensure parent exists and create symlink
-    mkdir -p "/home/$USER_NAME/.config"
-    ln -sfn "$volume_path" "$config_path"
 done
 
 # Symlink ~/.codex separately (not under ~/.config)
 CODEX_CONFIG="/home/$USER_NAME/.codex"
 CODEX_VOLUME="$TOOL_AUTH_DIR/codex"
-if [ -d "$CODEX_CONFIG" ] && [ ! -L "$CODEX_CONFIG" ]; then
-    entrypoint_log "INFO" "Migrating $CODEX_CONFIG into tool-auth volume"
-    cp -a "$CODEX_CONFIG"/. "$CODEX_VOLUME"/ 2>/dev/null || true
-    rm -rf "$CODEX_CONFIG"
+if ! safe_migrate_dir "$CODEX_CONFIG" "$CODEX_VOLUME"; then
+    entrypoint_log "WARN" "Migration of $CODEX_CONFIG failed - continuing with the original directory"
 fi
-ln -sfn "$CODEX_VOLUME" "$CODEX_CONFIG"
+
+# One-time Codex config migration: deprecated wire_api = "chat" broke Codex
+# connections after updates. Idempotent, backs up config.toml first, and only
+# rewrites the wire_api value. (configure-tools --codex reuses the same helper.)
+codex_config_toml="$CODEX_VOLUME/config.toml"
+[ -f "$codex_config_toml" ] || codex_config_toml="$CODEX_CONFIG/config.toml"
+if migrate_codex_wire_api "$codex_config_toml"; then
+    entrypoint_log "INFO" "Codex config.toml migrated to wire_api = \"responses\""
+fi
 
 chown -R "$USER_NAME:$USER_NAME" "$TOOL_AUTH_DIR"
 chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
-chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG"
+chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG" 2>/dev/null || true
 entrypoint_log "INFO" "Tool-auth persistence setup complete"
 
 # Ensure the AI router data volume exists with correct ownership. 9router and OmniRoute each
@@ -210,9 +255,16 @@ ROUTER_DATA_DIR="/home/$USER_NAME/.router-data"
 mkdir -p "$ROUTER_DATA_DIR/9router" "$ROUTER_DATA_DIR/omniroute"
 chown -R "$USER_NAME:$USER_NAME" "$ROUTER_DATA_DIR"
 
-# Configure npm to use user-local directory for global packages
-su - "$USER_NAME" -c "mkdir -p /home/$USER_NAME/.npm-global"
-su - "$USER_NAME" -c "npm config set prefix '/home/$USER_NAME/.npm-global'"
+# Configure npm to use user-local directory for global packages.
+# su_preserving_env keeps proxy/CA vars alive across the login-shell reset; if the
+# helper library failed to load, fall back to a plain su so startup still works.
+if type su_preserving_env >/dev/null 2>&1; then
+  su_run() { su_preserving_env "$USER_NAME" "$1"; }
+else
+  su_run() { su - "$USER_NAME" -c "$1"; }
+fi
+su_run "mkdir -p /home/$USER_NAME/.npm-global"
+su_run "npm config set prefix '/home/$USER_NAME/.npm-global'"
 
 # Create .bashrc with helpful configuration if it doesn't exist
 if [ ! -f "/home/$USER_NAME/.bashrc" ]; then
@@ -262,7 +314,13 @@ if [ ! -f "$HOME/.cli_tools_installed" ] && pgrep -f "install_cli_tools" >/dev/n
   done
   printf "\r                    \r"
 fi
-if [ -f "$HOME/.cli_tools_installed" ]; then
+if [ -f "$HOME/.cli_tools_installed" ] && grep -q '^STATUS=partial' "$HOME/.cli_tools_installed" 2>/dev/null; then
+  echo ""
+  echo "  WARNING: CLI tools installation is INCOMPLETE."
+  echo "  Failed tools: $(sed -n 's/^FAILED_TOOLS=//p' "$HOME/.cli_tools_installed")"
+  echo "  Working tools remain available. Repair with: install_cli_tools.sh --repair"
+  echo ""
+elif [ -f "$HOME/.cli_tools_installed" ]; then
   echo ""
   echo "+==============================================================+"
   echo "|          AI CLI Tools Environment Ready!                    |"
@@ -312,66 +370,17 @@ fi
 
 # Ensure the AI router dashboards (9router / OmniRoute) bind to 0.0.0.0 so they are reachable
 # from the Windows host. Both are Next.js apps that bind to localhost (127.0.0.1) inside the
-# container by default, which Docker's published port cannot reach. These wrappers inject
-# HOST/HOSTNAME=0.0.0.0 and the shared port only for the router process - no global pollution.
-# They call the real npm-installed binaries via `command`, so normal updates
-# (npm update -g ...) apply unchanged - nothing here is a fork.
+# container by default, which Docker's published port cannot reach. The wrappers call the real
+# npm-installed binaries, so normal updates (npm update -g ...) apply unchanged.
 #
-# 9router and OmniRoute are interchangeable and share one port, so only ONE runs at a time.
-# Each wrapper stops any router already running before starting, so switching is seamless and
-# the port never double-binds. Idempotent + applied to both fresh and pre-existing .bashrc.
-#
-# Switching used to hang on "server starting" / show "Internal Server Error" because the old
-# router had not released the shared port before the new one tried to bind it. The stop helper
-# below escalates SIGTERM -> SIGKILL and then WAITS for the port to be free before returning,
-# so the incoming router always gets a clean socket.
-if ! grep -q "^9router()" "/home/$USER_NAME/.bashrc" 2>/dev/null; then
-  cat >> "/home/$USER_NAME/.bashrc" << 'EOF'
-
-# AI router wrappers (9router / OmniRoute): bind the dashboard to 0.0.0.0 so it is reachable
-# from the host browser at http://localhost:20128/dashboard (port overridable via
-# AI_ROUTER_PORT). DATA_DIR points each router at its own persisted data dir. Only one router
-# runs at a time - starting one stops the other.
-
-# True if the given TCP port has a listener (prefers ss, falls back to netstat).
-__ai_router_port_busy() {
-  local port="$1"
-  if command -v ss >/dev/null 2>&1; then
-    ss -tlnH 2>/dev/null | grep -q ":$port "
-  else
-    netstat -tln 2>/dev/null | grep -q ":$port "
-  fi
-}
-
-# Stop any running router and wait for it to actually exit and release the shared port.
-# Escalates SIGTERM -> SIGKILL; returns only once the port is free (or after ~15s) so the
-# next router can bind without hitting EADDRINUSE ("Internal Server Error" in the dashboard).
-__ai_router_stop() {
-  local port="${AI_ROUTER_PORT:-20128}" waited=0
-  if pgrep -f '9router|omniroute' >/dev/null 2>&1; then
-    pkill -TERM -f '9router'   2>/dev/null || true
-    pkill -TERM -f 'omniroute' 2>/dev/null || true
-    # Give a graceful shutdown up to ~5s.
-    while pgrep -f '9router|omniroute' >/dev/null 2>&1 && [ "$waited" -lt 5 ]; do
-      sleep 1; waited=$((waited + 1))
-    done
-    # Anything still alive gets SIGKILL.
-    pkill -KILL -f '9router'   2>/dev/null || true
-    pkill -KILL -f 'omniroute' 2>/dev/null || true
-  fi
-  # Wait for the socket to be released (TIME_WAIT / slow teardown) before returning.
-  waited=0
-  while __ai_router_port_busy "$port" && [ "$waited" -lt 10 ]; do
-    sleep 1; waited=$((waited + 1))
-  done
-  return 0
-}
-
-9router()   { __ai_router_stop; mkdir -p "$HOME/.router-data/9router";   HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/9router"   command 9router "$@"; }
-omniroute() { __ai_router_stop; mkdir -p "$HOME/.router-data/omniroute"; HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="${AI_ROUTER_PORT:-20128}" DATA_DIR="$HOME/.router-data/omniroute" command omniroute "$@"; }
-EOF
-  chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
-fi
+# The wrapper logic lives in /usr/local/lib/router_utils.sh: PID-file + start-time process
+# ownership (never a broad pkill), TERM -> KILL escalation, and ss-based waiting for the shared
+# port to actually be released before the next router binds (a missing probe is an error, never
+# "port is free"). install_managed_block installs a VERSIONED managed block into ~/.bashrc,
+# replacing any known legacy generated block atomically without touching user-authored content.
+entrypoint_log "INFO" "Installing managed AI router wrapper block in .bashrc"
+install_managed_block "/home/$USER_NAME/.bashrc"
+chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.bashrc"
 
 # Create .profile to set PATH for login shells (used by 'su -')
 if [ ! -f "/home/$USER_NAME/.profile" ]; then
@@ -407,34 +416,32 @@ fi
 touch "/home/$USER_NAME/.sudo_as_admin_successful"
 chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.sudo_as_admin_successful"
 
-# Install CLI tools on first run (runs as the user)
-# If FORCE_CLI_REINSTALL is set, force reinstallation even if marker file exists
+# Install CLI tools on first run (runs as the user). A previous PARTIAL install
+# triggers --repair, which retries only missing/broken tools and never uninstalls
+# tools that already work. Force repair remains an explicit interactive command;
+# it is deliberately not accepted as a persistent container environment flag.
 entrypoint_log "INFO" "Checking CLI tools installation..."
-if [ "${FORCE_CLI_REINSTALL:-}" = "1" ]; then
-  entrypoint_log "INFO" "Force reinstall requested - running install_cli_tools.sh --force"
-  if ! su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh --force" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
-      entrypoint_log "WARN" "Force installation completed with warnings - check install.log for details"
+install_state=$(install_status_state "/home/$USER_NAME/.cli_tools_installed")
+if [ "$install_state" = "partial" ]; then
+  entrypoint_log "WARN" "Previous installation was partial - running install_cli_tools.sh --repair"
+  if ! su_run "/usr/local/bin/install_cli_tools.sh --repair" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+      entrypoint_log "WARN" "Repair completed with warnings - check install.log for details"
   fi
 else
   entrypoint_log "INFO" "Running CLI tools installation..."
-  if ! su - "$USER_NAME" -c "/usr/local/bin/install_cli_tools.sh" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+  if ! su_run "/usr/local/bin/install_cli_tools.sh" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
       entrypoint_log "WARN" "Installation completed with warnings - check install.log for details"
   fi
 fi
-
-# Setup auto-update cron job (weekly on Sunday at 2 AM)
-if ! crontab -u "$USER_NAME" -l 2>/dev/null | grep -q "auto_update.sh"; then
-  entrypoint_log "INFO" "Setting up auto-update cron job (weekly on Sunday at 2 AM)..."
-  if (crontab -u "$USER_NAME" -l 2>/dev/null; echo "0 2 * * 0 /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -u "$USER_NAME" - 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
-      entrypoint_log "INFO" "Auto-update cron job configured successfully"
-  else
-      entrypoint_log "WARN" "Failed to setup auto-update cron job"
-  fi
-else
-  entrypoint_log "INFO" "Auto-update cron job already configured, skipping"
+if [ "$(install_status_state "/home/$USER_NAME/.cli_tools_installed")" = "partial" ]; then
+  entrypoint_log "WARN" "CLI tools installation is PARTIAL - failed tools: $(install_status_get "/home/$USER_NAME/.cli_tools_installed" "FAILED_TOOLS")"
 fi
 
-entrypoint_log "INFO" "Entrypoint initialization complete"
+# Setup and start the scheduled updater. Failures remain non-fatal because
+# interactive updates are still available, but the helper logs an actionable
+# warning and behavioral tests cover registration and daemon liveness.
+setup_auto_update_cron "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+ensure_cron_daemon_running 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
 
 # Mobile Access Setup (optional - enabled via ENABLE_MOBILE_ACCESS=1)
 if [ "${ENABLE_MOBILE_ACCESS:-0}" = "1" ]; then
@@ -447,6 +454,24 @@ if [ "${ENABLE_MOBILE_ACCESS:-0}" = "1" ]; then
 else
     entrypoint_log "DEBUG" "Mobile access not enabled (set ENABLE_MOBILE_ACCESS=1 to enable)"
 fi
+
+# Readiness is written last and atomically. The Compose healthcheck uses this
+# marker plus the structured install status instead of merely checking that the
+# keepalive process exists.
+READY_FILE="/run/ai-docker-ready"
+READY_TMP="${READY_FILE}.tmp.$$"
+install_state=$(install_status_state "/home/$USER_NAME/.cli_tools_installed")
+case "$install_state" in
+  ok|legacy) ;;
+  *)
+    entrypoint_log "ERROR" "Entrypoint initialization is not ready (install status: $install_state)"
+    rm -f "$READY_TMP" "$READY_FILE"
+    exit 1
+    ;;
+esac
+printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$install_state" > "$READY_TMP"
+mv "$READY_TMP" "$READY_FILE"
+entrypoint_log "INFO" "Entrypoint initialization complete (install status: $install_state)"
 
 # Keep container running
 exec sleep infinity

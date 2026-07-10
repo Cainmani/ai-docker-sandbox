@@ -1,0 +1,16 @@
+# Mobile access override - publishes SSH and Mosh ports.
+# Only include this file when ENABLE_MOBILE_ACCESS=1 in .env:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mobile.yml up -d
+#
+# The setup wizard selects the right invocation automatically via
+# Get-ComposeFileArgs (scripts/setup_utils.ps1). Keeping these port mappings out
+# of the base compose file means users who never enabled mobile access do not
+# expose SSH/Mosh ports on their machine.
+services:
+  ai:
+    ports:
+      # SSH for mobile access (non-standard port for security)
+      - "${SSH_PORT:-2222}:${SSH_PORT:-2222}"
+      # Mosh UDP ports for persistent mobile connections (5 concurrent connections)
+      - "${MOSH_PORT_START:-60001}-${MOSH_PORT_END:-60005}:${MOSH_PORT_START:-60001}-${MOSH_PORT_END:-60005}/udp"

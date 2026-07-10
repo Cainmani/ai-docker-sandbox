@@ -2,17 +2,66 @@
 # Provides line ending fixes, secure password cleanup, and npm validation.
 # Usage: . "$PSScriptRoot\setup_utils.ps1"
 
+# Resolves the docker files directory for a given script location.
+# - Embedded exe layout (AppData\AI-Docker-CLI\docker-files): docker files sit next to the scripts
+# - Project layout: docker files live in ..\docker relative to the scripts folder
+function Resolve-DockerFilesPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScriptPath
+    )
+
+    if ($ScriptPath -like '*AI-Docker-CLI*docker-files*') {
+        return $ScriptPath
+    }
+    return (Join-Path $ScriptPath '..\docker')
+}
+
+# Builds the compose-file arguments for base and optional mobile access.
+function Get-ComposeFileArgs {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DockerPath,
+
+        [bool]$MobileAccess = $false
+    )
+
+    $composeArgs = 'compose -f docker-compose.yml'
+    if ($MobileAccess) {
+        $mobileOverride = Join-Path $DockerPath 'docker-compose.mobile.yml'
+        if (-not (Test-Path $mobileOverride)) {
+            throw "Mobile access requested but docker-compose.mobile.yml was not found at: $mobileOverride"
+        }
+        $composeArgs += ' -f docker-compose.mobile.yml'
+    }
+    return $composeArgs
+}
+
+# Validates a container password against the wizard's minimum requirements.
+# Returns @{ Valid = [bool]; Message = [string] } so callers can show the reason.
+function Test-PasswordStrength {
+    param(
+        [AllowEmptyString()]
+        [string]$Password
+    )
+
+    if ([string]::IsNullOrEmpty($Password)) {
+        return @{ Valid = $false; Message = 'Password cannot be empty.' }
+    }
+    if ($Password.Length -lt 8) {
+        return @{ Valid = $false; Message = 'Password must be at least 8 characters long.' }
+    }
+    if ($Password -notmatch '[A-Za-z]' -or $Password -notmatch '[0-9]') {
+        return @{ Valid = $false; Message = 'Password must contain at least one letter and one digit.' }
+    }
+    return @{ Valid = $true; Message = 'OK' }
+}
+
 function Fix-LineEndings {
     param([string]$scriptPath)
 
     # Docker files location - detect if running from embedded exe or project directory
-    $dockerPath = if ($scriptPath -like '*AI-Docker-CLI*docker-files*') {
-        # Running from embedded exe - docker files are in same folder
-        $scriptPath
-    } else {
-        # Running from project directory - docker files are in ../docker
-        Join-Path $scriptPath '..\docker'
-    }
+    $dockerPath = Resolve-DockerFilesPath -ScriptPath $scriptPath
     $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
     $fixed = $false
 
@@ -119,7 +168,7 @@ function Test-NpmFunctional {
 
     # Verify npm can actually execute (catches "Unknown command: pm" type errors)
     try {
-        $npmVersion = & npm --version 2>&1
+        $npmVersion = & $npmPath.Source --version 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] npm --version failed: $npmVersion" -ForegroundColor Red
             return @{ Valid = $false; Error = "npm not functioning: $npmVersion"; NeedsRepair = $true }

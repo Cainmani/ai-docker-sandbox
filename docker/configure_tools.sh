@@ -27,6 +27,18 @@ config_log() {
     fi
 }
 
+# Reuse the same migration and router ownership logic as container startup and
+# the generated shell wrappers. Missing helpers are an installation error, not
+# a reason to fall back to broad process matching or an unsafe config rewrite.
+eh_log() { config_log "$1" "$2"; }
+for helper in /usr/local/lib/entrypoint_helpers.sh /usr/local/lib/router_utils.sh; do
+    if [ ! -f "$helper" ]; then
+        echo "ERROR: required helper is missing: $helper" >&2
+        exit 1
+    fi
+    source "$helper"
+done
+
 # Configuration file
 # Use $HOME instead of USER_NAME since this runs as the user
 CONFIG_FILE="${HOME}/.cli_tools_config"
@@ -285,12 +297,14 @@ shell_tool = true
 web_search_request = true
 TOML
         print_success "Created config.toml with modern Responses API"
-    elif grep -q 'wire_api.*=.*"chat"' "$config_file" 2>/dev/null; then
-        # Migrate deprecated chat API to responses API
-        print_warning "Detected deprecated wire_api = \"chat\" in config.toml"
-        print_status "Updating to wire_api = \"responses\"..."
-        sed -i 's/wire_api.*=.*"chat"/wire_api = "responses"/g' "$config_file"
-        print_success "Updated config.toml to use modern Responses API"
+    else
+        migrate_codex_wire_api "$config_file"
+        local migrate_rc=$?
+        if [ "$migrate_rc" -eq 0 ]; then
+            print_success "Updated config.toml to use modern Responses API"
+        elif [ "$migrate_rc" -eq 2 ]; then
+            print_warning "Could not safely migrate config.toml; the original file was preserved"
+        fi
     fi
 
     # Check if codex is installed (check PATH and common npm locations)
@@ -366,10 +380,11 @@ configure_ai_router() {
     echo "  Note: you sign into each AI provider in the router's web dashboard - not here."
     echo ""
 
-    # Report which router (if any) is currently running
+    # Report only router processes this installation owns. Stale/recycled PID
+    # records do not validate and unrelated processes are never matched.
     local running=""
-    if pgrep -f '9router'   >/dev/null 2>&1; then running="9router"; fi
-    if pgrep -f 'omniroute' >/dev/null 2>&1; then running="omniroute"; fi
+    if ai_router_owned_pid 9router >/dev/null 2>&1; then running="9router"; fi
+    if ai_router_owned_pid omniroute >/dev/null 2>&1; then running="omniroute"; fi
     if [ -n "$running" ]; then
         print_success "Currently running: $running  ->  http://localhost:$port/dashboard"
         echo ""
@@ -391,46 +406,39 @@ configure_ai_router() {
         *) print_error "Invalid choice"; read -rp "Press Enter to continue..." _; return 1 ;;
     esac
 
-    # Stop whichever router is running (enforces one-at-a-time), then start the chosen one.
-    # Escalate SIGTERM -> SIGKILL and WAIT for the shared port to be released before starting;
-    # otherwise the new router hits EADDRINUSE and the dashboard shows "Internal Server Error".
+    # Stop only owned router processes (plus narrowly anchored pre-PID-wrapper
+    # legacy entry points) and require the shared port to be free before launch.
     print_status "Stopping any running router..."
-    if pgrep -f '9router|omniroute' >/dev/null 2>&1; then
-        pkill -TERM -f '9router'   2>/dev/null || true
-        pkill -TERM -f 'omniroute' 2>/dev/null || true
-        local stop_waited=0
-        while pgrep -f '9router|omniroute' >/dev/null 2>&1 && [ "$stop_waited" -lt 5 ]; do
-            sleep 1; stop_waited=$((stop_waited + 1))
-        done
-        pkill -KILL -f '9router'   2>/dev/null || true
-        pkill -KILL -f 'omniroute' 2>/dev/null || true
+    ai_router_stop_all "$port"
+    local stop_rc=$?
+    if [ "$stop_rc" -eq 2 ]; then
+        print_error "Neither ss nor netstat is available; cannot safely inspect port $port"
+        read -rp "Press Enter to continue..." _
+        return 1
+    elif [ "$stop_rc" -ne 0 ]; then
+        print_error "Port $port is still occupied; refusing to start $tool"
+        print_status "Inspect the listener with: ss -tlnp"
+        read -rp "Press Enter to continue..." _
+        return 1
     fi
-    # Wait for the shared port to actually be free (TIME_WAIT / slow teardown) before launching.
-    local port_waited=0
-    while netstat -tln 2>/dev/null | grep -q ":$port " && [ "$port_waited" -lt 10 ]; do
-        sleep 1; port_waited=$((port_waited + 1))
-    done
 
     print_status "Starting $tool on 0.0.0.0:$port ..."
     config_log "INFO" "AI router: starting $tool on port $port"
-    # Bind 0.0.0.0 (not localhost) so Docker's published port reaches it. DATA_DIR points at the
-    # tool's own persisted data dir (survives rebuilds). Detached.
-    local data_dir="$HOME/.router-data/$tool"
-    mkdir -p "$data_dir"
-    HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="$port" DATA_DIR="$data_dir" nohup "$tool" > "/tmp/$tool.log" 2>&1 &
-    disown 2>/dev/null || true
+    if ! ai_router_start_detached "$tool" "$port" "/tmp/$tool.log"; then
+        print_error "Could not start or record ownership for $tool"
+        read -rp "Press Enter to continue..." _
+        return 1
+    fi
 
-    # Wait for it to listen (first run may download assets)
-    local waited=0
-    while [ $waited -lt 30 ]; do
-        netstat -tlnp 2>/dev/null | grep -q ":$port " && break
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+    ai_router_wait_port_listen "$port" 30
+    local listen_rc=$?
+    if [ "$listen_rc" -eq 0 ]; then
         print_success "$tool started."
         config_log "INFO" "AI router: $tool started on port $port"
+    elif [ "$listen_rc" -eq 2 ]; then
+        ai_router_stop_process "$tool"
+        print_error "The port probe disappeared while starting $tool; the owned process was stopped"
+        config_log "ERROR" "AI router: no port probe available while starting $tool"
     else
         print_warning "$tool did not report ready within 30s - it may still be starting."
         print_warning "Check /tmp/$tool.log for details."
@@ -467,6 +475,91 @@ show_status() {
     done
 
     echo ""
+}
+
+# Sanitized, read-only diagnostic summary. It reports state, never credential
+# contents, and returns nonzero only for failures that require user action.
+diagnose_environment() {
+    print_header "AI Docker Environment Diagnostic"
+    local failures=0 marker="${HOME}/.cli_tools_installed"
+    local state
+    state=$(install_status_state "$marker")
+    echo "INSTALL_STATUS=$state"
+    if [ "$state" = "partial" ]; then
+        echo "FAILED_TOOLS=$(install_status_get "$marker" FAILED_TOOLS)"
+        failures=1
+    elif [ "$state" = "missing" ]; then
+        failures=1
+    fi
+
+    local tool
+    for tool in claude gh codex gemini; do
+        if command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
+            echo "BINARY_${tool}=ok"
+        else
+            echo "BINARY_${tool}=missing_or_broken"
+            failures=1
+        fi
+    done
+
+    for tool in claude gh openai codex gemini ai_router; do
+        if is_configured "$tool"; then
+            echo "AUTH_${tool}=configured"
+        else
+            echo "AUTH_${tool}=not_configured"
+        fi
+    done
+
+    local port="${AI_ROUTER_PORT:-20128}" port_rc
+    if ai_router_port_busy "$port"; then
+        echo "ROUTER_PORT=busy"
+    else
+        port_rc=$?
+        if [ "$port_rc" -eq 1 ]; then echo "ROUTER_PORT=free"; else echo "ROUTER_PORT=probe_missing"; failures=1; fi
+    fi
+
+    if [ -n "${HTTPS_PROXY:-${HTTP_PROXY:-}}" ]; then echo "PROXY=configured"; else echo "PROXY=not_configured"; fi
+    if getent hosts api.anthropic.com >/dev/null 2>&1 && getent hosts api.openai.com >/dev/null 2>&1; then
+        echo "DNS=ok"
+    else
+        echo "DNS=failed"
+        failures=1
+    fi
+    # TLS reachability: a successful DNS+TCP+TLS handshake is what we probe for.
+    # We deliberately do NOT use `curl -f`, because --fail turns any HTTP status
+    # >= 400 into exit 22 - so an unauthenticated 401/403 or a bare-root 404/421
+    # (these APIs serve no content at "/") would be misreported as a TLS/network
+    # failure. Instead we treat any real HTTP response as transport success and
+    # only count genuine transport errors (DNS/connect/timeout/SSL) as failures.
+    tls_probe() {
+        local url="$1" code rc
+        code=$(curl -sS --connect-timeout 5 --max-time 10 -o /dev/null \
+            -w '%{http_code}' "$url" 2>/dev/null)
+        rc=$?
+        if [ "$rc" -eq 0 ] && [ -n "$code" ] && [ "$code" != "000" ]; then
+            printf '%s' "$code"
+            return 0
+        fi
+        return 1
+    }
+    local anthropic_code openai_code
+    if anthropic_code=$(tls_probe https://api.anthropic.com/) \
+        && openai_code=$(tls_probe https://api.openai.com/); then
+        echo "TLS=ok"
+        # Sanitized: HTTP status codes only (never headers/body) so an operator
+        # can tell "TLS fine, just unauthenticated" from an unexpected 5xx/429.
+        echo "HTTP_STATUS_anthropic=$anthropic_code"
+        echo "HTTP_STATUS_openai=$openai_code"
+    else
+        echo "TLS=failed"
+        failures=1
+    fi
+    if [ -r /etc/ai-docker-version ]; then
+        echo "CONTAINER_VERSION=$(tr -cd '0-9.A-Za-z+-' < /etc/ai-docker-version)"
+    else
+        echo "CONTAINER_VERSION=legacy"
+    fi
+    return "$failures"
 }
 
 # Function for interactive configuration
@@ -529,6 +622,9 @@ case "${1:-}" in
     --status|-s)
         show_status
         ;;
+    --diagnose)
+        diagnose_environment
+        ;;
     --claude)
         configure_claude
         ;;
@@ -561,6 +657,7 @@ case "${1:-}" in
         echo ""
         echo "Options:"
         echo "  --status, -s     Show configuration status"
+        echo "  --diagnose       Run sanitized install/auth/router/network diagnostics"
         echo "  --claude         Configure Claude Code CLI"
         echo "  --github, --gh   Configure GitHub CLI"
         echo "  --openai, --gpt  Configure OpenAI/GPT tools (Python SDK)"
