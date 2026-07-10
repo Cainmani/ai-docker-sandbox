@@ -1562,6 +1562,25 @@ $btnNext.Add_Click({
                 }
             }
 
+            # Size the container CPU limit to the WSL2 VM the chosen profile
+            # produces. docker-compose.yml defaults AI_DOCKER_CPU_LIMIT to a safe
+            # 2-core floor; without this the container would be capped at 2 even
+            # on a Standard/Heavy VM. Never grant the container more CPU than the
+            # VM has. Skipped in DEV MODE, which does not touch .env.
+            if (-not $script:IsDevMode) {
+                $existingProcs = 0
+                if ($state.ExistingWSLConfig -and $state.ExistingWSLConfig.Processors) {
+                    $existingProcs = [int]$state.ExistingWSLConfig.Processors
+                }
+                $cpuLimit = Resolve-ContainerCpuLimit -Profile $state.WSLProfile `
+                    -SystemCores $state.SystemCores -ExistingProcessors $existingProcs
+                if (Set-EnvKey -Path $script:envPath -Key 'AI_DOCKER_CPU_LIMIT' -Value $cpuLimit) {
+                    Write-Host "[INFO] Set AI_DOCKER_CPU_LIMIT=$cpuLimit in .env (profile: $($state.WSLProfile))" -ForegroundColor Cyan
+                } else {
+                    Write-Host "[WARNING] Could not write AI_DOCKER_CPU_LIMIT to .env - container will use the compose default (2)" -ForegroundColor Yellow
+                }
+            }
+
             $script:current++; Show-Page $script:current
             # STOP HERE - let user see Page 5 (Build) and toggle Force Rebuild checkbox if needed
         }

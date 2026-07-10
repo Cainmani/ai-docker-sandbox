@@ -27,6 +27,7 @@ Stabilization release for safe upgrades, lifecycle diagnostics, corporate-networ
 - The product version now propagates into `docker/.env` as `AI_DOCKER_VERSION`, so built images carry the real version metadata instead of the compose `0.0.0` default (which the skew check misread as a legacy image).
 - Proxy and custom-CA settings now survive the `su -` login-shell reset used for tool installation, are persisted to `/etc/profile.d` for interactive/SSH sessions, and are sourced by the auto-update cron job — fixing tool installs/updates on corporate networks.
 - `configure-tools --diagnose` no longer reports `TLS=failed` for a healthy connection that returns an unauthenticated or bare-root HTTP status (401/403/404/421); only genuine DNS/connection/timeout/SSL errors count as a transport failure, and the real HTTP status codes are surfaced.
+- The container CPU limit now defaults to a 2-core floor and is sized to the chosen WSL profile (`AI_DOCKER_CPU_LIMIT` written to `docker/.env`: Light=2, Standard=4, Heavy=6, capped by real cores). The previous hard-coded 4-core limit failed to start on 2-core hosts and CI runners.
 - Quoted environment values, port validation, WSL core bounds, wizard cancellation, and startup readiness handling were hardened.
 - Log sanitizers now cover provider keys, GitHub tokens, bearer/JWT/private-key material, and broader secret contexts. Logs are sanitized but must still be reviewed before sharing.
 

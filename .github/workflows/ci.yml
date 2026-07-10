@@ -230,6 +230,11 @@ jobs:
           if ($wizard -notmatch "Set-EnvKey[^\r\n]*'AI_DOCKER_VERSION'") {
             throw "setup_wizard.ps1 does not propagate AI_DOCKER_VERSION into docker/.env"
           }
+          # The wizard must also size the container CPU limit to the chosen WSL
+          # profile, or docker-compose.yml caps every install at the 2-core floor.
+          if ($wizard -notmatch "Set-EnvKey[^\r\n]*'AI_DOCKER_CPU_LIMIT'") {
+            throw "setup_wizard.ps1 does not propagate AI_DOCKER_CPU_LIMIT into docker/.env"
+          }
 
   check-pinned-versions:
     runs-on: ubuntu-latest
