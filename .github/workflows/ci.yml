@@ -166,7 +166,7 @@ jobs:
     name: Pester (${{ matrix.shell_name }})
     runs-on: windows-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - shell_name: Windows PowerShell 5.1
