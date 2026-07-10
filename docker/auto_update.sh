@@ -325,8 +325,10 @@ setup_cron() {
         return 1
     fi
 
-    # Add cron job
-    (crontab -l 2>/dev/null; echo "$cron_schedule /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
+    # Add cron job. Source the proxy/CA login profile first: cron runs in a
+    # bare environment, so without it the updater loses proxy/CA config on
+    # corporate networks (same line entrypoint_helpers.sh installs).
+    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
     update_log "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
 }
 

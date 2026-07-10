@@ -699,8 +699,9 @@ cleanup_old_installations() {
         print_status "Removing broken system wrapper at /usr/local/bin/claude..."
         sudo rm -f /usr/local/bin/claude 2>/dev/null || true
     fi
-    # Remove a broken native launcher symlink (dangling target).
-    if [ -e "${HOME}/.local/bin/claude" ] && ! "${HOME}/.local/bin/claude" --version >/dev/null 2>&1; then
+    # Remove a broken native launcher symlink (dangling target). A dangling
+    # symlink fails -e, so test -L as well or it survives cleanup forever.
+    if { [ -e "${HOME}/.local/bin/claude" ] || [ -L "${HOME}/.local/bin/claude" ]; } && ! "${HOME}/.local/bin/claude" --version >/dev/null 2>&1; then
         print_status "Removing broken ~/.local/bin/claude launcher..."
         rm -f "${HOME}/.local/bin/claude" 2>/dev/null || true
     fi

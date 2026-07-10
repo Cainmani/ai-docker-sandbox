@@ -1,7 +1,7 @@
 # fix_line_endings.ps1 - Convert shell scripts to Unix LF line endings
 
 $scriptPath = $PSScriptRoot
-$files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'docker\lib\logging.sh')
+$files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'docker\lib\logging.sh', 'docker\lib\entrypoint_helpers.sh', 'docker\lib\router_utils.sh')
 
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "         FIXING LINE ENDINGS FOR LINUX SCRIPTS                  " -ForegroundColor Green

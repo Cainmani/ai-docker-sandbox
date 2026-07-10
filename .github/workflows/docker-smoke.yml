@@ -28,7 +28,6 @@ jobs:
     timeout-minutes: 45
     env:
       COMPOSE_PROJECT_NAME: ai-docker-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-      AI_DOCKER_VERSION: '1.4.0'
       USER_NAME: smokeuser
       WORKSPACE_PATH: ${{ github.workspace }}/smoke-workspace
       VIBE_KANBAN_PORT: '33000'
@@ -45,6 +44,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Single source of truth for the release version; keeps this workflow
+          # from drifting on version bumps.
+          echo "AI_DOCKER_VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
+          AI_DOCKER_VERSION=$(cat VERSION)
           mkdir -p "$WORKSPACE_PATH" docker/.secrets
           printf '%s\n' 'DisposableSmokePassword-1!' > docker/.secrets/password.txt
           chmod 600 docker/.secrets/password.txt
@@ -97,7 +100,7 @@ jobs:
           docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc '
             grep -q "^ENTRYPOINT=ok$" /run/ai-docker-ready
             grep -Eq "^INSTALL_STATUS=(ok|legacy)$" /run/ai-docker-ready
-            test "$(cat /etc/ai-docker-version)" = "1.4.0"
+            test "$(cat /etc/ai-docker-version)" = "'"$AI_DOCKER_VERSION"'"
             command -v claude
             command -v codex
             command -v configure-tools
