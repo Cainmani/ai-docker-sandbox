@@ -10,7 +10,7 @@ Describe 'Fix-LineEndings' {
         # - If path contains 'AI-Docker-CLI*docker-files', looks in scriptPath directly
         # - Otherwise, looks in scriptPath/../docker
         # We simulate the embedded exe path so it looks in our test dir directly
-        $script:TestDockerDir = Join-Path $TestDrive 'AI-Docker-CLI' 'docker-files'
+        $script:TestDockerDir = Join-Path (Join-Path $TestDrive 'AI-Docker-CLI') 'docker-files'
         New-Item -ItemType Directory -Path $script:TestDockerDir -Force | Out-Null
     }
 
@@ -52,7 +52,7 @@ Describe 'Replace-PasswordWithPlaceholder' {
     }
 
     It 'Replaces password content with SETUP_COMPLETE' {
-        $file = Join-Path $TestDrive '.secrets' 'password.txt'
+        $file = Join-Path (Join-Path $TestDrive '.secrets') 'password.txt'
         Set-Content -Path $file -Value 'MySecretPassword123' -NoNewline
         Replace-PasswordWithPlaceholder -DockerPath $TestDrive
         $content = Get-Content $file -Raw
@@ -60,7 +60,7 @@ Describe 'Replace-PasswordWithPlaceholder' {
     }
 
     It 'Is idempotent - skips if already SETUP_COMPLETE' {
-        $file = Join-Path $TestDrive '.secrets' 'password.txt'
+        $file = Join-Path (Join-Path $TestDrive '.secrets') 'password.txt'
         Set-Content -Path $file -Value 'SETUP_COMPLETE' -NoNewline
         Replace-PasswordWithPlaceholder -DockerPath $TestDrive
         $content = Get-Content $file -Raw
@@ -71,7 +71,7 @@ Describe 'Replace-PasswordWithPlaceholder' {
         # Remove the secrets dir to test full creation
         Remove-Item (Join-Path $TestDrive '.secrets') -Recurse -Force
         Replace-PasswordWithPlaceholder -DockerPath $TestDrive
-        $file = Join-Path $TestDrive '.secrets' 'password.txt'
+        $file = Join-Path (Join-Path $TestDrive '.secrets') 'password.txt'
         $file | Should -Exist
         Get-Content $file -Raw | Should -Be 'SETUP_COMPLETE'
     }
@@ -107,9 +107,8 @@ Describe 'Test-NpmFunctional' {
         $result.ContainsKey('Error') | Should -BeTrue
     }
 
-    It 'Returns NeedsRepair when npm execution throws' -Skip:(-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        # Can only mock npm when it exists on the system
-        Mock npm { throw 'execution failed' }
+    It 'Returns NeedsRepair when npm execution throws' {
+        Mock Get-Command { [pscustomobject]@{ Source = 'TestDrive:\broken-npm' } }
         $result = Test-NpmFunctional
         $result.Valid | Should -BeFalse
         $result.NeedsRepair | Should -BeTrue

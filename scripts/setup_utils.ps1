@@ -168,7 +168,7 @@ function Test-NpmFunctional {
 
     # Verify npm can actually execute (catches "Unknown command: pm" type errors)
     try {
-        $npmVersion = & npm --version 2>&1
+        $npmVersion = & $npmPath.Source --version 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] npm --version failed: $npmVersion" -ForegroundColor Red
             return @{ Valid = $false; Error = "npm not functioning: $npmVersion"; NeedsRepair = $true }
