@@ -73,14 +73,18 @@ jobs:
           docker compose -p "$COMPOSE_PROJECT_NAME" build
           docker compose -p "$COMPOSE_PROJECT_NAME" up -d
           for attempt in $(seq 1 90); do
-            status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' ai-cli 2>/dev/null || true)
-            case "$status" in
-              healthy) exit 0 ;;
-              unhealthy|exited|dead)
+            state=$(docker inspect --format '{{.State.Status}}' ai-cli 2>/dev/null || true)
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ai-cli 2>/dev/null || true)
+            [ "$health" = healthy ] && exit 0
+            case "$state" in
+              exited|dead)
                 docker compose -p "$COMPOSE_PROJECT_NAME" logs
                 exit 1
                 ;;
             esac
+            # Tool installation can outlast Compose's healthcheck start period.
+            # Treat transient "unhealthy" as bootstrap in progress and let this
+            # waiter's longer timeout decide when startup has truly stalled.
             sleep 5
           done
           docker compose -p "$COMPOSE_PROJECT_NAME" logs
