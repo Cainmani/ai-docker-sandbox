@@ -166,12 +166,21 @@ jobs:
         working-directory: docker
         run: |
           set -euo pipefail
-          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai bash -lc 'printf preserved > "$HOME/.tool-auth/smoke-preserved"'
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai \
+            bash -c 'printf preserved > "$HOME/.tool-auth/smoke-preserved"'
           docker compose -p "$COMPOSE_PROJECT_NAME" up -d --force-recreate
+          ready=false
           for attempt in $(seq 1 60); do
-            [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ai-cli 2>/dev/null || true)" = healthy ] && break
+            if [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ai-cli 2>/dev/null || true)" = healthy ]; then
+              ready=true
+              break
+            fi
             sleep 5
           done
+          if [ "$ready" != true ]; then
+            docker compose -p "$COMPOSE_PROJECT_NAME" logs
+            exit 1
+          fi
           docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai grep -Fxq preserved /home/smokeuser/.tool-auth/smoke-preserved
 
       - name: Show logs on failure
