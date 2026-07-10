@@ -5,6 +5,14 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-07-10
+
+Fixes `update-container-tools` being able to uninstall a tool it was supposed to update. No rebuild strictly required — the fix takes effect the next time the container picks up the new `auto_update.sh` (Force Rebuild, or `docker compose up -d --force-recreate`).
+
+### Fixed
+- **`update-container-tools --force` could leave a tool uninstalled** (`command not found` afterwards, e.g. OmniRoute). `npm update -g` removes a package before installing the new version, so a mid-update failure (network error, peer-dependency conflict, native build failure) deleted the tool instead of updating it. The updater now snapshots the installed global npm packages before updating and automatically reinstalls (with retries and cache-clean between attempts) anything the update removed.
+- If you were already hit by this: restore the missing tool with `npm install -g <package>` (e.g. `npm install -g omniroute`). Note the `-g` — a plain `npm install omniroute` installs into the current directory instead of restoring the command.
+
 ## [1.3.4] - 2026-07-07
 
 Fixes switching between the two AI routers. Force Rebuild (or `docker compose up -d --force-recreate`) recommended so the container regenerates the updated `~/.bashrc` router wrappers.

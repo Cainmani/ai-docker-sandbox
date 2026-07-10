@@ -139,6 +139,15 @@ apply_updates() {
     # Update ALL global npm packages (dynamic)
     # Note: Claude Code is no longer installed via npm (uses native installer)
     update_log "Updating npm packages..."
+
+    # Snapshot the installed global packages BEFORE updating. "npm update -g"
+    # removes a package before reinstalling the new version, so a mid-update
+    # failure (network error, peer-dependency conflict, native build failure)
+    # can leave a tool uninstalled entirely rather than just out of date.
+    # Anything that disappears during the update gets reinstalled below.
+    # The sed keeps scoped names intact (e.g. @google/gemini-cli).
+    npm_packages_before=$(npm ls -g --depth=0 --parseable 2>/dev/null | tail -n +2 | sed 's|^.*/node_modules/||' || true)
+
     npm_output=$(npm update -g 2>&1)
     npm_exit_code=$?
     if [ $npm_exit_code -eq 0 ]; then
@@ -150,6 +159,32 @@ apply_updates() {
         update_log "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
         echo "$npm_output" | while read line; do update_log "  $line"; done
     fi
+
+    # Reinstall any global package that the update removed instead of updating
+    npm_packages_after=$(npm ls -g --depth=0 --parseable 2>/dev/null | tail -n +2 | sed 's|^.*/node_modules/||' || true)
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        if ! printf '%s\n' "$npm_packages_after" | grep -qxF "$pkg"; then
+            update_log "${YELLOW}[WARNING]${NC} $pkg was removed by a failed update - reinstalling..."
+            reinstalled=0
+            for reinstall_attempt in 1 2 3; do
+                reinstall_output=$(npm install -g "$pkg" 2>&1)
+                if [ $? -eq 0 ]; then
+                    reinstalled=1
+                    break
+                fi
+                update_log "  Reinstall attempt $reinstall_attempt/3 failed for $pkg"
+                npm cache clean --force 2>/dev/null || true
+                sleep 3
+            done
+            if [ $reinstalled -eq 1 ]; then
+                update_log "${GREEN}[SUCCESS]${NC} Reinstalled $pkg"
+            else
+                update_log "${RED}[ERROR]${NC} Could not reinstall $pkg - install manually with: npm install -g $pkg"
+                echo "$reinstall_output" | tail -n 20 | while read line; do update_log "  $line"; done
+            fi
+        fi
+    done <<< "$npm_packages_before"
 
     # Update ALL user pip packages (dynamic)
     update_log "Updating Python packages..."
