@@ -161,3 +161,68 @@ Describe 'New-SecurePasswordFile' {
         $acl.AreAccessRulesProtected | Should -BeTrue
     }
 }
+
+Describe 'Resolve-DockerFilesPath' {
+    It 'Returns the script path itself for embedded exe layout' {
+        $path = 'C:\Users\test\AppData\Local\AI-Docker-CLI\docker-files'
+        Resolve-DockerFilesPath -ScriptPath $path | Should -Be $path
+    }
+
+    It 'Returns ..\docker for the project layout' {
+        # Use an existing path so Join-Path works cross-platform in the test
+        $path = Join-Path $TestDrive 'scripts'
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+        $result = Resolve-DockerFilesPath -ScriptPath $path
+        $result | Should -Be (Join-Path $path '..\docker')
+    }
+}
+
+Describe 'Get-ComposeFileArgs' {
+    It 'Uses only the base compose file when mobile access is disabled' {
+        Get-ComposeFileArgs -DockerPath $TestDrive -MobileAccess $false |
+            Should -Be 'compose -f docker-compose.yml'
+    }
+
+    It 'Adds the mobile override when mobile access is enabled' {
+        $mobileOverride = Join-Path $TestDrive 'docker-compose.mobile.yml'
+        Set-Content -Path $mobileOverride -Value 'services: {}'
+        Get-ComposeFileArgs -DockerPath $TestDrive -MobileAccess $true |
+            Should -Be 'compose -f docker-compose.yml -f docker-compose.mobile.yml'
+        Remove-Item $mobileOverride -Force
+    }
+
+    It 'Fails when mobile access is enabled without the override file' {
+        { Get-ComposeFileArgs -DockerPath $TestDrive -MobileAccess $true } |
+            Should -Throw '*docker-compose.mobile.yml*'
+    }
+}
+
+Describe 'Test-PasswordStrength' {
+    It 'Rejects empty password' {
+        (Test-PasswordStrength -Password '').Valid | Should -BeFalse
+    }
+
+    It 'Rejects passwords shorter than 8 characters' {
+        $result = Test-PasswordStrength -Password 'ab1'
+        $result.Valid | Should -BeFalse
+        $result.Message | Should -Match '8 characters'
+    }
+
+    It 'Rejects passwords without a digit' {
+        $result = Test-PasswordStrength -Password 'abcdefgh'
+        $result.Valid | Should -BeFalse
+        $result.Message | Should -Match 'letter and one digit'
+    }
+
+    It 'Rejects passwords without a letter' {
+        (Test-PasswordStrength -Password '12345678').Valid | Should -BeFalse
+    }
+
+    It 'Accepts a password with 8+ chars, a letter, and a digit' {
+        (Test-PasswordStrength -Password 'passw0rd').Valid | Should -BeTrue
+    }
+
+    It 'Accepts symbols alongside the requirements' {
+        (Test-PasswordStrength -Password 'P@ssw0rd!123').Valid | Should -BeTrue
+    }
+}

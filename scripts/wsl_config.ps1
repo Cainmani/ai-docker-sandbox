@@ -62,22 +62,25 @@ function New-WSLConfig {
         [int]$SystemCores = 4
     )
 
+    # Invariant: always assign at least 1 core, even if detection returned 0/negative
+    $effectiveCores = [Math]::Max(1, $SystemCores)
+
     # Profile definitions
     $profiles = @{
         'light' = @{
             Memory = '3GB'
             Swap = '2GB'
-            Processors = [Math]::Min(2, $SystemCores)
+            Processors = [Math]::Min(2, $effectiveCores)
         }
         'standard' = @{
             Memory = '6GB'
             Swap = '4GB'
-            Processors = [Math]::Min(4, $SystemCores)
+            Processors = [Math]::Min(4, $effectiveCores)
         }
         'heavy' = @{
             Memory = '12GB'
             Swap = '6GB'
-            Processors = [Math]::Min(6, $SystemCores)
+            Processors = [Math]::Min(6, $effectiveCores)
         }
     }
 

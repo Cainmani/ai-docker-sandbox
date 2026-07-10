@@ -31,6 +31,19 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
           echo "Version: $version"
 
+      - name: Verify release version sources
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ steps.get_version.outputs.VERSION }}"
+          $sourceVersion = (Get-Content VERSION -Raw).Trim()
+          if ($tagVersion -ne $sourceVersion) {
+            throw "Release tag version $tagVersion does not match VERSION $sourceVersion"
+          }
+          $changelog = Get-Content CHANGELOG.md -Raw
+          if ($changelog -notmatch ('(?m)^## \[' + [regex]::Escape($sourceVersion) + '\]')) {
+            throw "CHANGELOG.md has no release heading for $sourceVersion"
+          }
+
       - name: Install ps2exe
         shell: pwsh
         run: |
@@ -56,13 +69,18 @@ jobs:
         run: |
           $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
 
-          if (Test-Path $outputPath) {
-            Write-Host "Build successful: $outputPath"
-            Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
-          } else {
+          if (-not (Test-Path $outputPath)) {
             Write-Error "Build failed - output file not found"
             exit 1
           }
+
+          $expectedVersion = "${{ steps.get_version.outputs.VERSION }}.0"
+          $actualVersion = (Get-Item $outputPath).VersionInfo.FileVersion
+          if ($actualVersion -ne $expectedVersion) {
+            throw "Executable file version $actualVersion does not match expected $expectedVersion"
+          }
+          Write-Host "Build successful: $outputPath (file version $actualVersion)"
+          Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
 
       - name: Generate SHA256 checksum
         id: checksum

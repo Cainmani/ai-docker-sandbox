@@ -5,7 +5,8 @@
 # It runs on first container start and can be used for updates
 
 # Note: We do NOT use "set -e" here because we want to continue installing other tools
-# even if one tool fails. The marker file will be created regardless to prevent infinite loops.
+# even if one tool fails. The structured marker records the honest result, and required-tool
+# failures produce a nonzero exit so startup never reports a broken environment as ready.
 # We DO use set -uo pipefail to catch undefined variables and pipe failures.
 set -uo pipefail
 
@@ -23,6 +24,14 @@ elif [ -f "/usr/local/lib/logging.sh" ]; then
     source "/usr/local/lib/logging.sh"
 fi
 
+# Safe fallbacks when the optional logging library is unavailable. With set -u,
+# color variables must always exist before the print helpers reference them.
+RED=${RED:-'\033[0;31m'}
+GREEN=${GREEN:-'\033[0;32m'}
+YELLOW=${YELLOW:-'\033[1;33m'}
+BLUE=${BLUE:-'\033[0;34m'}
+NC=${NC:-'\033[0m'}
+
 # Initialize logging (if library available)
 if type init_logging >/dev/null 2>&1; then
     LOG_FILE=$(init_logging "INSTALL" "install")
@@ -33,6 +42,15 @@ fi
 INSTALL_MARKER="${HOME}/.cli_tools_installed"
 TOOLS_VERSION_FILE="${HOME}/.cli_tools_versions"
 INSTALL_STATUS_FILE="${HOME}/.cli_install_status"
+
+# Tools that must work for the environment to be considered healthy.
+# If any of these remain broken after an install run, the script exits nonzero
+# and the structured marker records STATUS=partial.
+REQUIRED_TOOLS="claude gh codex"
+
+# Install mode: "install" (first run), "repair" (retry only missing/broken
+# tools), or "force" (reinstall everything, non-destructively).
+INSTALL_MODE="install"
 
 # Function to update installation status (for UI feedback)
 update_install_status() {
@@ -77,6 +95,43 @@ print_warning() {
 # Function to check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check whether a tool is actually WORKING (not just present).
+# Used by --repair to retry only missing/broken tools and by the structured
+# marker to record an honest per-tool result.
+tool_healthy() {
+    local tool=$1
+    case $tool in
+        claude)     claude --version >/dev/null 2>&1 ;;
+        gh)         command_exists gh ;;
+        gemini)     command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1 ;;
+        codex)      command_exists codex ;;
+        vibe-kanban) npm list -g vibe-kanban >/dev/null 2>&1 ;;
+        9router)    npm list -g 9router >/dev/null 2>&1 ;;
+        omniroute)  npm list -g omniroute >/dev/null 2>&1 ;;
+        openai)     pip3 show openai >/dev/null 2>&1 ;;
+        *)          return 1 ;;
+    esac
+}
+
+# Decide whether a tool needs (re)installation for the current mode:
+#   force  -> always install
+#   repair -> only install when the tool is missing/broken
+#   install-> defer to the per-tool logic below (returns 0)
+should_install() {
+    local tool=$1
+    case "$INSTALL_MODE" in
+        force)  return 0 ;;
+        repair)
+            if tool_healthy "$tool"; then
+                print_status "$tool is already working - skipping (repair mode)"
+                return 1
+            fi
+            return 0
+            ;;
+        *) return 0 ;;
+    esac
 }
 
 # Function to install npm package with retry logic
@@ -286,22 +341,31 @@ install_cli_tools() {
         fi
     fi
 
-    # Update package lists
+    # Update package lists. Continue when the network is unavailable so already
+    # working tools remain usable and the final marker reports the honest state.
     print_status "Updating package lists..."
-    sudo apt-get update -qq
+    if ! sudo apt-get update -qq; then
+        print_warning "Could not update apt package lists; apt-based installs may fail"
+    fi
 
     # 1. Install GitHub CLI
     update_install_status "GitHub CLI" "apt"
-    if ! command_exists gh; then
+    if ! should_install gh; then
+        : # already working - skipped in repair mode
+    elif ! command_exists gh || [ "$INSTALL_MODE" = "force" ]; then
         print_status "Installing GitHub CLI..."
-        # Download GPG key to temp file first to avoid curl-pipe-shell risk
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-keyring.gpg
-        sudo cp /tmp/githubcli-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg
+        # Download GPG key to temp file first to avoid curl-pipe-shell risk.
+        if curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-keyring.gpg \
+            && sudo cp /tmp/githubcli-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+            && sudo apt-get update -qq \
+            && sudo apt-get install gh -y -qq \
+            && tool_healthy gh; then
+            print_success "GitHub CLI installed successfully"
+        else
+            print_warning "GitHub CLI installation failed; any existing working installation was preserved"
+        fi
         rm -f /tmp/githubcli-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-        sudo apt-get update -qq
-        sudo apt-get install gh -y -qq
-        print_success "GitHub CLI installed successfully"
     else
         print_status "GitHub CLI already installed ($(get_version gh))"
     fi
@@ -320,8 +384,24 @@ install_cli_tools() {
     is_npm_install=false
     needs_install=false
 
+    # Repair mode retries only a missing/broken Claude command. A healthy npm or
+    # otherwise non-native installation may be migrated during a normal/force
+    # run, but repair must leave it untouched like every other healthy tool.
+    if [ "$INSTALL_MODE" = "repair" ] && tool_healthy claude; then
+        claude_works=true
+        print_status "claude is already working - skipping (repair mode)"
+    # In force mode always reinstall via the native installer. This is NON-
+    # destructive: the installer stages the new version under
+    # ~/.local/share/claude/versions/<X.Y.Z> and only swaps the launcher
+    # symlink once the download succeeds, so a failed download leaves the
+    # current working Claude untouched.
+    elif [ "$INSTALL_MODE" = "force" ]; then
+        needs_install=true
+        if [ -x "$claude_native_path" ] && "$claude_native_path" --version >/dev/null 2>&1; then
+            print_status "Force mode: reinstalling Claude Code CLI (current: $(get_version claude))"
+        fi
     # First, check if native installation exists and works
-    if [ -x "$claude_native_path" ] && "$claude_native_path" --version >/dev/null 2>&1; then
+    elif [ -x "$claude_native_path" ] && "$claude_native_path" --version >/dev/null 2>&1; then
         claude_works=true
         print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
         print_status "Note: Claude Code auto-updates in the background"
@@ -350,15 +430,11 @@ install_cli_tools() {
                     fi
                 fi
             else
-                # Command exists but doesn't work (broken symlink/wrapper)
+                # Command exists but doesn't work. Leave it in place until the
+                # native installer succeeds; cleanup may remove it afterwards.
                 print_warning "Found broken Claude installation at: $claude_path"
                 print_status "Will install fresh via native installer..."
                 needs_install=true
-                # Clean up broken system-wide installation if it exists
-                if [ -f "/usr/local/bin/claude" ]; then
-                    print_status "Removing broken system wrapper at /usr/local/bin/claude..."
-                    sudo rm -f /usr/local/bin/claude 2>/dev/null || true
-                fi
             fi
         else
             # No claude found at all
@@ -370,31 +446,39 @@ install_cli_tools() {
     if [ "$needs_install" = true ]; then
         print_status "Installing Claude Code CLI via native installer..."
         # Download installer first to avoid curl-pipe-shell risk
-        if curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh && bash /tmp/claude-install.sh; then
+        if curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh \
+            && bash /tmp/claude-install.sh \
+            && [ -x "$claude_native_path" ] \
+            && "$claude_native_path" --version >/dev/null 2>&1; then
             # Ensure claude is in PATH for this session
             export PATH="${HOME}/.local/bin:${PATH}"
-            print_success "Claude Code CLI installed successfully via native installer"
+            print_success "Claude Code CLI installed and validated via native installer"
 
-            # If migrating from npm, remove the old npm package to avoid confusion
+            # Only after the native replacement is validated may obsolete npm
+            # wrappers be removed. A failed download leaves the old CLI intact.
             if [ "$is_npm_install" = true ]; then
-                print_status "Removing old npm installation..."
+                print_status "Removing superseded npm installation..."
                 npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
-                # Also remove any system-wide npm wrapper
                 if [ -f "/usr/local/bin/claude" ]; then
                     sudo rm -f /usr/local/bin/claude 2>/dev/null || true
                 fi
                 print_success "Migration from npm to native installer complete"
+            elif [ -f "/usr/local/bin/claude" ] \
+                && ! /usr/local/bin/claude --version >/dev/null 2>&1; then
+                sudo rm -f /usr/local/bin/claude 2>/dev/null || true
             fi
         else
-            print_warning "Claude Code CLI installation failed - continuing with other tools"
+            print_warning "Claude Code CLI installation failed validation - continuing with other tools"
         fi
         rm -f /tmp/claude-install.sh
     fi
 
     # 3. Install Google Gemini CLI (official)
     update_install_status "Google Gemini CLI" "npm"
-    print_status "Installing Google Gemini CLI..."
-    if npm view @google/gemini-cli version >/dev/null 2>&1; then
+    if ! should_install gemini; then
+        : # already working - skipped in repair mode
+    elif npm view @google/gemini-cli version >/dev/null 2>&1; then
+        print_status "Installing Google Gemini CLI..."
         print_status "Found @google/gemini-cli in npm registry"
         if npm_install_with_retry "@google/gemini-cli@0.49.0" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
@@ -430,7 +514,7 @@ install_cli_tools() {
     # Note: --break-system-packages is safe here because this is an isolated Docker container
     # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
     # which uses PEP 668 to prevent accidental system package modifications on host systems.
-    if ! pip3 show openai >/dev/null 2>&1; then
+    if ! pip3 show openai >/dev/null 2>&1 || [ "$INSTALL_MODE" = "force" ]; then
         if pip_install_with_retry "openai==2.44.0" "--break-system-packages"; then
             print_success "OpenAI Python SDK installed"
         else
@@ -444,8 +528,10 @@ install_cli_tools() {
     # Note: This is a large package (~100MB) that can fail with ECONNRESET on flaky networks
     # The retry logic handles this by clearing cache and retrying
     update_install_status "OpenAI Codex CLI" "npm"
-    print_status "Installing OpenAI Codex CLI..."
-    if npm view @openai/codex version >/dev/null 2>&1; then
+    if ! should_install codex; then
+        : # already working - skipped in repair mode
+    elif npm view @openai/codex version >/dev/null 2>&1; then
+        print_status "Installing OpenAI Codex CLI..."
         if npm_install_with_retry "@openai/codex@0.142.5" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
@@ -461,7 +547,9 @@ install_cli_tools() {
 
     # 5. Install Vibe Kanban (AI agent orchestration tool)
     update_install_status "Vibe Kanban" "npm"
-    if npm_install_with_retry "vibe-kanban@0.1.44" "/tmp/vibe_kanban_install.log"; then
+    if ! should_install vibe-kanban; then
+        : # already working - skipped in repair mode
+    elif npm_install_with_retry "vibe-kanban@0.1.44" "/tmp/vibe_kanban_install.log"; then
         print_success "Vibe Kanban installed successfully"
         # Create .vibe-kanban directory for data persistence
         mkdir -p "${HOME}/.vibe-kanban"
@@ -473,7 +561,9 @@ install_cli_tools() {
     # OpenAI-compatible endpoint; web dashboard served on port 20128, bound to 0.0.0.0 by the
     # 9router() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
     update_install_status "9router" "npm"
-    if npm_install_with_retry "9router@0.5.18" "/tmp/9router_install.log"; then
+    if ! should_install 9router; then
+        : # already working - skipped in repair mode
+    elif npm_install_with_retry "9router@0.5.18" "/tmp/9router_install.log"; then
         print_success "9router installed successfully"
     else
         print_warning "9router installation failed - can be installed manually with: npm install -g 9router"
@@ -484,7 +574,9 @@ install_cli_tools() {
     # to 0.0.0.0 by the omniroute() wrapper in ~/.bashrc so it is reachable from the host browser;
     # the wrapper stops any other router and waits for the port before starting.)
     update_install_status "OmniRoute" "npm"
-    if npm_install_with_retry "omniroute@3.8.45" "/tmp/omniroute_install.log"; then
+    if ! should_install omniroute; then
+        : # already working - skipped in repair mode
+    elif npm_install_with_retry "omniroute@3.8.45" "/tmp/omniroute_install.log"; then
         print_success "OmniRoute installed successfully"
     else
         print_warning "OmniRoute installation failed - can be installed manually with: npm install -g omniroute"
@@ -496,58 +588,61 @@ install_cli_tools() {
     print_success "All CLI tools installation completed!"
 }
 
-# Function to ensure marker file is created (prevents infinite loops)
+# Function to create the structured installation marker (prevents infinite loops)
+#
+# Structured, HONEST format (parsed by entrypoint.sh / the login banner /
+# lib/entrypoint_helpers.sh install_status_state):
+#   STATUS=ok|partial
+#   FAILED_TOOLS=<space-separated names, empty when ok>
+#   TIMESTAMP=<date>
+#   TOOL_<name>=ok|failed
+# plus human-readable [OK]/[ERROR] lines for backward compatibility.
+#
+# Returns 0 when all REQUIRED_TOOLS work, 1 otherwise (so callers can
+# propagate a nonzero exit for a genuinely broken environment).
 create_marker_file() {
-    echo "Installation completed at: $(date)" > "$INSTALL_MARKER"
-    echo "Tools installed by: $(whoami)" >> "$INSTALL_MARKER"
-    echo "Node.js version: $(node --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
-    echo "npm version: $(npm --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
-    echo "Python version: $(python3 --version 2>/dev/null || echo 'not found')" >> "$INSTALL_MARKER"
+    local failed_tools="" failed_required=0 tool
+    local all_tools="claude gh gemini codex vibe-kanban 9router omniroute openai"
 
-    # Record which tools succeeded (verify they actually work, not just exist)
-    if claude --version >/dev/null 2>&1; then
-        echo "[OK] Claude CLI: installed ($(claude --version 2>/dev/null | head -n1))" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] Claude CLI: failed or broken" >> "$INSTALL_MARKER"
+    for tool in $all_tools; do
+        if ! tool_healthy "$tool"; then
+            failed_tools="${failed_tools:+$failed_tools }$tool"
+            case " $REQUIRED_TOOLS " in
+                *" $tool "*) failed_required=1 ;;
+            esac
+        fi
+    done
+
+    {
+        if [ -z "$failed_tools" ]; then
+            echo "STATUS=ok"
+        else
+            echo "STATUS=partial"
+        fi
+        echo "FAILED_TOOLS=$failed_tools"
+        echo "TIMESTAMP=$(date)"
+        echo "Installation completed at: $(date)"
+        echo "Tools installed by: $(whoami)"
+        echo "Node.js version: $(node --version 2>/dev/null || echo 'not found')"
+        echo "npm version: $(npm --version 2>/dev/null || echo 'not found')"
+        echo "Python version: $(python3 --version 2>/dev/null || echo 'not found')"
+        for tool in $all_tools; do
+            if tool_healthy "$tool"; then
+                echo "TOOL_${tool}=ok"
+                echo "[OK] $tool: installed ($(get_version "$tool" 2>/dev/null || echo 'installed'))"
+            else
+                echo "TOOL_${tool}=failed"
+                echo "[ERROR] $tool: failed or broken"
+            fi
+        done
+    } > "$INSTALL_MARKER"
+
+    if [ -n "$failed_tools" ]; then
+        print_warning "Installation is PARTIAL - failed tools: $failed_tools"
+        print_warning "Working tools remain available; failed tools are retried on the next container start"
     fi
-
-    if command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1; then
-        echo "[OK] Gemini CLI: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] Gemini CLI: failed" >> "$INSTALL_MARKER"
-    fi
-
-    if command_exists gh; then
-        echo "[OK] GitHub CLI: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] GitHub CLI: failed" >> "$INSTALL_MARKER"
-    fi
-
-    if command_exists codex; then
-        echo "[OK] OpenAI Codex CLI: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] OpenAI Codex CLI: failed" >> "$INSTALL_MARKER"
-    fi
-
-    if npm list -g vibe-kanban >/dev/null 2>&1; then
-        echo "[OK] Vibe Kanban: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] Vibe Kanban: failed" >> "$INSTALL_MARKER"
-    fi
-
-    if npm list -g 9router >/dev/null 2>&1; then
-        echo "[OK] 9router: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] 9router: failed" >> "$INSTALL_MARKER"
-    fi
-
-    if npm list -g omniroute >/dev/null 2>&1; then
-        echo "[OK] OmniRoute: installed" >> "$INSTALL_MARKER"
-    else
-        echo "[ERROR] OmniRoute: failed" >> "$INSTALL_MARKER"
-    fi
-
     print_success "Installation marker file created at: $INSTALL_MARKER"
+    return $failed_required
 }
 
 # Update function
@@ -582,71 +677,89 @@ update_cli_tools() {
 # before reaching install (e.g. unbound variable), the marker would prevent
 # retries on the next container start.
 
-# Function to clean up old CLI installations before fresh install
-# Called during --force to ensure a clean slate
+# Function to clean up BROKEN leftovers before a --force reinstall.
+#
+# NON-DESTRUCTIVE by design: working tools are never uninstalled up front.
+# `npm install -g <pkg>@<version>` and the Claude native installer both
+# replace an existing installation in place, so a failed download during
+# --force leaves the previous working tool available instead of removing it
+# first and hoping the reinstall succeeds. Only artifacts that are verifiably
+# broken (e.g. a claude wrapper whose --version fails) are removed here.
 cleanup_old_installations() {
-    print_status "Cleaning up old CLI installations..."
+    print_status "Checking for broken CLI leftovers (working tools are preserved)..."
 
-    # Clean up Claude installations (preserves ~/.claude config/data for conversation history)
-    print_status "Removing old Claude Code installations..."
-    # Remove npm global installation (user)
-    npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
-    # Remove broken system-wide wrapper (from sudo npm install)
-    if [ -f "/usr/local/bin/claude" ]; then
+    # A deprecated npm Claude install is superseded by the native installer;
+    # remove it ONLY if the native installation already works, otherwise leave
+    # it as the last working Claude until the native install succeeds.
+    if [ -x "${HOME}/.local/bin/claude" ] && "${HOME}/.local/bin/claude" --version >/dev/null 2>&1; then
+        npm uninstall -g @anthropic-ai/claude-code 2>/dev/null || true
+    fi
+    # Remove a system-wide claude wrapper only when it is actually broken.
+    if [ -f "/usr/local/bin/claude" ] && ! /usr/local/bin/claude --version >/dev/null 2>&1; then
+        print_status "Removing broken system wrapper at /usr/local/bin/claude..."
         sudo rm -f /usr/local/bin/claude 2>/dev/null || true
     fi
-    # Remove native installer binary versions (e.g. ~/.local/share/claude/versions/X.Y.Z)
-    if [ -d "${HOME}/.local/share/claude" ]; then
-        print_status "Removing ~/.local/share/claude (native Claude binaries)..."
-        rm -rf "${HOME}/.local/share/claude" 2>/dev/null || true
-    fi
-    # Remove native installer launcher symlink
-    if [ -f "${HOME}/.local/bin/claude" ]; then
-        print_status "Removing ~/.local/bin/claude launcher..."
+    # Remove a broken native launcher symlink (dangling target).
+    if [ -e "${HOME}/.local/bin/claude" ] && ! "${HOME}/.local/bin/claude" --version >/dev/null 2>&1; then
+        print_status "Removing broken ~/.local/bin/claude launcher..."
         rm -f "${HOME}/.local/bin/claude" 2>/dev/null || true
     fi
-    # PRESERVE ~/.claude directory - contains conversation history, settings, and auth
-    # Auth may or may not persist between npm/native installs, but we try to keep it
-    if [ -d "${HOME}/.claude" ]; then
-        print_status "Preserving ~/.claude directory (conversation history, settings, auth)"
-    fi
+    # PRESERVE ~/.claude directory - conversation history, settings, and auth.
 
-    # Clean up other npm packages that will be reinstalled
-    print_status "Removing old npm CLI packages..."
-    npm uninstall -g @google/gemini-cli 2>/dev/null || true
-    npm uninstall -g @openai/codex 2>/dev/null || true
-    npm uninstall -g vibe-kanban 2>/dev/null || true
-    npm uninstall -g 9router 2>/dev/null || true
-    npm uninstall -g omniroute 2>/dev/null || true
-
-    # Clear npm cache to avoid stale package issues
+    # Clear npm cache to avoid stale package issues; installs below replace
+    # packages in place rather than uninstalling them first.
     npm cache clean --force 2>/dev/null || true
 
-    print_success "Cleanup complete"
+    print_success "Cleanup complete (no working tool was removed)"
 }
 
-# Check if this is first run or update request
+# Check if this is first run, repair, force, or update request
 # Use ${1:-} to avoid "unbound variable" error with set -u when called without arguments
+# The marker is NOT deleted before reinstalling: the login banner/entrypoint
+# keep reporting the last honest status until the new run rewrites it.
+INSTALL_RESULT=0
 if [ "${1:-}" == "--update" ] || [ "${1:-}" == "-u" ]; then
     update_cli_tools
 elif [ "${1:-}" == "--force" ] || [ "${1:-}" == "-f" ]; then
-    rm -f "$INSTALL_MARKER"
+    INSTALL_MODE="force"
     cleanup_old_installations
     install_cli_tools
-    create_marker_file
+    create_marker_file || INSTALL_RESULT=1
+elif [ "${1:-}" == "--repair" ] || [ "${1:-}" == "-r" ]; then
+    # Retry ONLY missing/broken tools; working tools are left untouched.
+    INSTALL_MODE="repair"
+    install_cli_tools
+    create_marker_file || INSTALL_RESULT=1
+elif [ -f "$INSTALL_MARKER" ] && grep -q '^STATUS=partial' "$INSTALL_MARKER" 2>/dev/null; then
+    # Previous run was partial: automatically retry the failed tools instead of
+    # either reporting "already installed" or reinstalling everything.
+    print_status "Previous installation was partial - repairing failed tools..."
+    INSTALL_MODE="repair"
+    install_cli_tools
+    create_marker_file || INSTALL_RESULT=1
 elif [ -f "$INSTALL_MARKER" ]; then
-    print_status "CLI tools already installed. Use --update to update or --force to reinstall."
+    print_status "CLI tools already installed. Use --update to update, --repair to fix broken tools, or --force to reinstall."
     if [ -f "$TOOLS_VERSION_FILE" ]; then
         echo ""
         print_status "Installed versions:"
-        cat "$TOOLS_VERSION_FILE" | grep -v "^#"
+        grep -v "^#" "$TOOLS_VERSION_FILE"
+    fi
+    # Legacy (pre-structured) marker: verify required tools once and upgrade
+    # the marker to the structured format without reinstalling anything.
+    if ! grep -q '^STATUS=' "$INSTALL_MARKER" 2>/dev/null; then
+        print_status "Upgrading legacy install marker to structured status format..."
+        create_marker_file || INSTALL_RESULT=1
     fi
 else
     install_cli_tools
-    create_marker_file
+    create_marker_file || INSTALL_RESULT=1
 fi
 
 # Set proper permissions (run regardless of success/failure)
 if [ -d "${HOME}" ]; then
     sudo chown -R "$(whoami)":"$(whoami)" "${HOME}/" 2>/dev/null || true
 fi
+
+# Nonzero when required tools (claude/gh/codex) remain broken so callers
+# (entrypoint, wizard diagnostics) see an honest result.
+exit $INSTALL_RESULT

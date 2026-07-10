@@ -1,6 +1,13 @@
 ﻿# setup_wizard.ps1
 # Requirements: Windows PowerShell 5+ or PowerShell 7+, Docker Desktop installed
-param([switch]$DevMode)
+# -AppVersion is passed by the embedding launcher (AI_Docker_Complete.ps1) so the
+# real product version propagates into docker/.env as AI_DOCKER_VERSION. When the
+# wizard runs standalone from the source tree it falls back to the root VERSION
+# file. If neither is available the compose default (0.0.0) applies.
+param(
+    [switch]$DevMode,
+    [string]$AppVersion = ''
+)
 
 # ============================================================
 # EARLY STARTUP LOGGING - Shows progress immediately
@@ -36,6 +43,9 @@ if ($script:IsDevMode) {
 
 # ---------- shared setup utilities ----------
 . "$PSScriptRoot\setup_utils.ps1"
+. "$PSScriptRoot\env_utils.ps1"
+. "$PSScriptRoot\log_utils.ps1"       # Provides Write-AppLog (required by docker_helpers.ps1)
+. "$PSScriptRoot\docker_helpers.ps1"  # Provides Find-Docker / DockerOk shared checks
 
 # ---------- helpers ----------
 # Matrix Green Theme Colors
@@ -117,6 +127,15 @@ function Show-Info([string]$msg) {
 }
 
 $script:runningProcess = $null
+$script:operationInProgress = $false   # True while a DoEvents-pumped operation runs (blocks re-entrant button clicks)
+$script:cancelRequested = $false       # Set by the Cancel button; polled by the DoEvents runner loops
+
+# Returns $true when a WinForms control is safe to touch. DoEvents pumps the
+# message loop, so the form (and its controls) can be disposed mid-operation
+# if the user closes the window - updating them afterwards throws.
+function Test-ControlUsable($control) {
+    return ($null -ne $control) -and -not $control.IsDisposed
+}
 
 # ============================================================
 # WSL CONFIGURATION FUNCTIONS (loaded from wsl_config.ps1)
@@ -180,7 +199,7 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         $script:runningProcess = $p
 
         # Initialize progress bar
-        if ($progressBar) {
+        if (Test-ControlUsable $progressBar) {
             $progressBar.Value = 0
             $progressBar.Style = 'Continuous'
             [System.Windows.Forms.Application]::DoEvents()
@@ -197,10 +216,17 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
             # Process Windows messages less frequently to reduce overhead
             [System.Windows.Forms.Application]::DoEvents()
 
+            # Honor a cancel request raised by the Cancel button while DoEvents pumped
+            if ($script:cancelRequested) {
+                Write-Host '[WARNING] Cancel requested - terminating process' -ForegroundColor Yellow
+                try { $p.Kill(); $p.WaitForExit(5000) | Out-Null } catch { }
+                break
+            }
+
             $now = [DateTime]::Now
 
             # Update progress bar every 500ms instead of every loop iteration
-            if ($progressBar -and ($now - $lastProgressUpdate).TotalMilliseconds -gt 500) {
+            if ((Test-ControlUsable $progressBar) -and ($now - $lastProgressUpdate).TotalMilliseconds -gt 500) {
                 $progressIncrement += 2
                 if ($progressIncrement -gt 95) { $progressIncrement = 95 } # Cap at 95% until complete
                 $progressBar.Value = $progressIncrement
@@ -230,7 +256,7 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         Remove-Job -Id $errorEvent.Id -Force -ErrorAction SilentlyContinue
 
         # Complete the progress bar
-        if ($progressBar) {
+        if (Test-ControlUsable $progressBar) {
             $progressBar.Value = 100
             [System.Windows.Forms.Application]::DoEvents()
             Start-Sleep -Milliseconds 300
@@ -241,8 +267,13 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
         $out = $outputBuilder.ToString()
         $err = $errorBuilder.ToString()
 
+        if ($script:cancelRequested) {
+            Write-Host '[WARNING] Command cancelled by user' -ForegroundColor Yellow
+            return @{ Ok = $false; StdOut = $out; StdErr = 'Cancelled by user'; Code = -1; Cancelled = $true }
+        }
+
         if ($p.ExitCode -ne 0) {
-            if ($statusLabel) { $statusLabel.Text = "Command failed (exit $($p.ExitCode))" }
+            if (Test-ControlUsable $statusLabel) { $statusLabel.Text = "Command failed (exit $($p.ExitCode))" }
             Write-Host '[ERROR] Exit code: ' -NoNewline -ForegroundColor Red
             Write-Host $p.ExitCode -ForegroundColor Red
             if ($err) {
@@ -251,7 +282,7 @@ function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $status
             }
             return @{ Ok = $false; StdOut = $out; StdErr = $err; Code = $p.ExitCode }
         } else {
-            if ($statusLabel) { $statusLabel.Text = 'Command completed' }
+            if (Test-ControlUsable $statusLabel) { $statusLabel.Text = 'Command completed' }
             Write-Host '[OK] Completed' -ForegroundColor Green
             return @{ Ok = $true; StdOut = $out; StdErr = $err; Code = 0 }
         }
@@ -279,7 +310,7 @@ function Run-Process-WithTerminal {
         Write-Host "[$timestamp] [EXEC] $file $arguments" -ForegroundColor White
 
         # Add to terminal box
-        if ($terminalBox) {
+        if (Test-ControlUsable $terminalBox) {
             $terminalBox.AppendText(">> [$timestamp] $operationName...`r`n")
             $terminalBox.AppendText(">> Command: $file $arguments`r`n")
             $terminalBox.AppendText("`r`n")
@@ -342,7 +373,7 @@ function Run-Process-WithTerminal {
         $script:runningProcess = $p
 
         # Update status
-        if ($statusLabel) {
+        if (Test-ControlUsable $statusLabel) {
             $statusLabel.Text = "$operationName in progress..."
             [System.Windows.Forms.Application]::DoEvents()
         }
@@ -354,6 +385,13 @@ function Run-Process-WithTerminal {
         while (-not $p.HasExited) {
             [System.Windows.Forms.Application]::DoEvents()
 
+            # Honor a cancel request raised by the Cancel button while DoEvents pumped
+            if ($script:cancelRequested) {
+                Write-Host "[WARNING] Cancel requested - terminating $operationName" -ForegroundColor Yellow
+                try { $p.Kill(); $p.WaitForExit(5000) | Out-Null } catch { }
+                break
+            }
+
             # Dequeue and display new output lines
             $line = $null
             while ($outputQueue.TryDequeue([ref]$line)) {
@@ -361,7 +399,7 @@ function Run-Process-WithTerminal {
                     # Strip ANSI escape codes
                     $cleanLine = $line -replace '\x1b\[[0-9;]*m', '' -replace '\x1b\[K', ''
 
-                    if ($terminalBox) {
+                    if (Test-ControlUsable $terminalBox) {
                         $terminalBox.AppendText("$cleanLine`r`n")
                         $lineCount++
 
@@ -380,7 +418,7 @@ function Run-Process-WithTerminal {
             # Force UI update every 200ms
             $now = [DateTime]::Now
             if (($now - $lastTerminalUpdate).TotalMilliseconds -gt 200) {
-                if ($terminalBox) {
+                if (Test-ControlUsable $terminalBox) {
                     $terminalBox.SelectionStart = $terminalBox.TextLength
                     $terminalBox.ScrollToCaret()
                 }
@@ -397,7 +435,7 @@ function Run-Process-WithTerminal {
         while ($outputQueue.TryDequeue([ref]$line)) {
             if ($line -and $line.Trim()) {
                 $cleanLine = $line -replace '\x1b\[[0-9;]*m', '' -replace '\x1b\[K', ''
-                if ($terminalBox) {
+                if (Test-ControlUsable $terminalBox) {
                     $terminalBox.AppendText("$cleanLine`r`n")
                 }
             }
@@ -416,9 +454,11 @@ function Run-Process-WithTerminal {
         $err = $errorBuilder.ToString()
 
         # Final terminal update
-        if ($terminalBox) {
+        if (Test-ControlUsable $terminalBox) {
             $terminalBox.AppendText("`r`n")
-            if ($p.ExitCode -eq 0) {
+            if ($script:cancelRequested) {
+                $terminalBox.AppendText(">> [$operationName] Cancelled by user`r`n")
+            } elseif ($p.ExitCode -eq 0) {
                 $terminalBox.AppendText(">> [$operationName] Completed successfully`r`n")
             } else {
                 $terminalBox.AppendText(">> [$operationName] Failed with exit code $($p.ExitCode)`r`n")
@@ -428,28 +468,39 @@ function Run-Process-WithTerminal {
             [System.Windows.Forms.Application]::DoEvents()
         }
 
+        if ($script:cancelRequested) {
+            Write-Host "[WARNING] $operationName cancelled by user" -ForegroundColor Yellow
+            return @{ Ok = $false; StdOut = $out; StdErr = 'Cancelled by user'; Code = -1; Cancelled = $true }
+        }
+
         if ($p.ExitCode -ne 0) {
-            if ($statusLabel) { $statusLabel.Text = "$operationName failed (exit $($p.ExitCode))" }
+            if (Test-ControlUsable $statusLabel) { $statusLabel.Text = "$operationName failed (exit $($p.ExitCode))" }
             Write-Host "[ERROR] $operationName failed with exit code: $($p.ExitCode)" -ForegroundColor Red
             return @{ Ok = $false; StdOut = $out; StdErr = $err; Code = $p.ExitCode }
         } else {
-            if ($statusLabel) { $statusLabel.Text = "$operationName completed" }
+            if (Test-ControlUsable $statusLabel) { $statusLabel.Text = "$operationName completed" }
             Write-Host "[OK] $operationName completed" -ForegroundColor Green
             return @{ Ok = $true; StdOut = $out; StdErr = $err; Code = 0 }
         }
     } catch {
         Write-Host "[CRASH] $($_.Exception.Message)" -ForegroundColor Red
-        if ($terminalBox) {
+        if (Test-ControlUsable $terminalBox) {
             $terminalBox.AppendText(">> [ERROR] $($_.Exception.Message)`r`n")
         }
         return @{ Ok = $false; StdOut = ''; StdErr = $_.Exception.Message; Code = -1 }
     }
 }
 
+# Resolve the docker executable once (falls back to 'docker' and PATH lookup at
+# process start if Docker Desktop is not yet installed/registered).
+$script:dockerExe = Find-Docker
+if (-not $script:dockerExe) { $script:dockerExe = 'docker' }
+
+# Consolidated Docker daemon check - delegates to the shared DockerOk helper
+# (docker_helpers.ps1) so all launchers use the same detection logic.
 function Docker-Running() {
     try {
-        $r = Run-Process-UI -file 'docker' -arguments 'info' -progressBar $null -statusLabel $null
-        return $r.Ok
+        return (DockerOk)
     } catch { return $false }
 }
 
@@ -467,8 +518,20 @@ $state = [ordered]@{
     WSLComparisonMode = $false  # True when showing comparison view
 }
 
-# .env file path - defined early for use throughout the script
-$script:envPath = Join-Path $PSScriptRoot '.env'
+Write-Host "[INIT] Detecting Docker files location..." -ForegroundColor Yellow
+# Docker files location - detect if running from embedded exe or project directory
+# If running from AppData\AI-Docker-CLI\docker-files (embedded exe), use current directory
+# If running from project scripts folder, use ../docker
+# NOTE: This must be resolved BEFORE the canonical .env path is defined/loaded below.
+$dockerPath = Resolve-DockerFilesPath -ScriptPath $PSScriptRoot
+
+# Canonical .env file path - lives next to docker-compose.yml so docker compose
+# picks it up automatically. All reads/writes in this script use this one path.
+$script:envPath = Join-Path $dockerPath '.env'
+
+# Legacy .env location used by older source-tree versions. It is read once for
+# migration only; all current code reads and writes the canonical docker\.env.
+$script:legacyEnvPath = Join-Path $PSScriptRoot '.env'
 
 # =============================================================================
 # SECURITY: Secure Password File Handling (Docker Secrets)
@@ -479,33 +542,65 @@ $script:envPath = Join-Path $PSScriptRoot '.env'
 # =============================================================================
 
 Write-Host "[INIT] Checking for existing .env file..." -ForegroundColor Yellow
+# Migrate a legacy scripts\.env (written by older wizard versions) to the
+# canonical location next to docker-compose.yml so saved values are not lost.
+if (-not (Test-Path $script:envPath) -and (Test-Path $script:legacyEnvPath) -and ($script:legacyEnvPath -ne $script:envPath)) {
+    Write-Host "[INFO] Migrating legacy .env from scripts folder to docker folder" -ForegroundColor Cyan
+    try {
+        Copy-Item -Path $script:legacyEnvPath -Destination $script:envPath -Force
+    } catch {
+        Write-Host "[WARNING] Could not migrate legacy .env: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 # Load existing .env file if present (for retry scenarios)
 # Note: Password is NOT stored in .env anymore - it uses Docker Secrets
 if (Test-Path $script:envPath) {
     Write-Host "[INFO] Found existing .env file - loading saved values" -ForegroundColor Cyan
-    $envLines = Get-Content $script:envPath
-    foreach ($line in $envLines) {
-        if ($line -match '^USER_NAME=(.*)$') { $state.UserName = $Matches[1] }
-        if ($line -match '^WORKSPACE_PATH=(.*)$') {
-            $state.WorkspacePath = $Matches[1]
-            $state.ParentPath = Split-Path $Matches[1] -Parent
-        }
+    $envData = Read-EnvFile -Path $script:envPath
+    if ($envData.ContainsKey('USER_NAME')) { $state.UserName = $envData['USER_NAME'] }
+    if ($envData.ContainsKey('WORKSPACE_PATH') -and $envData['WORKSPACE_PATH']) {
+        $state.WorkspacePath = $envData['WORKSPACE_PATH']
+        $state.ParentPath = Split-Path $state.WorkspacePath -Parent
     }
     if ($state.UserName) {
         Write-Host "[INFO] Loaded settings for user: $($state.UserName)" -ForegroundColor Green
     }
 }
 
-Write-Host "[INIT] Detecting Docker files location..." -ForegroundColor Yellow
-# Docker files location - detect if running from embedded exe or project directory
-# If running from AppData\AI-Docker-CLI\docker-files (embedded exe), use current directory
-# If running from project scripts folder, use ../docker
-$dockerPath = if ($PSScriptRoot -like '*AI-Docker-CLI*docker-files*') {
-    # Running from embedded exe - docker files are in same folder
-    $PSScriptRoot
-} else {
-    # Running from project directory - docker files are in ../docker
-    Join-Path $PSScriptRoot '..\docker'
+# Remove any stale FORCE_CLI_REINSTALL flag left over from a previous aborted run.
+# If it lingered, every container start would needlessly reinstall all CLI tools.
+# (Skipped in DEV MODE, which must not modify real configuration files.)
+if (-not $script:IsDevMode) {
+    if (Remove-EnvKey -Path $script:envPath -Key 'FORCE_CLI_REINSTALL') {
+        Write-Host "[INFO] Removed stale FORCE_CLI_REINSTALL flag from .env" -ForegroundColor Yellow
+    }
+}
+
+# Resolve the product version and propagate it into docker/.env so the image is
+# built/labelled with the real AI_DOCKER_VERSION (docker-compose.yml defaults it
+# to 0.0.0 otherwise, which the version-skew check would misread as a legacy
+# image). Prefer the value passed by the launcher; otherwise read the root
+# VERSION file (source-tree/standalone runs).
+$script:AppVersion = $AppVersion
+if (-not $script:AppVersion) {
+    $versionFilePath = Join-Path $PSScriptRoot '..\VERSION'
+    if (Test-Path $versionFilePath) {
+        $rawVersion = (Get-Content $versionFilePath -Raw).Trim()
+        $parsedVersion = $null
+        if ([Version]::TryParse($rawVersion, [ref]$parsedVersion)) {
+            $script:AppVersion = $rawVersion
+        } else {
+            Write-Host "[WARNING] VERSION file contains invalid version '$rawVersion'; leaving AI_DOCKER_VERSION unset" -ForegroundColor Yellow
+        }
+    }
+}
+if ($script:AppVersion -and -not $script:IsDevMode) {
+    if (Set-EnvKey -Path $script:envPath -Key 'AI_DOCKER_VERSION' -Value $script:AppVersion) {
+        Write-Host "[INFO] Set AI_DOCKER_VERSION=$($script:AppVersion) in .env" -ForegroundColor Cyan
+    } else {
+        Write-Host "[WARNING] Could not write AI_DOCKER_VERSION to .env" -ForegroundColor Yellow
+    }
 }
 
 $composePath = Join-Path $dockerPath 'docker-compose.yml'
@@ -608,7 +703,8 @@ $p1.Controls.Add((New-Label 'Confirm Password:' 20 345 880 20 10 $true $false))
 $script:tbPassConfirm = New-Textbox 20 365 400 28 $true
 $p1.Controls.Add($script:tbPassConfirm)
 $p1.Controls.Add((New-Label '' 20 405 880 24 10 $false $true))
-$p1.Controls.Add((New-Label 'Note: Password is stored securely using Docker Secrets (not saved to disk).' 20 425 880 24 9 $false $true))
+$p1.Controls.Add((New-Label 'Password must be at least 8 characters and include a letter and a digit.' 20 425 880 24 9 $false $true))
+$p1.Controls.Add((New-Label 'Note: Password is stored securely using Docker Secrets (not saved to disk).' 20 445 880 24 9 $false $true))
 $pages += $p1
 
 # Page 2: Folder choose
@@ -679,6 +775,13 @@ $p3.Controls.Add((New-Label '>> Then click "Retry Check" to verify it''s running
 $pages += $p3
 
 $btnRetryDock.Add_Click({
+    # Guard against re-entrant clicks while a DoEvents-pumped operation runs
+    if ($script:operationInProgress) {
+        Write-Host "[DEBUG] Retry click ignored - operation in progress" -ForegroundColor Yellow
+        return
+    }
+    $script:operationInProgress = $true
+    try {
     $script:lblDock.Text = 'Checking Docker status...'
     [System.Windows.Forms.Application]::DoEvents()
     if (Docker-Running) {
@@ -687,6 +790,9 @@ $btnRetryDock.Add_Click({
     } else {
         $script:lblDock.Text = '[ERROR] ' + $script:Arrow + ' Docker is not running. Please start Docker Desktop and retry.'
         $script:lblDock.ForeColor = [System.Drawing.Color]::FromArgb(255, 100, 100)
+    }
+    } finally {
+        $script:operationInProgress = $false
     }
 })
 
@@ -947,7 +1053,8 @@ $script:chkMobileAccess.Height = 30
 $script:chkMobileAccess.ForeColor = $script:MatrixGreen
 $script:chkMobileAccess.BackColor = [System.Drawing.Color]::Transparent
 $script:chkMobileAccess.Font = New-Object System.Drawing.Font('Consolas', 11, [System.Drawing.FontStyle]::Bold)
-$script:chkMobileAccess.Checked = $false
+$existingMobileEnv = Read-EnvFile -Path $script:envPath
+$script:chkMobileAccess.Checked = ($existingMobileEnv.ContainsKey('ENABLE_MOBILE_ACCESS') -and $existingMobileEnv['ENABLE_MOBILE_ACCESS'] -eq '1')
 $p6_mobile.Controls.Add($script:chkMobileAccess)
 
 # Port info
@@ -1131,6 +1238,9 @@ $btnCancel.Add_Click({
 
     Write-Host '[WARNING] Cancelling setup - cleaning up...' -ForegroundColor Yellow
 
+    # Signal cancellation to any DoEvents-pumped runner loop (they poll this flag)
+    $script:cancelRequested = $true
+
     # Kill any running process
     if ($script:runningProcess -and -not $script:runningProcess.HasExited) {
         Write-Host '[INFO] Terminating running process...' -ForegroundColor Cyan
@@ -1148,6 +1258,11 @@ $btnCancel.Add_Click({
     $form.Close()
 })
 $btnBack.Add_Click({
+    # Guard against re-entrant clicks while a DoEvents-pumped operation runs
+    if ($script:operationInProgress) {
+        Write-Host "[DEBUG] Back click ignored - operation in progress" -ForegroundColor Yellow
+        return
+    }
     if ($script:current -gt 0) {
         Write-Host "[DEBUG] Back button clicked - going from page $script:current to $($script:current - 1)" -ForegroundColor Yellow
         $script:current--
@@ -1157,6 +1272,17 @@ $btnBack.Add_Click({
 
 # ---------- next button logic ----------
 $btnNext.Add_Click({
+    # Guard against re-entrant clicks: the runner loops pump the message queue
+    # via DoEvents, so without this a second Next click could start a second
+    # docker operation on top of the first.
+    if ($script:operationInProgress) {
+        Write-Host "[DEBUG] Next click ignored - operation in progress" -ForegroundColor Yellow
+        return
+    }
+    $script:operationInProgress = $true
+    $btnNext.Enabled = $false
+    $btnBack.Enabled = $false
+    try {
     Write-Host "[DEBUG] Next button clicked. Current page: $script:current" -ForegroundColor Cyan
     switch ($script:current) {
         0 {
@@ -1187,10 +1313,11 @@ $btnNext.Add_Click({
                     return
                 }
 
-                # Validate password minimum length
-                if ($script:tbPass.Text.Length -lt 4) {
-                    Write-Host "[ERROR] Password too short" -ForegroundColor Red
-                    Show-Error 'Password must be at least 4 characters long.'
+                # Validate password strength (shared helper: min 8 chars, letter + digit)
+                $pwCheck = Test-PasswordStrength -Password $script:tbPass.Text
+                if (-not $pwCheck.Valid) {
+                    Write-Host "[ERROR] Password validation failed: $($pwCheck.Message)" -ForegroundColor Red
+                    Show-Error $pwCheck.Message
                     return
                 }
 
@@ -1213,13 +1340,11 @@ $btnNext.Add_Click({
                 $null = New-SecurePasswordFile -Password $state.Password -DockerPath $dockerPath
 
                 # Save only non-sensitive data to .env (username and workspace path)
-                $nl = [Environment]::NewLine
-                $envContent = "USER_NAME=$($state.UserName)" + $nl
+                Set-EnvKey -Path $script:envPath -Key 'USER_NAME' -Value $state.UserName
                 if ($state.WorkspacePath) {
-                    $envContent += "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
+                    Set-EnvKey -Path $script:envPath -Key 'WORKSPACE_PATH' -Value $state.WorkspacePath
                 }
-                $envContent | Out-File $script:envPath -Encoding UTF8
-                Write-Host "[SUCCESS] Credentials configured (password stored securely via Docker Secrets)" -ForegroundColor Green
+                        Write-Host "[SUCCESS] Credentials configured (password stored securely via Docker Secrets)" -ForegroundColor Green
             }
             $script:current++; Show-Page $script:current
         }
@@ -1257,10 +1382,9 @@ $btnNext.Add_Click({
 
                 # Update .env with workspace path (password is already in .secrets/password.txt)
                 Write-Host "[INFO] Updating .env with workspace path" -ForegroundColor Cyan
-                $nl = [Environment]::NewLine
-                $envContent = "USER_NAME=$($state.UserName)" + $nl + "WORKSPACE_PATH=$($state.WorkspacePath)" + $nl
-                $envContent | Out-File $script:envPath -Encoding UTF8
-                $status.Text = ".env updated at $script:envPath"
+                Set-EnvKey -Path $script:envPath -Key 'USER_NAME' -Value $state.UserName
+                Set-EnvKey -Path $script:envPath -Key 'WORKSPACE_PATH' -Value $state.WorkspacePath
+                        $status.Text = ".env updated at $script:envPath"
                 Write-Host "[SUCCESS] .env updated with workspace path" -ForegroundColor Green
 
                 # Ensure password file exists (recreate if needed for retry scenarios)
@@ -1301,6 +1425,20 @@ $btnNext.Add_Click({
             }
             Write-Host "[SUCCESS] Docker verified - proceeding to System Optimization page" -ForegroundColor Green
 
+            # Detect system resources FIRST so state (RAM/cores/recommendation) is
+            # always populated - even when the early skip below fires and the user
+            # later navigates Back to the WSL page, which reads these values.
+            Write-Host "[INFO] Detecting system resources for WSL configuration..." -ForegroundColor Cyan
+            $state.SystemRAMGB = Get-SystemMemoryGB
+            $state.SystemCores = Get-ProcessorCount
+            $recommendedProfile = Get-RecommendedWSLProfile -TotalRAMGB $state.SystemRAMGB
+
+            Write-Host "[INFO] Detected: $($state.SystemRAMGB) GB RAM, $($state.SystemCores) CPU cores" -ForegroundColor Green
+            Write-Host "[INFO] Recommended profile: $($recommendedProfile.ToUpper())" -ForegroundColor Green
+
+            # Store recommended profile for comparison mode
+            $state.RecommendedProfile = $recommendedProfile
+
             # Enhanced .wslconfig detection with marker check
             $wslconfigPath = "$env:USERPROFILE\.wslconfig"
             $existingConfig = Parse-WSLConfig -Path $wslconfigPath
@@ -1310,6 +1448,7 @@ $btnNext.Add_Click({
                     # Our marker found - skip entirely
                     Write-Host "[INFO] .wslconfig created by this wizard - skipping" -ForegroundColor Cyan
                     $state.WSLProfile = 'skip'
+                    $state.WSLComparisonMode = $false
                     $script:current += 2  # Skip to Build page (page 5)
                     Show-Page $script:current
                     return
@@ -1323,18 +1462,6 @@ $btnNext.Add_Click({
                 # No config exists - show normal mode
                 $state.WSLComparisonMode = $false
             }
-
-            # Detect system resources and populate the WSL page
-            Write-Host "[INFO] Detecting system resources for WSL configuration..." -ForegroundColor Cyan
-            $state.SystemRAMGB = Get-SystemMemoryGB
-            $state.SystemCores = Get-ProcessorCount
-            $recommendedProfile = Get-RecommendedWSLProfile -TotalRAMGB $state.SystemRAMGB
-
-            Write-Host "[INFO] Detected: $($state.SystemRAMGB) GB RAM, $($state.SystemCores) CPU cores" -ForegroundColor Green
-            Write-Host "[INFO] Recommended profile: $($recommendedProfile.ToUpper())" -ForegroundColor Green
-
-            # Store recommended profile for comparison mode
-            $state.RecommendedProfile = $recommendedProfile
 
             # Update UI labels with detected values
             $script:lblDetectedRAM.Text = "  >> RAM:        $($state.SystemRAMGB) GB"
@@ -1478,11 +1605,19 @@ $btnNext.Add_Click({
             $forceRebuild = $script:chkForceRebuild.Checked
             $imageExists = $false
 
+            # Remove any stale FORCE_CLI_REINSTALL flag before every build/start.
+            # Force rebuild controls Docker's image cache only; a newly rebuilt image
+            # performs its normal first-run install without persisting a reinstall flag.
+            if (Remove-EnvKey -Path $script:envPath -Key 'FORCE_CLI_REINSTALL') {
+                        Write-Host "[INFO] Removed stale FORCE_CLI_REINSTALL flag from .env" -ForegroundColor Yellow
+                $script:buildTerminalBox.AppendText(">> Removed stale FORCE_CLI_REINSTALL flag`r`n")
+            }
+
             $script:lblBuildStatus.Text = 'Checking for existing Docker image...'
             $script:buildTerminalBox.AppendText(">> Checking for cached image...`r`n")
             [System.Windows.Forms.Application]::DoEvents()
 
-            $imageCheck = Run-Process-UI -file 'docker' -arguments 'images docker-files-ai --format "{{.ID}}"' -progressBar $null -statusLabel $null
+            $imageCheck = Run-Process-UI -file $script:dockerExe -arguments "images $($script:AiDockerImageName):latest --format `"{{.ID}}`"" -progressBar $null -statusLabel $null
             if ($imageCheck.Ok -and $imageCheck.StdOut.Trim()) {
                 $imageExists = $true
                 $script:buildTerminalBox.AppendText(">> Found existing image: $($imageCheck.StdOut.Trim())`r`n")
@@ -1490,6 +1625,17 @@ $btnNext.Add_Click({
             } else {
                 $script:buildTerminalBox.AppendText(">> No cached image found - will build from scratch`r`n")
                 Write-Host "[INFO] No cached image found" -ForegroundColor Yellow
+            }
+
+            # Use the persisted mobile setting for the initial create so existing
+            # mobile users retain their published ports during a recreate.
+            $savedEnv = Read-EnvFile -Path $script:envPath
+            $mobileEnabled = ($savedEnv.ContainsKey('ENABLE_MOBILE_ACCESS') -and $savedEnv['ENABLE_MOBILE_ACCESS'] -eq '1')
+            try {
+                $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
+            } catch {
+                Show-Error $_.Exception.Message
+                return
             }
 
             # Decide whether to build
@@ -1511,26 +1657,15 @@ $btnNext.Add_Click({
                 # Use --progress=plain for more readable output in terminal
                 # Add --no-cache when force rebuild is checked to ensure fresh build
                 if ($forceRebuild) {
-                    $buildArgs = 'compose build --no-cache --progress=plain'
+                    $buildArgs = "$composeArgs build --no-cache --progress=plain"
                     Write-Host "[INFO] Force rebuild enabled - using --no-cache" -ForegroundColor Yellow
                     $script:buildTerminalBox.AppendText(">> Force rebuild: using --no-cache flag`r`n")
-
-                    # Add FORCE_CLI_REINSTALL to .env so entrypoint.sh will reinstall CLI tools
-                    # This is needed because the marker file persists in the home directory volume
-                    $envFilePath = Join-Path $dockerPath ".env"
-                    if (Test-Path $envFilePath) {
-                        $envContent = Get-Content $envFilePath -Raw
-                        if ($envContent -notmatch 'FORCE_CLI_REINSTALL') {
-                            Add-Content -Path $envFilePath -Value "FORCE_CLI_REINSTALL=1"
-                            Write-Host "[INFO] Added FORCE_CLI_REINSTALL=1 to .env" -ForegroundColor Yellow
-                            $script:buildTerminalBox.AppendText(">> Force rebuild: will reinstall all CLI tools`r`n")
-                        }
-                    }
                 } else {
-                    $buildArgs = 'compose build --progress=plain'
+                    $buildArgs = "$composeArgs build --progress=plain"
                 }
-                $r1 = Run-Process-WithTerminal -file 'docker' -arguments $buildArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Docker Build'
+                $r1 = Run-Process-WithTerminal -file $script:dockerExe -arguments $buildArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Docker Build'
                 if (-not $r1.Ok) {
+                    if ($r1.Cancelled) { return }  # User cancelled - no error popup
                     $errMsg = 'build failed' + [Environment]::NewLine + $r1.StdErr
                     Write-Host "[ERROR] Docker build failed" -ForegroundColor Red
                     Show-Error $errMsg
@@ -1544,9 +1679,10 @@ $btnNext.Add_Click({
             $script:buildTerminalBox.AppendText("`r`n>> Starting container...`r`n")
             Write-Host "[INFO] Starting container" -ForegroundColor Cyan
 
-            $upArgs = 'compose up -d'
-            $r2 = Run-Process-WithTerminal -file 'docker' -arguments $upArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Container Start'
+            $upArgs = "$composeArgs up -d"
+            $r2 = Run-Process-WithTerminal -file $script:dockerExe -arguments $upArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Container Start'
             if (-not $r2.Ok) {
+                if ($r2.Cancelled) { return }  # User cancelled - no error popup
                 $errMsg = 'up failed' + [Environment]::NewLine + $r2.StdErr
                 Write-Host "[ERROR] Container startup failed" -ForegroundColor Red
                 Show-Error $errMsg
@@ -1554,33 +1690,19 @@ $btnNext.Add_Click({
             }
             Write-Host "[SUCCESS] Container started" -ForegroundColor Green
 
-            # Wait for container to fully initialize (responsive sleep)
-            $script:lblBuildStatus.Text = 'Waiting for container to initialize...'
-            $script:buildTerminalBox.AppendText(">> Waiting for container initialization (5 seconds)...`r`n")
-            Write-Host "[INFO] Waiting 5 seconds for container to fully initialize..." -ForegroundColor Cyan
-            for ($i = 0; $i -lt 50; $i++) {
-                Start-Sleep -Milliseconds 100
-                [System.Windows.Forms.Application]::DoEvents()
-            }
-
-            # Verify container is actually running
-            $script:buildTerminalBox.AppendText(">> Verifying container status...`r`n")
-            Write-Host "[INFO] Verifying container status..." -ForegroundColor Cyan
-            $checkRunning = Run-Process-UI -file 'docker' -arguments 'ps --filter "name=ai-cli" --format "{{.Status}}"' -progressBar $null -statusLabel $null
-            if ($checkRunning.Ok -and $checkRunning.StdOut -match 'Up') {
-                $script:buildTerminalBox.AppendText(">> Container is running!`r`n")
-                Write-Host "[SUCCESS] Container is running" -ForegroundColor Green
-            } else {
-                $script:buildTerminalBox.AppendText(">> ERROR: Container failed to start!`r`n")
-                Write-Host "[ERROR] Container is not running!" -ForegroundColor Red
-                Write-Host "[INFO] Checking container logs..." -ForegroundColor Yellow
-                $logs = Run-Process-UI -file 'docker' -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
-                $script:buildTerminalBox.AppendText(">> Container logs:`r`n$($logs.StdOut)`r`n")
-                Write-Host "[LOGS] Container output:" -ForegroundColor Yellow
-                Write-Host $logs.StdOut -ForegroundColor Gray
-                Show-Error "Container failed to stay running. Check console for logs."
+            # Wait for the real container health/readiness state instead of a
+            # blind delay or a one-shot "Up" string check.
+            $script:lblBuildStatus.Text = 'Waiting for container readiness...'
+            $script:buildTerminalBox.AppendText(">> Waiting for container readiness...`r`n")
+            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 120 -PollIntervalMs 250)) {
+                $script:buildTerminalBox.AppendText(">> ERROR: Container did not become ready!`r`n")
+                $logs = Run-Process-UI -file $script:dockerExe -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
+                $script:buildTerminalBox.AppendText(">> Container logs:`r`n$($logs.StdOut)`r`n$($logs.StdErr)`r`n")
+                Show-Error 'Container did not become ready. Check the console output and Docker logs.'
                 return
             }
+            $script:buildTerminalBox.AppendText(">> Container is ready!`r`n")
+            Write-Host "[SUCCESS] Container is ready" -ForegroundColor Green
             $script:buildTerminalBox.AppendText("`r`n>> Container ready - proceeding to Mobile Access configuration...`r`n")
             Write-Host "[SUCCESS] Container ready" -ForegroundColor Green
 
@@ -1655,40 +1777,36 @@ $btnNext.Add_Click({
                 return
             }
 
-            # Handle Mobile Access configuration
-            if ($script:chkMobileAccess.Checked) {
-                Write-Host "[INFO] Mobile access enabled by user" -ForegroundColor Cyan
-                $status.Text = 'Enabling mobile access...'
-
-                # Add ENABLE_MOBILE_ACCESS=1 to .env
-                $envFilePath = Join-Path $dockerPath ".env"
-                if (Test-Path $envFilePath) {
-                    $envContent = Get-Content $envFilePath -Raw
-                    if ($envContent -notmatch 'ENABLE_MOBILE_ACCESS') {
-                        Add-Content -Path $envFilePath -Value "ENABLE_MOBILE_ACCESS=1"
-                        Write-Host "[INFO] Added ENABLE_MOBILE_ACCESS=1 to .env" -ForegroundColor Green
-                    }
-                }
-
-                # Restart container to apply port mappings
-                $status.Text = 'Restarting container with mobile access ports...'
-                Write-Host "[INFO] Restarting container to apply mobile access ports..." -ForegroundColor Cyan
-                $restartResult = Run-Process-UI -file 'docker' -arguments 'compose up -d' -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
-                if (-not $restartResult.Ok) {
-                    Write-Host "[WARNING] Container restart had issues, continuing anyway" -ForegroundColor Yellow
-                } else {
-                    Write-Host "[SUCCESS] Container restarted with mobile access ports" -ForegroundColor Green
-                }
-
-                # Wait for container to initialize after restart
-                Write-Host "[INFO] Waiting for container to initialize..." -ForegroundColor Cyan
-                for ($i = 0; $i -lt 30; $i++) {
-                    Start-Sleep -Milliseconds 100
-                    [System.Windows.Forms.Application]::DoEvents()
-                }
-            } else {
-                Write-Host "[INFO] Mobile access not enabled" -ForegroundColor Cyan
+            # Persist the selected state, then recreate with exactly the compose
+            # files that correspond to it. Omitting the override removes stale
+            # SSH/Mosh port mappings from an existing container.
+            $mobileEnabled = $script:chkMobileAccess.Checked
+            $mobileValue = if ($mobileEnabled) { '1' } else { '0' }
+            if (-not (Set-EnvKey -Path $script:envPath -Key 'ENABLE_MOBILE_ACCESS' -Value $mobileValue)) {
+                Show-Error 'Could not save the mobile access setting to .env.'
+                return
             }
+
+            try {
+                $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
+            } catch {
+                Show-Error $_.Exception.Message
+                return
+            }
+
+            $status.Text = if ($mobileEnabled) { 'Applying mobile access ports...' } else { 'Removing mobile access ports...' }
+            Write-Host "[INFO] Recreating container with mobile access set to $mobileValue" -ForegroundColor Cyan
+            $restartResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d --force-recreate" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
+            if (-not $restartResult.Ok) {
+                Show-Error ("Container recreate failed:`n" + $restartResult.StdErr)
+                return
+            }
+
+            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 120 -PollIntervalMs 250)) {
+                Show-Error 'The container did not become ready after applying the mobile access setting.'
+                return
+            }
+            Write-Host "[SUCCESS] Mobile access setting applied" -ForegroundColor Green
 
             # Move to CLI Install page (page 6)
             $status.Text = 'Proceeding to CLI tools installation...'
@@ -1712,6 +1830,7 @@ $btnNext.Add_Click({
 
             # Give entry point time to start the installation (responsive sleep)
             for ($i = 0; $i -lt 50; $i++) {
+                if ($script:cancelRequested) { return }
                 Start-Sleep -Milliseconds 100
                 [System.Windows.Forms.Application]::DoEvents()
             }
@@ -1733,7 +1852,7 @@ $btnNext.Add_Click({
             function Update-TerminalDisplay {
                 try {
                     # Get recent docker logs (last 100 lines)
-                    $logResult = docker logs ai-cli --tail 100 2>&1
+                    $logResult = & $script:dockerExe logs ai-cli --tail 100 2>&1
                     if ($logResult) {
                         $logLines = $logResult -split "`n"
                         $newLines = $logLines | Select-Object -Skip $script:lastLogLines
@@ -1764,20 +1883,37 @@ $btnNext.Add_Click({
             $waitedTime = 0
             $checkInterval = 3  # Check more frequently for better UI updates
 
+            $installStatus = $null
+            $failedTools = ''
             while ($waitedTime -lt $maxWaitTime) {
+                # Stop polling if the user cancelled while DoEvents pumped
+                if ($script:cancelRequested) {
+                    Write-Host "[WARNING] Cancel requested - stopping install polling" -ForegroundColor Yellow
+                    return
+                }
+
                 # Update terminal display with latest logs
                 Update-TerminalDisplay
                 [System.Windows.Forms.Application]::DoEvents()
 
-                # Check if installation completed - use sh -c to properly handle shell operators
-                # Use "|| true" to ensure exit code 0 even when file doesn't exist (prevents error spam in logs)
-                $checkInstallCmd = 'exec ai-cli sh -c "test -f /home/' + $state.UserName + '/.cli_tools_installed && echo INSTALLED || true"'
-                $checkResult = Run-Process-UI -file 'docker' -arguments $checkInstallCmd -progressBar $null -statusLabel $null
+                # Read the structured marker. Legacy markers remain accepted for
+                # migration, but STATUS=partial is surfaced as a repairable warning
+                # rather than being misreported as successful installation.
+                $checkInstallCmd = 'exec ai-cli sh -c "marker=/home/' + $state.UserName + '/.cli_tools_installed; if test -f \"$marker\"; then status=$(sed -n ''s/^STATUS=//p'' \"$marker\" | head -n1); failed=$(sed -n ''s/^FAILED_TOOLS=//p'' \"$marker\" | head -n1); test -n \"$status\" || status=legacy; printf ''STATUS=%s\nFAILED_TOOLS=%s\n'' \"$status\" \"$failed\"; fi"'
+                $checkResult = Run-Process-UI -file $script:dockerExe -arguments $checkInstallCmd -progressBar $null -statusLabel $null
 
-                if ($checkResult.Ok -and $checkResult.StdOut -match 'INSTALLED') {
-                    Write-Host "[SUCCESS] CLI tools installation completed!" -ForegroundColor Green
-                    $script:lblCurrentTool.Text = 'Installation complete!'
-                    $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE!`r`n")
+                if ($checkResult.Ok -and $checkResult.StdOut -match '(?m)^STATUS=(ok|partial|legacy)$') {
+                    $installStatus = $Matches[1]
+                    if ($checkResult.StdOut -match '(?m)^FAILED_TOOLS=(.*)$') { $failedTools = $Matches[1].Trim() }
+                    if ($installStatus -eq 'partial') {
+                        Write-Host "[WARNING] CLI tools installation is partial. Failed tools: $failedTools" -ForegroundColor Yellow
+                        $script:lblCurrentTool.Text = 'Installation partial - repair available'
+                        $script:terminalBox.AppendText("`r`n>> INSTALLATION PARTIAL: $failedTools`r`n")
+                    } else {
+                        Write-Host "[SUCCESS] CLI tools installation completed (status: $installStatus)!" -ForegroundColor Green
+                        $script:lblCurrentTool.Text = 'Installation complete!'
+                        $script:terminalBox.AppendText("`r`n>> INSTALLATION COMPLETE!`r`n")
+                    }
                     $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
                     $script:terminalBox.ScrollToCaret()
                     $progress.Value = 100
@@ -1786,7 +1922,7 @@ $btnNext.Add_Click({
 
                 # Poll for current tool status and update progress based on which tool is installing
                 $statusCmd = 'exec ai-cli sh -c "cat /home/' + $state.UserName + '/.cli_install_status 2>/dev/null || true"'
-                $statusResult = Run-Process-UI -file 'docker' -arguments $statusCmd -progressBar $null -statusLabel $null
+                $statusResult = Run-Process-UI -file $script:dockerExe -arguments $statusCmd -progressBar $null -statusLabel $null
                 if ($statusResult.Ok -and $statusResult.StdOut.Trim()) {
                     $parts = $statusResult.StdOut.Trim().Split('|')
                     if ($parts.Count -ge 2) {
@@ -1837,7 +1973,7 @@ $btnNext.Add_Click({
 
             # Test 1: Check if claude command exists
             $validateClaude = 'exec ai-cli bash -c "which claude && echo \"Claude found\""'
-            $r3a = Run-Process-UI -file 'docker' -arguments $validateClaude -progressBar $null -statusLabel $null
+            $r3a = Run-Process-UI -file $script:dockerExe -arguments $validateClaude -progressBar $null -statusLabel $null
 
             if ($r3a.Ok -and $r3a.StdOut -match 'Claude found') {
                 Write-Host "[SUCCESS] Claude CLI verified" -ForegroundColor Green
@@ -1848,7 +1984,7 @@ $btnNext.Add_Click({
 
             # Test 2: Check if GitHub CLI exists
             $validateGH = 'exec ai-cli bash -c "which gh && echo \"GitHub CLI found\""'
-            $r3b = Run-Process-UI -file 'docker' -arguments $validateGH -progressBar $null -statusLabel $null
+            $r3b = Run-Process-UI -file $script:dockerExe -arguments $validateGH -progressBar $null -statusLabel $null
 
             if ($r3b.Ok -and $r3b.StdOut -match 'GitHub CLI found') {
                 Write-Host "[SUCCESS] GitHub CLI verified" -ForegroundColor Green
@@ -1859,7 +1995,7 @@ $btnNext.Add_Click({
             # Test 3: Verify user has sudo access with NOPASSWD
             Write-Host "[INFO] Verifying user sudo privileges..." -ForegroundColor Cyan
             $userSudoTest = 'exec -u ' + $state.UserName + ' ai-cli sudo -n whoami'
-            $r3c = Run-Process-UI -file 'docker' -arguments $userSudoTest -progressBar $null -statusLabel $null
+            $r3c = Run-Process-UI -file $script:dockerExe -arguments $userSudoTest -progressBar $null -statusLabel $null
 
             if ($r3c.Ok -and $r3c.StdOut -match 'root') {
                 Write-Host "[SUCCESS] User has passwordless sudo access" -ForegroundColor Green
@@ -1867,7 +2003,17 @@ $btnNext.Add_Click({
                 Write-Host "[WARNING] Sudo test inconclusive, but this may be normal" -ForegroundColor Yellow
             }
 
-            Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
+            if ($installStatus -eq 'partial') {
+                Write-Host "[WARNING] Setup completed with a partial CLI installation: $failedTools" -ForegroundColor Yellow
+                Write-Host "[INFO] Working tools remain available. Repair inside the container with: install_cli_tools.sh --repair" -ForegroundColor Cyan
+                $status.Text = 'System ready with CLI repair needed'
+            } elseif (-not $installStatus) {
+                Write-Host '[WARNING] Setup completed, but CLI installation status is still pending' -ForegroundColor Yellow
+                $status.Text = 'System running; CLI installation continues'
+            } else {
+                Write-Host '[SUCCESS] Installation complete!' -ForegroundColor Green
+                $status.Text = 'System ready'
+            }
 
             # SECURITY: Securely delete the password file now that container is running
             # The password has been set in the container, we no longer need the file
@@ -1875,17 +2021,10 @@ $btnNext.Add_Click({
             Replace-PasswordWithPlaceholder -DockerPath $dockerPath
 
             # Clean up FORCE_CLI_REINSTALL from .env so it doesn't reinstall on every restart
-            $envFilePath = Join-Path $dockerPath ".env"
-            if (Test-Path $envFilePath) {
-                $envContent = Get-Content $envFilePath
-                $cleanedContent = $envContent | Where-Object { $_ -notmatch '^FORCE_CLI_REINSTALL=' }
-                if ($cleanedContent.Count -lt $envContent.Count) {
-                    $cleanedContent | Set-Content -Path $envFilePath -Encoding UTF8
-                    Write-Host "[INFO] Cleaned up FORCE_CLI_REINSTALL from .env" -ForegroundColor Cyan
-                }
+            if (Remove-EnvKey -Path $script:envPath -Key 'FORCE_CLI_REINSTALL') {
+                        Write-Host "[INFO] Cleaned up FORCE_CLI_REINSTALL from .env" -ForegroundColor Cyan
             }
 
-            $status.Text = 'System ready'
             $script:current++; Show-Page $script:current
         }
         7 {
@@ -1896,9 +2035,14 @@ $btnNext.Add_Click({
         }
         8 {
             Write-Host "[INFO] User clicked Finish - closing wizard" -ForegroundColor Green
-            $form.Close()
             $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
         }
+    }
+    } finally {
+        $script:operationInProgress = $false
+        if (Test-ControlUsable $btnNext) { $btnNext.Enabled = $true }
+        if (Test-ControlUsable $btnBack) { $btnBack.Enabled = ($script:current -gt 0) }
     }
 })
 
@@ -1941,7 +2085,7 @@ if ($script:IsDevMode) {
 
 # 2. Check if old container exists - PROTECT IT!
 Write-Host "[CHECK 2/3] Checking for existing containers..." -ForegroundColor Cyan
-$existingContainer = docker ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
+$existingContainer = & $script:dockerExe ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null
 if ($existingContainer -eq "ai-cli") {
     if ($script:IsDevMode) {
         # DEV MODE: Skip the warning entirely - we never delete in DEV MODE
@@ -1973,8 +2117,8 @@ if ($existingContainer -eq "ai-cli") {
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
             Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
             Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
-            docker stop ai-cli 2>$null | Out-Null
-            docker rm ai-cli 2>$null | Out-Null
+            & $script:dockerExe stop ai-cli 2>$null | Out-Null
+            & $script:dockerExe rm ai-cli 2>$null | Out-Null
             Write-Host "[SUCCESS] Old container removed" -ForegroundColor Green
         } else {
             Write-Host "[USER CHOICE] User cancelled - keeping existing container" -ForegroundColor Green
@@ -1999,10 +2143,10 @@ Write-Host ""
 if (-not $script:IsDevMode) {
     if ($lineEndingsFixed) {
         Write-Host "[CHECK 3/3] Removing old Docker image..." -ForegroundColor Cyan
-        $existingImage = docker images -q ai-docker-ai 2>$null
+        $existingImage = & $script:dockerExe images -q ai-docker-ai 2>$null
         if ($existingImage) {
             Write-Host "[AUTO-FIX] Removing old image to ensure fresh build..." -ForegroundColor Yellow
-            docker rmi ai-docker-ai 2>$null | Out-Null
+            & $script:dockerExe rmi ai-docker-ai 2>$null | Out-Null
             Write-Host "[SUCCESS] Old image removed - will rebuild with fixed scripts" -ForegroundColor Green
         }
     } else {

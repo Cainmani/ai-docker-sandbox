@@ -5,6 +5,41 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-10
+
+Stabilization release for safe upgrades, lifecycle diagnostics, corporate-network support, and recovery of existing installations. Rebuild/recreate once to pick up the new entrypoint and image metadata; named workspace, authentication, router, Vibe Kanban, and SSH volumes are preserved.
+
+### Added
+- Structured CLI installation status and targeted `--repair` recovery without removing working tools.
+- Semantic launcher/container version metadata and non-blocking stale-image warnings.
+- `configure-tools --diagnose` for sanitized install, auth, router, proxy, DNS/TLS, and image-version checks.
+- Optional corporate proxy and custom-CA support through `docker-compose.ca.yml`.
+- Safe three-tier uninstall flow, opt-in mobile Compose override, bounded readiness checks, and disposable Docker smoke CI.
+- Windows PowerShell 5.1/PowerShell 7 CI and release-version consistency gates.
+
+### Fixed
+- Failed force installs and npm updates no longer remove the last working CLI.
+- Partial installs are reported honestly and retried selectively on later starts.
+- Authentication migration now verifies staged data before replacing source paths.
+- Codex `wire_api = "chat"` configurations migrate idempotently to `responses` with backup.
+- Router ownership and shared-port switching use validated PIDs and bounded TERM/KILL release waits.
+- Cron is registered idempotently, started, and checked for daemon liveness.
+- The product version now propagates into `docker/.env` as `AI_DOCKER_VERSION`, so built images carry the real version metadata instead of the compose `0.0.0` default (which the skew check misread as a legacy image).
+- Proxy and custom-CA settings now survive the `su -` login-shell reset used for tool installation, are persisted to `/etc/profile.d` for interactive/SSH sessions, and are sourced by the auto-update cron job — fixing tool installs/updates on corporate networks.
+- `configure-tools --diagnose` no longer reports `TLS=failed` for a healthy connection that returns an unauthenticated or bare-root HTTP status (401/403/404/421); only genuine DNS/connection/timeout/SSL errors count as a transport failure, and the real HTTP status codes are surfaced.
+- Quoted environment values, port validation, WSL core bounds, wizard cancellation, and startup readiness handling were hardened.
+- Log sanitizers now cover provider keys, GitHub tokens, bearer/JWT/private-key material, and broader secret contexts. Logs are sanitized but must still be reviewed before sharing.
+
+### Security
+- Documents the intended single-user development-container model: the container user has passwordless sudo, the workspace is mounted, and AI tools can modify accessible files. The Docker socket is not mounted.
+- Vendor bootstrap installers without stable published artifact verification remain protected by HTTPS/TLS and vendor trust; this residual boundary is documented rather than described as cryptographic verification.
+
+### Upgrade notes
+1. Preserve the named volumes; do not use `docker compose down -v`.
+2. Remove any stale `FORCE_CLI_REINSTALL` entry from the canonical `docker/.env`.
+3. Rebuild/recreate once, then run `configure-tools --diagnose` and inspect `~/.cli_tools_installed`.
+4. Reauthenticate only when credential files are genuinely missing or expired.
+
 ## [1.3.5] - 2026-07-10
 
 Fixes `update-container-tools` being able to uninstall a tool it was supposed to update. No rebuild strictly required — the fix takes effect the next time the container picks up the new `auto_update.sh` (Force Rebuild, or `docker compose up -d --force-recreate`).
@@ -319,6 +354,15 @@ Maintenance release shipping the full-application audit remediation (131 finding
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.4.0 | 2026-07-10 | Runtime stabilization, diagnostics, proxy/CA, lifecycle and CI hardening |
+| 1.3.5 | 2026-07-10 | Preserve tools across failed npm updater operations |
+| 1.3.4 | 2026-07-07 | Wait for shared AI-router port release |
+| 1.3.3 | 2026-07-07 | Avoid recursive ownership work on Windows-mounted workspaces |
+| 1.3.2 | 2026-07-07 | Password ACL and first-login sudo hint fixes |
+| 1.3.1 | 2026-07-07 | Wizard timeout and Windows PowerShell 5.1 RNG fix |
+| 1.3.0 | 2026-07-07 | AI router installation, persistence, and host dashboard access |
+| 1.2.4 | 2026-07-01 | Dependency refresh and scheduled version checks |
+| 1.2.3 | 2026-07-01 | Full application audit remediation |
 | 1.2.2 | 2026-02-11 | Auth persistence, set -u fixes, WSL detection, log sanitization |
 | 1.2.1 | 2026-01-27 | Fix container restart, add-ssh-key, and welcome screen bugs |
 | 1.2.0 | 2026-01-27 | Mobile access via SSH + Mosh + tmux |
@@ -329,7 +373,16 @@ Maintenance release shipping the full-application audit remediation (131 finding
 | 1.0.1 | 2025-12-11 | Add version display and Report Issue link |
 | 1.0.0 | 2025-12-11 | Initial production release |
 
-[Unreleased]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.5...v1.4.0
+[1.3.5]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.4...v1.3.5
+[1.3.4]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.3...v1.3.4
+[1.3.3]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.4...v1.3.0
+[1.2.4]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Cainmani/ai-docker-sandbox/compare/v1.1.3...v1.2.0

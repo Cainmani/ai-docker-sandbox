@@ -150,6 +150,20 @@ Describe 'New-WSLConfig' {
         $content | Should -Match 'processors=6'
     }
 
+    It 'Assigns at least 1 processor when SystemCores is 0 (invariant)' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'light' -Path $path -SystemCores 0 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content | Should -Match 'processors=1'
+    }
+
+    It 'Assigns at least 1 processor when SystemCores is negative (invariant)' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'heavy' -Path $path -SystemCores -2 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content | Should -Match 'processors=1'
+    }
+
     It 'Caps processors to SystemCores' {
         $path = Join-Path $TestDrive '.wslconfig'
         New-WSLConfig -Profile 'heavy' -Path $path -SystemCores 2 | Should -Be $true

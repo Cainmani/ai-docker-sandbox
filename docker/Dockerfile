@@ -2,7 +2,12 @@
 # Pinned: 2026-02-19 — refresh quarterly via: docker manifest inspect ubuntu:24.04
 FROM ubuntu:24.04@sha256:786a8b558f7be160c6c8c4a54f9a57274f3b4fb1491cf65146521ae77ff1dc54
 
-ENV DEBIAN_FRONTEND=noninteractive
+ARG AI_DOCKER_VERSION=0.0.0
+LABEL ai-docker.version="${AI_DOCKER_VERSION}"
+ENV DEBIAN_FRONTEND=noninteractive \
+    AI_DOCKER_VERSION="${AI_DOCKER_VERSION}"
+
+RUN printf '%s\n' "$AI_DOCKER_VERSION" > /etc/ai-docker-version
 
 # Install dependencies FIRST (without nodejs yet)
 RUN apt-get update && apt-get install -y \
@@ -28,6 +33,10 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     tree \
     cron \
+    # iproute2 provides `ss`, the port probe used by the AI router wrappers,
+    # configure_tools.sh and health checks. Installed explicitly so the probe
+    # can never silently disappear (absence is treated as an error, not "free").
+    iproute2 \
     # Mobile access support (optional - enabled via ENABLE_MOBILE_ACCESS=1)
     openssh-server \
     mosh \
@@ -70,6 +79,8 @@ RUN mkdir -p /usr/local/lib
 
 # Copy shared libraries
 COPY lib/logging.sh /usr/local/lib/logging.sh
+COPY lib/router_utils.sh /usr/local/lib/router_utils.sh
+COPY lib/entrypoint_helpers.sh /usr/local/lib/entrypoint_helpers.sh
 
 # Copy CLI tools installation scripts
 COPY install_cli_tools.sh /usr/local/bin/install_cli_tools.sh
@@ -95,6 +106,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/add-ssh-key \
     /usr/local/bin/setup-remote-connection \
     /usr/local/lib/logging.sh \
+    /usr/local/lib/router_utils.sh \
+    /usr/local/lib/entrypoint_helpers.sh \
     /etc/tmux.conf
 
 # Make all scripts executable and set library/config permissions
@@ -106,6 +119,8 @@ RUN chmod +x /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/add-ssh-key \
     /usr/local/bin/setup-remote-connection \
     && chmod 644 /usr/local/lib/logging.sh \
+    && chmod 644 /usr/local/lib/router_utils.sh \
+    && chmod 644 /usr/local/lib/entrypoint_helpers.sh \
     && chmod 644 /etc/tmux.conf
 
 # Default: run the entrypoint which creates user from env and keeps container running

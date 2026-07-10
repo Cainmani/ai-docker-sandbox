@@ -132,15 +132,26 @@ Write-AppLog "Container status: [$containerStatus]" "DEBUG"
 if ($containerStatus -ne "ai-cli") {
     Write-AppLog "Container is not running - starting container..." "INFO"
     Start-Process -FilePath $dockerPath -ArgumentList "start","ai-cli" -WindowStyle Hidden -Wait | Out-Null
-    Start-Sleep -Seconds 2
-    Write-AppLog "Container started" "INFO"
+    if (-not (Wait-ContainerReady -DockerPath $dockerPath -TimeoutSeconds 60)) {
+        Write-AppLog "ERROR: Container did not become ready" "ERROR"
+        ShowMsg "The ai-cli container did not become ready in time.`n`nCheck Docker Desktop and try again." 'Error'
+        exit 1
+    }
+    Write-AppLog "Container started and ready" "INFO"
 } else {
     Write-AppLog "Container is already running" "DEBUG"
 }
 
+# Warn (log only) if the container was created from an older image build
+$skew = Test-ContainerImageSkew -DockerPath $dockerPath
+if ($skew.SkewDetected) {
+    Write-AppLog "Container image is out of date - re-run First Time Setup to update" "WARN"
+}
+
 # Read username from .env file - REQUIRED, no fallback
 Write-AppLog "Reading username from .env..." "DEBUG"
-$envFile = Join-Path $scriptPath ".env"
+$envFile = Resolve-EnvFilePath -ScriptPath $scriptPath
+Write-AppLog "Using .env file: [$envFile]" "DEBUG"
 Write-AppLog "Attempting to read .env from: [$envFile]" "DEBUG"
 $envData = Read-EnvFile -Path $envFile
 

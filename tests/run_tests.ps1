@@ -94,10 +94,14 @@ $requiredFiles = @(
     (Join-Path $projectRoot 'scripts\launch_claude.ps1'),
     (Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1'),
     (Join-Path $projectRoot 'scripts\AI_Docker_Complete.ps1'),
+    (Join-Path $projectRoot 'scripts\uninstall.ps1'),
     (Join-Path $projectRoot 'docker\docker-compose.yml'),
+    (Join-Path $projectRoot 'docker\docker-compose.mobile.yml'),
+    (Join-Path $projectRoot 'docker\docker-compose.ca.yml'),
     (Join-Path $projectRoot 'docker\Dockerfile'),
     (Join-Path $projectRoot 'docker\entrypoint.sh'),
-    (Join-Path $projectRoot 'docker\claude_wrapper.sh'),
+    (Join-Path $projectRoot 'docker\install_cli_tools.sh'),
+    (Join-Path $projectRoot 'docker\auto_update.sh'),
     (Join-Path $projectRoot 'scripts\fix_line_endings.ps1'),
     (Join-Path $projectRoot '.gitattributes'),
     (Join-Path $projectRoot 'README.md'),
@@ -123,7 +127,8 @@ Write-TestHeader "PHASE 2: FILE CONTENT VALIDATION"
 # Test shell scripts have LF line endings
 $shellScripts = @(
     (Join-Path $projectRoot 'docker\entrypoint.sh'),
-    (Join-Path $projectRoot 'docker\claude_wrapper.sh')
+    (Join-Path $projectRoot 'docker\install_cli_tools.sh'),
+    (Join-Path $projectRoot 'docker\auto_update.sh')
 )
 foreach ($scriptPath in $shellScripts) {
     $scriptName = Split-Path -Leaf $scriptPath
@@ -141,7 +146,11 @@ foreach ($scriptPath in $shellScripts) {
 $psScripts = @(
     (Join-Path $projectRoot 'scripts\setup_wizard.ps1'),
     (Join-Path $projectRoot 'scripts\launch_claude.ps1'),
-    (Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1')
+    (Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1'),
+    (Join-Path $projectRoot 'scripts\uninstall.ps1'),
+    (Join-Path $projectRoot 'scripts\docker_helpers.ps1'),
+    (Join-Path $projectRoot 'scripts\env_utils.ps1'),
+    (Join-Path $projectRoot 'scripts\setup_utils.ps1')
 )
 foreach ($scriptPath in $psScripts) {
     $scriptName = Split-Path -Leaf $scriptPath
@@ -178,14 +187,15 @@ Test-Assertion "Dockerfile contains FROM ubuntu" {
     }
 } "Dockerfile missing base image"
 
-Test-Assertion "Dockerfile installs Node.js and npm" {
+Test-Assertion "Dockerfile installs Node.js (including npm)" {
     if (Test-Path $dockerFile) {
         $content = Get-Content $dockerFile -Raw
-        ($content -match 'nodejs') -and ($content -match 'npm')
+        ($content -match 'deb\.nodesource\.com/setup_22\.x') -and
+        ($content -match 'apt-get install -y nodejs')
     } else {
         $false
     }
-} "Dockerfile missing Node.js/npm"
+} "Dockerfile missing NodeSource Node.js package (which includes npm)"
 
 # ============================================================================
 # PHASE 3: CONFIGURATION VALIDATION
@@ -212,6 +222,45 @@ Test-Assertion "docker-compose.yml has claude-config volume" {
         $false
     }
 } "Named volume for Claude config missing"
+
+# Test docker-compose.yml has fixed project and image identity
+Test-Assertion "docker-compose.yml pins project name 'ai-docker'" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        $content -match '(?m)^name:\s*ai-docker\s*$'
+    } else {
+        $false
+    }
+} "Compose project name not fixed (identity would depend on folder name)"
+
+Test-Assertion "docker-compose.yml pins image name 'ai-docker-cli'" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        $content -match 'image:\s*ai-docker-cli:latest'
+    } else {
+        $false
+    }
+} "Image name not fixed to ai-docker-cli:latest"
+
+# Base compose file must NOT publish SSH/Mosh ports - those live in the mobile override
+Test-Assertion "docker-compose.yml does not publish SSH/Mosh ports" {
+    if (Test-Path $composeFile) {
+        $content = Get-Content $composeFile -Raw
+        -not ($content -match '"\$\{SSH_PORT') -and -not ($content -match '\$\{MOSH_PORT_START[^}]*\}-\$\{MOSH_PORT_END[^}]*\}:')
+    } else {
+        $false
+    }
+} "SSH/Mosh port mappings must only exist in docker-compose.mobile.yml"
+
+$mobileComposeFile = Join-Path $projectRoot 'docker\docker-compose.mobile.yml'
+Test-Assertion "docker-compose.mobile.yml exists and publishes SSH/Mosh ports" {
+    if (Test-Path $mobileComposeFile) {
+        $content = Get-Content $mobileComposeFile -Raw
+        ($content -match 'SSH_PORT') -and ($content -match 'MOSH_PORT_START') -and ($content -match '/udp')
+    } else {
+        $false
+    }
+} "Mobile access override file missing or incomplete"
 
 # Test entrypoint.sh creates user with sudo privileges
 $entrypointFile = Join-Path $projectRoot 'docker\entrypoint.sh'
@@ -251,15 +300,94 @@ Test-Assertion "setup_wizard.ps1 uses 'compose build' (not with -f flag)" {
     }
 } "CRITICAL: Docker compose command uses old quoted path format"
 
-# Test setup wizard has validation
+# Test setup wizard validates the core Claude command after installation.
 Test-Assertion "setup_wizard.ps1 validates Claude installation" {
     if (Test-Path $setupWizardFile) {
         $content = Get-Content $setupWizardFile -Raw
-        $content -match 'Validating Claude CLI installation'
+        ($content -match 'Verifying core CLI tools installation') -and
+        ($content -match 'which claude') -and
+        ($content -match 'Claude CLI verified')
     } else {
         $false
     }
-} "CRITICAL: No post-installation validation"
+} "CRITICAL: No post-installation Claude command validation"
+
+# Test setup wizard removes the obsolete persistent force-reinstall flag.
+Test-Assertion "setup_wizard.ps1 removes stale FORCE_CLI_REINSTALL from .env" {
+    if (Test-Path $setupWizardFile) {
+        $content = Get-Content $setupWizardFile -Raw
+        ($content -match 'Remove-Env(Key|Value)[^\r\n]*FORCE_CLI_REINSTALL') -and
+        (-not ($content -match '\$env:FORCE_CLI_REINSTALL\s*=')) -and
+        (-not ($content -match 'Add-Content[^\r\n]*FORCE_CLI_REINSTALL'))
+    } else {
+        $false
+    }
+} "FORCE_CLI_REINSTALL must be removed from .env and never passed to Compose"
+
+# Test setup wizard uses the fixed image name (no legacy folder-derived names)
+Test-Assertion "setup_wizard.ps1 checks the fixed image name" {
+    if (Test-Path $setupWizardFile) {
+        $content = Get-Content $setupWizardFile -Raw
+        ($content -match 'AiDockerImageName') -and (-not ($content -match "arguments 'images docker-files-ai"))
+    } else {
+        $false
+    }
+} "Setup wizard still references the folder-derived legacy image name"
+
+# Test setup wizard uses shared readiness helper instead of fixed sleeps
+Test-Assertion "setup_wizard.ps1 uses Wait-ContainerReady" {
+    if (Test-Path $setupWizardFile) {
+        $content = Get-Content $setupWizardFile -Raw
+        $content -match 'Wait-ContainerReady'
+    } else {
+        $false
+    }
+} "Setup wizard should poll container readiness via Wait-ContainerReady"
+
+# Test setup wizard writes .env next to the compose file (canonical location)
+Test-Assertion "setup_wizard.ps1 uses canonical .env location (docker folder)" {
+    if (Test-Path $setupWizardFile) {
+        $content = Get-Content $setupWizardFile -Raw
+        $content -match "envPath\s*=\s*Join-Path\s+\`$dockerPath\s+'\.env'"
+    } else {
+        $false
+    }
+} ".env must live next to docker-compose.yml so compose variable substitution works"
+
+# Test uninstall script exists with safe defaults
+$uninstallFile = Join-Path $projectRoot 'scripts\uninstall.ps1'
+Test-Assertion "uninstall.ps1 exists" {
+    Test-Path $uninstallFile
+} "Supported uninstall script missing"
+
+Test-Assertion "uninstall.ps1 keeps volumes by default (opt-in -RemoveVolumes)" {
+    if (Test-Path $uninstallFile) {
+        $content = Get-Content $uninstallFile -Raw
+        ($content -match '\[switch\]\$RemoveVolumes') -and ($content -match '\[switch\]\$RemoveAppData')
+    } else {
+        $false
+    }
+} "Uninstall must not delete user data volumes by default"
+
+Test-Assertion "uninstall.ps1 never touches the AI_Work workspace" {
+    if (Test-Path $uninstallFile) {
+        $content = Get-Content $uninstallFile -Raw
+        -not ($content -match 'Remove-Item[^\r\n]*AI_Work')
+    } else {
+        $false
+    }
+} "Uninstall must never delete the user workspace folder"
+
+# Test Vibe Kanban launcher validates the port before shell interpolation
+Test-Assertion "launch_vibe_kanban.ps1 validates VIBE_KANBAN_PORT" {
+    $vibeLauncher = Join-Path $projectRoot 'scripts\launch_vibe_kanban.ps1'
+    if (Test-Path $vibeLauncher) {
+        $content = Get-Content $vibeLauncher -Raw
+        $content -match 'Test-ValidPort'
+    } else {
+        $false
+    }
+} "Port from .env must be validated before interpolation into bash commands"
 
 # Test setup wizard has container protection
 Test-Assertion "setup_wizard.ps1 protects existing containers" {
@@ -317,6 +445,38 @@ Test-Assertion "AI_Docker_Complete.ps1 has placeholder for USER_MANUAL.md" {
         $false
     }
 } "USER_MANUAL.md placeholder missing in template"
+
+Test-Assertion "Complete executable packages custom CA override" {
+    if ((Test-Path $buildScriptFile) -and (Test-Path $completeTemplateFile)) {
+        $buildContent = Get-Content $buildScriptFile -Raw
+        $templateContent = Get-Content $completeTemplateFile -Raw
+        ($buildContent -match 'docker-compose\.ca\.yml') -and
+        ($templateContent -match 'DOCKER_COMPOSE_CA_YML_BASE64_HERE')
+    } else {
+        $false
+    }
+} "Custom CA Compose override missing from executable package"
+
+Test-Assertion "Every Dockerfile-copied helper library is packaged" {
+    if ((Test-Path $dockerFile) -and (Test-Path $buildScriptFile) -and (Test-Path $completeTemplateFile)) {
+        $dockerContent = Get-Content $dockerFile -Raw
+        $buildContent = Get-Content $buildScriptFile -Raw
+        $templateContent = Get-Content $completeTemplateFile -Raw
+        $copiedHelpers = [regex]::Matches($dockerContent, '(?m)^COPY\s+lib/([^\s]+\.sh)\s+') |
+            ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+        $allPackaged = $copiedHelpers.Count -gt 0
+        foreach ($helper in $copiedHelpers) {
+            $placeholder = ($helper.Replace('.', '_').Replace('-', '_').ToUpper() + '_BASE64_HERE')
+            if (($buildContent -notmatch [regex]::Escape("lib\$helper")) -or
+                ($templateContent -notmatch [regex]::Escape($placeholder))) {
+                $allPackaged = $false
+            }
+        }
+        $allPackaged
+    } else {
+        $false
+    }
+} "A docker/lib helper copied by Dockerfile is absent from the packaged executable"
 
 # ============================================================================
 # PHASE 6: VIBE KANBAN INTEGRATION TESTS
@@ -391,16 +551,18 @@ Test-Assertion "install_cli_tools.sh installs Vibe Kanban" {
     }
 } "Vibe Kanban not in installation script"
 
-# Test auto_update.sh includes Vibe Kanban
+# The updater discovers all installed npm packages dynamically, including Vibe Kanban.
 $updateScript = Join-Path $projectRoot 'docker\auto_update.sh'
-Test-Assertion "auto_update.sh checks Vibe Kanban updates" {
+Test-Assertion "auto_update.sh dynamically checks and updates global npm tools" {
     if (Test-Path $updateScript) {
         $content = Get-Content $updateScript -Raw
-        $content -match 'vibe-kanban'
+        ($content -match 'npm outdated -g') -and
+        ($content -match 'npm update -g') -and
+        (-not ($content -match 'npm outdated -g[^\r\n]*vibe-kanban'))
     } else {
         $false
     }
-} "Vibe Kanban not in update script"
+} "Updater must discover global npm tools dynamically rather than hardcoding Vibe Kanban"
 
 # Test AI_Docker_Launcher.ps1 has Vibe Kanban button
 $launcherFile = Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1'

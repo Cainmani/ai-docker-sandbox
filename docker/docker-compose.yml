@@ -1,8 +1,22 @@
+# Fixed project name so container/image/volume/network identity does not depend
+# on the folder the compose file happens to live in (docker/ in the source repo,
+# docker-files/ in the packaged .exe layout).
+name: ai-docker
+
 services:
   ai:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        AI_DOCKER_VERSION: ${AI_DOCKER_VERSION:-0.0.0}
+        # Proxy passthrough for corporate networks (predefined Docker build args)
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+    # Fixed image name - referenced by the setup wizard and launchers
+    image: ai-docker-cli:latest
     container_name: ai-cli
     environment:
       USER_NAME: ${USER_NAME}
@@ -10,14 +24,27 @@ services:
       VIBE_KANBAN_PORT: ${VIBE_KANBAN_PORT:-3000}
       # AI router dashboard port (shared by 9router and OmniRoute - only one runs at a time)
       AI_ROUTER_PORT: ${AI_ROUTER_PORT:-20128}
-      # Force CLI tools reinstallation (set by setup wizard when Force Rebuild is checked)
-      FORCE_CLI_REINSTALL: ${FORCE_CLI_REINSTALL:-}
       # Mobile access configuration (SSH + Mosh + tmux)
-      # Set ENABLE_MOBILE_ACCESS=1 to enable remote access from mobile devices
+      # Set ENABLE_MOBILE_ACCESS=1 AND include docker-compose.mobile.yml to enable
+      # remote access from mobile devices (the override file publishes the ports)
       ENABLE_MOBILE_ACCESS: ${ENABLE_MOBILE_ACCESS:-0}
       SSH_PORT: ${SSH_PORT:-2222}
       MOSH_PORT_START: ${MOSH_PORT_START:-60001}
       MOSH_PORT_END: ${MOSH_PORT_END:-60005}
+      # Proxy passthrough for tools running inside the container
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-}
+      all_proxy: ${ALL_PROXY:-}
+      # Optional corporate CA bundle. Mount it with docker-compose.ca.yml as
+      # documented in docs/REMOTE_ACCESS.md, then standard TLS clients use it.
+      NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
+      REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-}
+      SSL_CERT_FILE: ${SSL_CERT_FILE:-}
+      CUSTOM_CA_CERT: ${CUSTOM_CA_CERT:-}
     secrets:
       - user_password
     ports:
@@ -26,10 +53,8 @@ services:
       # AI router dashboard (9router or OmniRoute) - reachable from the Windows browser at
       # http://localhost:20128/dashboard. One shared port; only one router runs at a time.
       - "${AI_ROUTER_PORT:-20128}:${AI_ROUTER_PORT:-20128}"
-      # SSH for mobile access (only exposed when ENABLE_MOBILE_ACCESS=1)
-      - "${SSH_PORT:-2222}:${SSH_PORT:-2222}"
-      # Mosh UDP ports for persistent mobile connections (5 concurrent connections)
-      - "${MOSH_PORT_START:-60001}-${MOSH_PORT_END:-60005}:${MOSH_PORT_START:-60001}-${MOSH_PORT_END:-60005}/udp"
+      # SSH/Mosh ports for mobile access are published by docker-compose.mobile.yml,
+      # which is only included when mobile access is enabled.
     volumes:
       - ${WORKSPACE_PATH}:/workspace
       - claude-config:/home/${USER_NAME}/.claude
@@ -44,7 +69,7 @@ services:
     tty: true
     stdin_open: true
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'tail|sleep' || exit 1"]
+      test: ["CMD-SHELL", "test -r /run/ai-docker-ready && grep -q '^ENTRYPOINT=ok$' /run/ai-docker-ready && grep -Eq '^INSTALL_STATUS=(ok|legacy)$' /run/ai-docker-ready"]
       interval: 30s
       timeout: 10s
       retries: 3

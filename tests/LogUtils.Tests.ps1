@@ -88,6 +88,11 @@ Describe 'Sanitize-LogMessage' {
         $result | Should -Be 'token <REDACTED_JWT>'
     }
 
+    It 'Redacts private key markers' {
+        $marker = ('-' * 5) + 'BEGIN OPENSSH PRIVATE' + ' KEY' + ('-' * 5)
+        Sanitize-LogMessage -Message $marker | Should -Be '<REDACTED_PRIVATE_KEY>'
+    }
+
     It 'Redacts container username when set' {
         $script:ContainerUsername = 'testuser42'
         $msg = 'Created user testuser42 in container'

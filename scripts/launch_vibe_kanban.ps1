@@ -66,11 +66,22 @@ $containerStatus = & $dockerPath ps --filter "name=ai-cli" --format "{{.Names}}"
 if ($containerStatus -ne "ai-cli") {
     Write-AppLog "Container is not running - starting..." "INFO"
     Start-Process -FilePath $dockerPath -ArgumentList "start","ai-cli" -WindowStyle Hidden -Wait | Out-Null
-    Start-Sleep -Seconds 2
+    if (-not (Wait-ContainerReady -DockerPath $dockerPath -TimeoutSeconds 60)) {
+        Write-AppLog "ERROR: Container did not become ready" "ERROR"
+        ShowMsg "The ai-cli container did not become ready in time.`n`nCheck Docker Desktop and try again." 'Error'
+        exit 1
+    }
 }
 
-# Read config from .env file
-$envFile = Join-Path $scriptPath ".env"
+# Warn (log only) if the container was created from an older image build
+$skew = Test-ContainerImageSkew -DockerPath $dockerPath
+if ($skew.SkewDetected) {
+    Write-AppLog "Container image is out of date - re-run First Time Setup to update" "WARN"
+}
+
+# Read config from .env file (canonical location: next to docker-compose.yml)
+$envFile = Resolve-EnvFilePath -ScriptPath $scriptPath
+Write-AppLog "Using .env file: [$envFile]" "DEBUG"
 $envData = Read-EnvFile -Path $envFile
 
 if ($envData.Count -eq 0) {
@@ -98,8 +109,17 @@ if (-not $userResult.Valid) {
 Write-AppLog "Username: [$userName]" "INFO"
 
 # Read Vibe Kanban port (default 3000)
+# SECURITY: the port is interpolated into bash -c command strings below, so it
+# MUST be validated as a pure number before use (prevents shell injection from
+# a tampered/malformed .env file).
 $portResult = Get-EnvVar -EnvData $envData -Name 'VIBE_KANBAN_PORT' -Default '3000'
 $vibeKanbanPort = $portResult.Value
+if (-not (Test-ValidPort $vibeKanbanPort)) {
+    Write-AppLog "ERROR: Invalid VIBE_KANBAN_PORT value in .env: [$vibeKanbanPort]" "ERROR"
+    ShowMsg "Configuration error: VIBE_KANBAN_PORT in .env is not a valid port number (1-65535).`n`nValue found: $vibeKanbanPort" 'Error'
+    exit 1
+}
+$vibeKanbanPort = [string][int]$vibeKanbanPort
 Write-AppLog "Vibe Kanban port: [$vibeKanbanPort]" "INFO"
 
 # Check if Vibe Kanban is already running inside the container

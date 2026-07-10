@@ -75,7 +75,7 @@ All bash suites run without Docker — they assert on script structure and use t
 
 ### CI
 
-`.github/workflows/ci.yml` runs on every push/PR to main: PowerShell syntax checks, Pester tests, all bash test suites, Dockerfile validation, shellcheck and hadolint linting (non-blocking), and a pinned-version check.
+`.github/workflows/ci.yml` runs on every push/PR to main: Linux PowerShell syntax/Pester, Windows PowerShell 5.1 and PowerShell 7 Pester, all bash suites, Dockerfile validation, blocking ShellCheck errors, visible nonblocking ShellCheck warnings, hadolint, release-version consistency, and pinned-version checks. `.github/workflows/docker-smoke.yml` uses uniquely named disposable resources for runtime build/readiness, migration, cron, router, mobile-override, and recreate-persistence checks.
 
 ## Shell Scripts & Line Endings
 
@@ -94,6 +94,12 @@ All shell scripts use `set -euo pipefail` — use `${VAR:-}` / `${1:-}` for anyt
 - **MessageBox text**: ASCII only — emoji and `•` render as garbage in WinForms.
 - **Exit codes**: setup wizard exits 1 on cancel/failure; launchers check `ExitCode -eq 0` before claiming success.
 - **Git author email**: commits must use the personal noreply email — see [CLAUDE.md](CLAUDE.md#git-configuration).
+
+## Runtime Trust and Supply Chain
+
+This is a single-user development container, not a hostile multi-tenant sandbox. The container user intentionally has passwordless sudo and AI tools can read or modify the mounted workspace and persisted tool configuration. The Docker socket is not mounted, which prevents direct Docker-host control through that interface, but host files explicitly bind-mounted into the container remain in scope.
+
+Package-manager metadata and repositories use their published signature mechanisms where available. Some vendor bootstrap paths (including Claude's native installer and the NodeSource and Tailscale setup scripts) do not provide a stable per-script checksum/signature workflow suitable for this project. Those paths remain dependent on HTTPS/TLS, DNS, and vendor infrastructure; review upstream URLs and release notes before rebuilding in sensitive environments.
 
 ## Release Process
 

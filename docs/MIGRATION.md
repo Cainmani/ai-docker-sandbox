@@ -4,6 +4,43 @@ This guide covers breaking changes between versions and how to upgrade.
 
 ---
 
+## v1.4.0 - Runtime Stabilization
+
+### What Changed
+
+- Install status is structured (`STATUS=ok` or `STATUS=partial`) and readiness is withheld when required tools remain broken.
+- Force/repair installation and updater failures preserve the last working CLI.
+- Authentication and Codex config migrations are staged, verified, rollback-safe, and idempotent.
+- AI router ownership uses PID/start-time validation; switching waits for the shared port without signalling unrelated processes.
+- Mobile SSH/Mosh ports moved to `docker-compose.mobile.yml`; base Compose no longer publishes them.
+- Compose project/image identity is fixed, cron is actually started, and the launcher detects stale container versions.
+
+### Safe Upgrade
+
+1. Identify the named volumes before changing anything:
+   ```powershell
+   docker volume ls --filter name=ai-docker
+   ```
+2. Back them up if required by your policy. Do **not** delete `claude-config`, `tool-auth`, `router-data`, `vibe-kanban-data`, or `ssh-keys`.
+3. Remove any stale `FORCE_CLI_REINSTALL` line from `docker/.env`. The 1.4.0 wizard also removes it automatically.
+4. Run **First Time Setup** with **Force Rebuild** once. Rebuilding replaces the image/container layer, not the named volumes.
+5. Open the workspace and verify:
+   ```bash
+   cat ~/.cli_tools_installed
+   claude --version
+   codex --version
+   configure-tools --diagnose
+   test -L ~/.codex && test -L ~/.config/gh
+   grep -n 'wire_api = "responses"' ~/.codex/config.toml 2>/dev/null || true
+   ```
+6. Reauthenticate only when the credential file is genuinely absent/expired. A rebuild alone is not a reason to sign in again.
+
+### Recovery
+
+If the marker says `STATUS=partial`, run `install_cli_tools.sh --repair`. Working tools are left in place. If diagnostics report DNS/TLS failure, verify proxy/custom-CA settings before reinstalling tools. If router startup fails, inspect `ss -tlnp` and the owned PID files under `~/.router-data`; do not use broad `pkill -f` commands.
+
+---
+
 ## v1.2.2 - Auth Persistence
 
 ### What Changed
