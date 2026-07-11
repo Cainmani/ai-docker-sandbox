@@ -43,6 +43,11 @@ INSTALL_MARKER="${HOME}/.cli_tools_installed"
 TOOLS_VERSION_FILE="${HOME}/.cli_tools_versions"
 INSTALL_STATUS_FILE="${HOME}/.cli_install_status"
 
+# Present when the user uninstalled the AI routers via configure-tools. While
+# it exists the routers are neither installed nor counted in the install
+# marker, so the uninstall survives container restarts and --repair runs.
+ROUTER_OPTOUT_FILE="${HOME}/.router-data/routers-optout"
+
 # Tools that must work for the environment to be considered healthy.
 # If any of these remain broken after an install run, the script exits nonzero
 # and the structured marker records STATUS=partial.
@@ -557,13 +562,23 @@ install_cli_tools() {
         print_warning "Vibe Kanban installation failed - can be installed manually with: npm install -g vibe-kanban"
     fi
 
+    # The AI routers hold linked provider credentials, so their versions only
+    # move deliberately (via a release that bumps these pins) - never through
+    # the weekly blanket "npm update -g". The pin manifest written below is
+    # read by auto_update.sh, which restores these exact versions after every
+    # update run. CI's pinned-version check greps the "name@version" literals.
+    local pinned_9router="9router@0.5.18"
+    local pinned_omniroute="omniroute@3.8.45"
+
     # 6. Install 9router (unified AI API router - links multiple AI subscriptions behind one
     # OpenAI-compatible endpoint; web dashboard served on port 20128, bound to 0.0.0.0 by the
     # 9router() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
     update_install_status "9router" "npm"
-    if ! should_install 9router; then
+    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
+        print_status "9router uninstalled via configure-tools (opt-out) - skipping"
+    elif ! should_install 9router; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "9router@0.5.18" "/tmp/9router_install.log"; then
+    elif npm_install_with_retry "$pinned_9router" "/tmp/9router_install.log"; then
         print_success "9router installed successfully"
     else
         print_warning "9router installation failed - can be installed manually with: npm install -g 9router"
@@ -574,13 +589,18 @@ install_cli_tools() {
     # to 0.0.0.0 by the omniroute() wrapper in ~/.bashrc so it is reachable from the host browser;
     # the wrapper stops any other router and waits for the port before starting.)
     update_install_status "OmniRoute" "npm"
-    if ! should_install omniroute; then
+    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
+        print_status "OmniRoute uninstalled via configure-tools (opt-out) - skipping"
+    elif ! should_install omniroute; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "omniroute@3.8.45" "/tmp/omniroute_install.log"; then
+    elif npm_install_with_retry "$pinned_omniroute" "/tmp/omniroute_install.log"; then
         print_success "OmniRoute installed successfully"
     else
         print_warning "OmniRoute installation failed - can be installed manually with: npm install -g omniroute"
     fi
+
+    # Pin manifest consumed by auto_update.sh (one name@version per line).
+    printf '%s\n%s\n' "$pinned_9router" "$pinned_omniroute" > "${HOME}/.npm-pinned-tools"
 
     # Save versions to file
     save_versions
@@ -603,6 +623,11 @@ install_cli_tools() {
 create_marker_file() {
     local failed_tools="" failed_required=0 tool
     local all_tools="claude gh gemini codex vibe-kanban 9router omniroute openai"
+    # Deliberately uninstalled routers must not count as a partial install,
+    # or every container start would run --repair and reinstall them.
+    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
+        all_tools="claude gh gemini codex vibe-kanban openai"
+    fi
 
     for tool in $all_tools; do
         if ! tool_healthy "$tool"; then

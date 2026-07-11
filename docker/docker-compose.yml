@@ -48,11 +48,16 @@ services:
     secrets:
       - user_password
     ports:
+      # Both web UIs below are published on the host loopback interface ONLY. Without the
+      # 127.0.0.1 prefix Docker binds 0.0.0.0 on the host, exposing these dashboards (the
+      # router one holds linked AI provider credentials and has no authentication) to the
+      # local network. Mobile/remote access goes through SSH in docker-compose.mobile.yml,
+      # not through these ports.
       # Vibe Kanban web UI - accessible from Windows browser at http://localhost:3000
-      - "${VIBE_KANBAN_PORT:-3000}:${VIBE_KANBAN_PORT:-3000}"
+      - "127.0.0.1:${VIBE_KANBAN_PORT:-3000}:${VIBE_KANBAN_PORT:-3000}"
       # AI router dashboard (9router or OmniRoute) - reachable from the Windows browser at
       # http://localhost:20128/dashboard. One shared port; only one router runs at a time.
-      - "${AI_ROUTER_PORT:-20128}:${AI_ROUTER_PORT:-20128}"
+      - "127.0.0.1:${AI_ROUTER_PORT:-20128}:${AI_ROUTER_PORT:-20128}"
       # SSH/Mosh ports for mobile access are published by docker-compose.mobile.yml,
       # which is only included when mobile access is enabled.
     volumes:
