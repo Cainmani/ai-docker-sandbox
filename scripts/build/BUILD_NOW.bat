@@ -14,6 +14,6 @@ echo ================================================================
 echo    BUILD COMPLETE!
 echo ================================================================
 echo.
-echo Check for AI_Docker_Manager.exe in this directory.
+echo Check for AI_Docker_Manager_v^<version^>.exe in the project root.
 echo.
 pause

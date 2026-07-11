@@ -67,10 +67,11 @@ jobs:
       - name: Verify build
         shell: pwsh
         run: |
-          $outputPath = Join-Path $PWD "AI_Docker_Manager.exe"
+          $versionedName = "AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe"
+          $outputPath = Join-Path $PWD $versionedName
 
           if (-not (Test-Path $outputPath)) {
-            Write-Error "Build failed - output file not found"
+            Write-Error "Build failed - output file $versionedName not found"
             exit 1
           }
 
@@ -82,12 +83,18 @@ jobs:
           Write-Host "Build successful: $outputPath (file version $actualVersion)"
           Get-Item $outputPath | Select-Object Name, Length, LastWriteTime
 
-      - name: Generate SHA256 checksum
+          # Also publish a stable-named copy so the permanent
+          # releases/latest/download/AI_Docker_Manager.exe link keeps working.
+          Copy-Item $outputPath (Join-Path $PWD "AI_Docker_Manager.exe") -Force
+
+      - name: Generate SHA256 checksums
         id: checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash -Path "AI_Docker_Manager.exe" -Algorithm SHA256).Hash
+          $versionedName = "AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe"
+          $hash = (Get-FileHash -Path $versionedName -Algorithm SHA256).Hash
           echo "SHA256=$hash" >> $env:GITHUB_OUTPUT
+          echo "$hash  $versionedName" | Out-File -FilePath "$versionedName.sha256" -Encoding utf8
           echo "$hash  AI_Docker_Manager.exe" | Out-File -FilePath "AI_Docker_Manager.exe.sha256" -Encoding utf8
           Write-Host "SHA256: $hash"
 
@@ -95,6 +102,8 @@ jobs:
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: |
+            AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe
+            AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe.sha256
             AI_Docker_Manager.exe
             AI_Docker_Manager.exe.sha256
           body: |
@@ -102,7 +111,7 @@ jobs:
 
             ### Installation
 
-            1. Download `AI_Docker_Manager.exe` below
+            1. Download `AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe` below (or `AI_Docker_Manager.exe` — same file, stable name)
             2. Run the executable (you may need to click "More info" → "Run anyway" on Windows SmartScreen)
             3. Click "First Time Setup" to begin
 
