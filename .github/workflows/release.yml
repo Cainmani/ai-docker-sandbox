@@ -87,6 +87,13 @@ jobs:
           # releases/latest/download/AI_Docker_Manager.exe link keeps working.
           Copy-Item $outputPath (Join-Path $PWD "AI_Docker_Manager.exe") -Force
 
+      - name: Smoke-test the EXE under Restricted execution policy
+        shell: pwsh
+        run: |
+          $versionedName = "AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe"
+          & pwsh -NoProfile -File scripts/build/test_exe_smoke.ps1 -ExePath (Join-Path $PWD $versionedName)
+          if ($LASTEXITCODE -ne 0) { throw "EXE smoke test failed - not releasing a broken launcher" }
+
       - name: Generate SHA256 checksums
         id: checksum
         shell: pwsh

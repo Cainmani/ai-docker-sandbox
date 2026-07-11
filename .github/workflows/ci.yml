@@ -202,6 +202,37 @@ jobs:
           $result = Invoke-Pester -Path tests -PassThru
           if ($result.FailedCount -gt 0) { exit 1 }
 
+  exe-smoke:
+    # Build the real EXE with ps2exe and launch it under the Windows DEFAULT
+    # (Restricted) execution policy. Every other suite tests the scripts; this
+    # is the only check that exercises the compiled artifact, catching bugs
+    # that exist only inside the ps2exe host (e.g. the v1.4.0 in-process
+    # dot-sourcing that the execution policy blocked).
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install ps2exe
+        shell: pwsh
+        run: |
+          Install-Module -Name ps2exe -RequiredVersion 1.0.17 -Force -Scope CurrentUser
+          Import-Module ps2exe
+
+      - name: Build executable
+        shell: pwsh
+        working-directory: scripts/build
+        run: |
+          & powershell.exe -ExecutionPolicy Bypass -File "build_complete_exe.ps1" -NonInteractive
+
+      - name: Smoke-test the EXE under Restricted execution policy
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $exePath = Join-Path $PWD "AI_Docker_Manager_v$version.exe"
+          & pwsh -NoProfile -File scripts/build/test_exe_smoke.ps1 -ExePath $exePath
+          if ($LASTEXITCODE -ne 0) { throw "EXE smoke test failed" }
+
   version-consistency:
     runs-on: ubuntu-latest
     steps:

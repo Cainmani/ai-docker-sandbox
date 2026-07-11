@@ -75,6 +75,48 @@ All logging functions sanitize before writing to disk:
 
 ---
 
+## Load-Bearing Invariants
+
+Rules a change can silently break without any test failing locally. Read before touching the areas they name.
+
+### The EXE must run under a `Restricted` execution policy
+
+`AI_Docker_Complete.ps1` runs inside a ps2exe host on the end user's machine, where the Windows **default** execution policy blocks loading any `.ps1` file from disk. Therefore, inside the EXE's own process:
+
+- **Never dot-source an extracted `.ps1` file** (`. $path`). Load embedded content instead: `. ([ScriptBlock]::Create((Get-EmbeddedFileContent 'name.ps1')))`.
+- Child scripts are exempt — they are launched as separate processes with `-ExecutionPolicy Bypass` (keep that flag).
+- CI's `exe-smoke` job launches the built EXE under `Restricted` policy to enforce this (`scripts/build/test_exe_smoke.ps1`); the release workflow runs the same gate before publishing.
+
+### Runtime is Windows PowerShell 5.1, everywhere
+
+The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pwsh.exe`). No PS7-only syntax (`??`, ternary) or .NET Core-only APIs — the dual 5.1/7 Pester CI matrix exists to catch this.
+
+### Managed `~/.bashrc` block versioning
+
+`docker/lib/entrypoint_helpers.sh` regenerates a marked block in the container user's `.bashrc` on every start. **Any change to the block's content requires bumping `MANAGED_BLOCK_VERSION`**, or existing containers keep the old block forever (same version = no-op). User-authored content outside the markers must survive byte-for-byte.
+
+### Install marker semantics (`~/.cli_tools_installed`)
+
+`STATUS=ok|partial` is parsed by the entrypoint: `partial` triggers `install_cli_tools.sh --repair` on the next container start, which reinstalls anything unhealthy. Consequences:
+
+- A tool that is *deliberately* absent must be excluded from the marker's tool list, or repair will resurrect it. The AI router uninstall does this via the opt-out file `~/.router-data/routers-optout` — respect it in any new install/repair path.
+- Never write `STATUS=ok` while a required tool (`claude gh codex`) is broken.
+
+### npm version pins are literals, and the updater must not defeat them
+
+- CI's `check-pinned-versions` job **greps `install_cli_tools.sh` for literal `name@version` strings** (e.g. `9router@0.5.18`). Keep the pins as literals in that file even when refactoring into variables.
+- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (currently the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `install_cli_tools.sh` and re-applied by `auto_update.sh` after every update run. New "pinned forever" tools go in that manifest, not in ad-hoc updater logic.
+
+### Published ports bind to the host loopback interface only
+
+`docker-compose.yml` publishes the web dashboards as `127.0.0.1:<port>:<port>`. The router dashboard stores linked AI provider credentials and has no authentication — never publish it (or new web UIs) without the `127.0.0.1` prefix. Remote/mobile access goes through the SSH ports in `docker-compose.mobile.yml`, not through dashboard ports.
+
+### CLI routing contract
+
+`~/.router-data/cli-routing.env` (written by `configure_tools.sh`, mode 600) exports `OPENAI_BASE_URL`/`OPENAI_API_KEY` (and optionally the Anthropic equivalents) and is sourced by the managed `.bashrc` block. Absent file = routing disabled and CLIs talk to providers directly. Anything that creates or removes it must go through the AI Router menu's logic so enable/disable stays symmetric.
+
+---
+
 ## Build System
 
 ### Adding a New File to the .exe
@@ -169,8 +211,8 @@ Scripts are mounted read-only. Only for local development.
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `ci.yml` | Push/PR to main | PowerShell syntax check, Pester tests, Dockerfile validation, pinned version check |
-| `release.yml` | Push `v*.*.*` tag | Builds .exe on windows-latest, creates GitHub release with checksum |
+| `ci.yml` | Push/PR to main | PowerShell syntax check, Pester tests (5.1 + 7), bash suites, Dockerfile validation, pinned version check, **EXE smoke test** (builds the real EXE and launches it under a `Restricted` execution policy) |
+| `release.yml` | Push `v*.*.*` tag | Builds .exe on windows-latest, smoke-tests it under `Restricted` policy, creates GitHub release with checksums |
 
 ### Pester Tests
 
