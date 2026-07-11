@@ -5,6 +5,21 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-11
+
+Makes the AI routers (9router / OmniRoute) opt-in and simplifies them down to "run the command, use the router's own dashboard." Force Rebuild/recreate once to pick up the new install set and the regenerated `~/.bashrc` router commands.
+
+### Changed
+- **9router and OmniRoute are no longer installed during first-time setup.** They are opt-in: run `9router` or `omniroute` in the workspace and it offers to install the tool on the spot (at its pinned version), then starts it. First-time setup now installs 7 tools instead of 9, so it finishes noticeably faster.
+- **Only one router can be installed at a time.** Installing one automatically removes the other (with confirmation) — there is no state where both are present.
+- **Running `9router` / `omniroute` is now self-healing and foreground.** The command reclaims the shared dashboard port from any stale or orphaned listener (including the Next.js `next-server` child that previously got left behind and jammed the port), then runs the router in the foreground bound to `0.0.0.0`, dropping you into its own dashboard at `http://localhost:20128/dashboard`. No more "port 20128 is still in use" refusals; stop with Ctrl+C.
+
+### Removed
+- **The CLI-routing feature is gone.** Earlier versions could point the container CLIs (Codex/OpenAI SDK, optionally Claude Code) at the router via injected `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` environment variables. Nothing now auto-configures your CLIs to use a router — if you want that, configure it inside the router's own web dashboard. Removed the `configure-tools` "AI Router" menu, the `--ai-router` flag, and the `~/.router-data/cli-routing.env` mechanism.
+
+### Migration
+- Existing installs that had a router auto-installed keep it; it simply won't be reinstalled if removed. If you previously enabled CLI routing, delete `~/.router-data/cli-routing.env` (or just rebuild) to stop routing your CLIs through the router. Linked-subscription data in `~/.router-data` is preserved.
+
 ## [1.4.3] - 2026-07-11
 
 Fixes the setup wizard reporting "taking longer than expected" on a fully successful install.

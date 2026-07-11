@@ -285,8 +285,10 @@ jobs:
           echo ""
           stale=0
 
-          # Extract pinned versions from install_cli_tools.sh
+          # Extract pinned versions from install_cli_tools.sh (auto-installed
+          # tools) and router_utils.sh (the opt-in routers, installed on demand).
           SCRIPT="docker/install_cli_tools.sh"
+          ROUTER_SCRIPT="docker/lib/router_utils.sh"
 
           check_npm() {
             local pkg="$1"
@@ -332,8 +334,8 @@ jobs:
           codex_ver=$(grep -oP '@openai/codex@\K[0-9.]+' "$SCRIPT" | head -1)
           vibe_ver=$(grep -oP 'vibe-kanban@\K[0-9.]+' "$SCRIPT" | head -1)
           opencode_ver=$(grep -oP 'opencode-ai@\K[0-9.]+' "$SCRIPT" | head -1)
-          ninerouter_ver=$(grep -oP '9router@\K[0-9.]+' "$SCRIPT" | head -1)
-          omniroute_ver=$(grep -oP 'omniroute@\K[0-9.]+' "$SCRIPT" | head -1)
+          ninerouter_ver=$(grep -oP '9router@\K[0-9.]+' "$ROUTER_SCRIPT" | head -1)
+          omniroute_ver=$(grep -oP 'omniroute@\K[0-9.]+' "$ROUTER_SCRIPT" | head -1)
           openai_ver=$(grep -oP 'openai==\K[0-9.]+' "$SCRIPT" | head -1)
 
           echo "Pinned versions found in $SCRIPT:"

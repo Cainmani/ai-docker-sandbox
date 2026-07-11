@@ -43,11 +43,6 @@ INSTALL_MARKER="${HOME}/.cli_tools_installed"
 TOOLS_VERSION_FILE="${HOME}/.cli_tools_versions"
 INSTALL_STATUS_FILE="${HOME}/.cli_install_status"
 
-# Present when the user uninstalled the AI routers via configure-tools. While
-# it exists the routers are neither installed nor counted in the install
-# marker, so the uninstall survives container restarts and --repair runs.
-ROUTER_OPTOUT_FILE="${HOME}/.router-data/routers-optout"
-
 # Tools that must work for the environment to be considered healthy.
 # If any of these remain broken after an install run, the script exits nonzero
 # and the structured marker records STATUS=partial.
@@ -567,44 +562,14 @@ install_cli_tools() {
         print_warning "Vibe Kanban installation failed - can be installed manually with: npm install -g vibe-kanban"
     fi
 
-    # The AI routers hold linked provider credentials, so their versions only
-    # move deliberately (via a release that bumps these pins) - never through
-    # the weekly blanket "npm update -g". The pin manifest written below is
-    # read by auto_update.sh, which restores these exact versions after every
-    # update run. CI's pinned-version check greps the "name@version" literals.
-    local pinned_9router="9router@0.5.18"
-    local pinned_omniroute="omniroute@3.8.45"
+    # NOTE: The AI routers (9router / OmniRoute) are intentionally NOT installed
+    # here. They are opt-in and installed on demand the first time the user runs
+    # `9router` or `omniroute` in the container (see ai_router_exec in
+    # docker/lib/router_utils.sh), which also enforces "only one at a time" and
+    # records the version pin. Keeping them out of first-time setup avoids
+    # forcing two large, credential-holding packages on every install.
 
-    # 6. Install 9router (unified AI API router - links multiple AI subscriptions behind one
-    # OpenAI-compatible endpoint; web dashboard served on port 20128, bound to 0.0.0.0 by the
-    # 9router() wrapper in ~/.bashrc so it is reachable from the Windows host browser)
-    update_install_status "9router" "npm"
-    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
-        print_status "9router uninstalled via configure-tools (opt-out) - skipping"
-    elif ! should_install 9router; then
-        : # already working - skipped in repair mode
-    elif npm_install_with_retry "$pinned_9router" "/tmp/9router_install.log"; then
-        print_success "9router installed successfully"
-    else
-        print_warning "9router installation failed - can be installed manually with: npm install -g 9router"
-    fi
-
-    # 7. Install OmniRoute (unified AI gateway - same family of tool as 9router; interchangeable
-    # with it and shares the SAME dashboard port 20128, so only one router runs at a time. Bound
-    # to 0.0.0.0 by the omniroute() wrapper in ~/.bashrc so it is reachable from the host browser;
-    # the wrapper stops any other router and waits for the port before starting.)
-    update_install_status "OmniRoute" "npm"
-    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
-        print_status "OmniRoute uninstalled via configure-tools (opt-out) - skipping"
-    elif ! should_install omniroute; then
-        : # already working - skipped in repair mode
-    elif npm_install_with_retry "$pinned_omniroute" "/tmp/omniroute_install.log"; then
-        print_success "OmniRoute installed successfully"
-    else
-        print_warning "OmniRoute installation failed - can be installed manually with: npm install -g omniroute"
-    fi
-
-    # 8. Install OpenCode (open-source multi-provider AI coding agent TUI;
+    # 6. Install OpenCode (open-source multi-provider AI coding agent TUI;
     # authenticate inside the container with: opencode auth login)
     update_install_status "OpenCode CLI" "npm"
     if ! should_install opencode; then
@@ -615,8 +580,8 @@ install_cli_tools() {
         print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"
     fi
 
-    # Pin manifest consumed by auto_update.sh (one name@version per line).
-    printf '%s\n%s\n' "$pinned_9router" "$pinned_omniroute" > "${HOME}/.npm-pinned-tools"
+    # The pin manifest (~/.npm-pinned-tools) is written by ai_router_install
+    # when a router is installed on demand - not here, since routers are opt-in.
 
     # Save versions to file
     save_versions
@@ -638,12 +603,10 @@ install_cli_tools() {
 # propagate a nonzero exit for a genuinely broken environment).
 create_marker_file() {
     local failed_tools="" failed_required=0 tool
-    local all_tools="claude gh gemini codex vibe-kanban opencode 9router omniroute openai"
-    # Deliberately uninstalled routers must not count as a partial install,
-    # or every container start would run --repair and reinstall them.
-    if [ -f "$ROUTER_OPTOUT_FILE" ]; then
-        all_tools="claude gh gemini codex vibe-kanban opencode openai"
-    fi
+    # Routers (9router/omniroute) are intentionally excluded - they are opt-in,
+    # installed on demand by the `9router`/`omniroute` commands, so their absence
+    # is never a "partial install" and must not trigger --repair reinstalls.
+    local all_tools="claude gh gemini codex vibe-kanban opencode openai"
 
     for tool in $all_tools; do
         if ! tool_healthy "$tool"; then
