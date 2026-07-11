@@ -35,7 +35,8 @@ $successPatterns = @(
 )
 $failurePatterns = @(
     'running scripts is disabled',
-    'is not recognized as the name of a cmdlet'
+    'is not recognized as the name of a cmdlet',
+    'Docker check failed unexpectedly'
 )
 
 # The whole point of this test: the EXE must work under the Windows DEFAULT

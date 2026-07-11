@@ -85,6 +85,33 @@ function Write-AppLog {
     }
 }
 
+# SHA256 via .NET only. Get-FileHash must NOT be used inside this EXE: in
+# Windows PowerShell 5.1 it is a FUNCTION shipped in a .psm1, and a Restricted
+# execution policy (the Windows default) blocks that module script from
+# autoloading - the resulting error surfaces as a blocking popup at startup.
+function Get-Sha256Hex {
+    param(
+        [byte[]]$Bytes,
+        [string]$FilePath
+    )
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        if ($FilePath) {
+            $stream = [System.IO.File]::OpenRead($FilePath)
+            try {
+                $hashBytes = $sha256.ComputeHash($stream)
+            } finally {
+                $stream.Dispose()
+            }
+        } else {
+            $hashBytes = $sha256.ComputeHash($Bytes)
+        }
+        return ([System.BitConverter]::ToString($hashBytes)).Replace('-', '')
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
 Write-AppLog "========================================" "INFO"
 Write-AppLog "AI Docker Complete (Standalone) Started" "INFO"
 Write-AppLog "Log file: $script:LogFile" "INFO"
@@ -187,7 +214,7 @@ function Install-Update {
         Invoke-WebRequest -Uri $shaAsset.browser_download_url -OutFile $shaFile -UseBasicParsing
 
         $expectedHash = ((Get-Content $shaFile -Raw).Trim() -split '\s+')[0]
-        $actualHash = (Get-FileHash -Path $newExe -Algorithm SHA256).Hash
+        $actualHash = Get-Sha256Hex -FilePath $newExe
         Remove-Item $shaFile -Force -ErrorAction SilentlyContinue
         if (-not $expectedHash -or ($actualHash -ne $expectedHash)) {
             Write-AppLog "Self-update: SHA256 verification FAILED - downloaded file discarded" "ERROR"
@@ -358,7 +385,7 @@ function Extract-DockerFiles {
             $hashBuilder.Append($content) | Out-Null
         }
     }
-    $currentHash = (Get-FileHash -InputStream ([System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($hashBuilder.ToString()))) -Algorithm SHA256).Hash
+    $currentHash = Get-Sha256Hex -Bytes ([System.Text.Encoding]::UTF8.GetBytes($hashBuilder.ToString()))
 
     # Check if files need updating
     $needsUpdate = $false
@@ -1025,30 +1052,41 @@ $btnExit.Add_Click({
 # Check if Docker Desktop is running on startup
 Write-AppLog "Checking if Docker Desktop is running..." "DEBUG"
 function Test-DockerRunning {
-    $dockerHelpers = Join-Path $filesDir 'docker_helpers.ps1'
-    $logUtils = Join-Path $filesDir 'log_utils.ps1'
-    if (-not (Test-Path $dockerHelpers) -or -not (Test-Path $logUtils)) {
-        Extract-DockerFiles
-        Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1') | Out-Null
-    }
-
-    # Load in-process from embedded content, not the extracted files:
-    # dot-sourcing a .ps1 from disk is subject to the machine's execution
-    # policy (Restricted by default), which the compiled EXE inherits. The
-    # files above are still extracted for the child launch scripts, which
-    # run with -ExecutionPolicy Bypass.
-    foreach ($helperName in @('log_utils.ps1', 'docker_helpers.ps1')) {
-        $helperContent = Get-EmbeddedFileContent $helperName
-        if ($helperContent) {
-            . ([ScriptBlock]::Create($helperContent))
+    # Any unhandled error in here becomes a blocking ps2exe popup at startup
+    # (the failure mode the exe-smoke CI job watches for), so every step is
+    # logged and failures degrade to "Docker not detected" instead of a hang.
+    try {
+        $dockerHelpers = Join-Path $filesDir 'docker_helpers.ps1'
+        $logUtils = Join-Path $filesDir 'log_utils.ps1'
+        if (-not (Test-Path $dockerHelpers) -or -not (Test-Path $logUtils)) {
+            Write-AppLog "Docker check: extracting Docker files and helper scripts..." "DEBUG"
+            Extract-DockerFiles
+            Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1') | Out-Null
+            Write-AppLog "Docker check: extraction complete" "DEBUG"
         }
+
+        # Load in-process from embedded content, not the extracted files:
+        # dot-sourcing a .ps1 from disk is subject to the machine's execution
+        # policy (Restricted by default), which the compiled EXE inherits. The
+        # files above are still extracted for the child launch scripts, which
+        # run with -ExecutionPolicy Bypass.
+        foreach ($helperName in @('log_utils.ps1', 'docker_helpers.ps1')) {
+            $helperContent = Get-EmbeddedFileContent $helperName
+            if ($helperContent) {
+                . ([ScriptBlock]::Create($helperContent))
+            }
+        }
+        Write-AppLog "Docker check: helper modules loaded" "DEBUG"
+        if (Get-Command DockerOk -ErrorAction SilentlyContinue) {
+            return DockerOk -TimeoutSeconds 30
+        }
+        Write-AppLog "Docker helpers unavailable in embedded resources - falling back to direct docker check" "WARN"
+        docker info 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        Write-AppLog "Docker check failed unexpectedly: $($_.Exception.Message)" "ERROR"
+        return $false
     }
-    if (Get-Command DockerOk -ErrorAction SilentlyContinue) {
-        return DockerOk -TimeoutSeconds 30
-    }
-    Write-AppLog "Docker helpers unavailable in embedded resources - falling back to direct docker check" "WARN"
-    docker info 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
 }
 
 $dockerRunning = Test-DockerRunning

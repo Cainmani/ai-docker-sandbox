@@ -85,6 +85,7 @@ Rules a change can silently break without any test failing locally. Read before 
 `AI_Docker_Complete.ps1` runs inside a ps2exe host on the end user's machine, where the Windows **default** execution policy blocks loading any `.ps1` file from disk. Therefore, inside the EXE's own process:
 
 - **Never dot-source an extracted `.ps1` file** (`. $path`). Load embedded content instead: `. ([ScriptBlock]::Create((Get-EmbeddedFileContent 'name.ps1')))`.
+- **Never use PS 5.1 cmdlets that are actually `.psm1`-shipped functions** — `Get-FileHash`, `New-TemporaryFile`, `New-Guid`, `Format-Hex`, etc. Their module script can't autoload under `Restricted` policy, and the error surfaces as a blocking popup. Use .NET equivalents (the template's `Get-Sha256Hex` exists for exactly this reason). Binary cmdlets (`Invoke-WebRequest`, `Get-Content`, …) are fine.
 - Child scripts are exempt — they are launched as separate processes with `-ExecutionPolicy Bypass` (keep that flag).
 - CI's `exe-smoke` job launches the built EXE under `Restricted` policy to enforce this (`scripts/build/test_exe_smoke.ps1`); the release workflow runs the same gate before publishing.
 
