@@ -96,5 +96,23 @@ else
     if [ "$rc" -eq 2 ]; then pass "missing probe returns status 2"; else fail "missing probe returns status 2"; fi
 fi
 
+# --- opt-in install helpers (pins, mutual exclusion mapping, port pids) ---
+
+# The router package name equals its command name and maps to a pinned spec.
+assert_true "9router pin is a name@version literal" test "$(__ai_router_pin 9router)" = "9router@0.5.18"
+assert_true "omniroute pin is a name@version literal" test "$(__ai_router_pin omniroute)" = "omniroute@3.8.45"
+
+# "Only one at a time" mapping: each router's counterpart is the other one.
+assert_true "9router's counterpart is omniroute" test "$(__ai_router_other 9router)" = "omniroute"
+assert_true "omniroute's counterpart is 9router" test "$(__ai_router_other omniroute)" = "9router"
+
+# ai_router_port_pids extracts the listener PID from ss output (the next-server
+# child that holds the shared port).
+ss() { printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 511 0.0.0.0:20128 0.0.0.0:* users:(("next-server",pid=4242,fd=18))\n'; }
+assert_true "port_pids finds the listener pid" test "$(ai_router_port_pids 20128)" = "4242"
+ss() { printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n'; }
+assert_true "port_pids is empty when nothing listens" test -z "$(ai_router_port_pids 20128)"
+unset -f ss
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

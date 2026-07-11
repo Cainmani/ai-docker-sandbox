@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
 **Last Updated:** July 11, 2026
-**Project Version:** 1.4.3
+**Project Version:** 1.5.0
 
 ---
 
@@ -39,6 +39,8 @@ Windows (.exe)                          Docker Container (Linux)
 | OpenAI Python SDK | `python3 -c "import openai"` | pip |
 | Vibe Kanban | `vibe-kanban` | npm |
 | OpenCode | `opencode` | npm (`opencode-ai`) |
+
+**Opt-in (not installed by default):** 9router / OmniRoute. Run `9router` or `omniroute` in the workspace to install one on demand (only one at a time) and start it; configure providers in the router's own dashboard.
 
 ---
 
@@ -101,13 +103,17 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 `STATUS=ok|partial` is parsed by the entrypoint: `partial` triggers `install_cli_tools.sh --repair` on the next container start, which reinstalls anything unhealthy. Consequences:
 
-- A tool that is *deliberately* absent must be excluded from the marker's tool list, or repair will resurrect it. The AI router uninstall does this via the opt-out file `~/.router-data/routers-optout` — respect it in any new install/repair path.
+- A tool that is *deliberately* absent must be excluded from the marker's tool list, or repair will resurrect it. The opt-in routers (9router/OmniRoute) are simply never in the list, so their absence is never "partial."
 - Never write `STATUS=ok` while a required tool (`claude gh codex`) is broken.
+
+### The AI routers are opt-in and mutually exclusive
+
+9router / OmniRoute are **not** installed by `install_cli_tools.sh`. They install on demand via `ai_router_exec` (`docker/lib/router_utils.sh`), which backs the `9router`/`omniroute` shell commands: install-if-missing (prompted), reclaim the shared port from any stale listener (`ai_router_free_port` — kills the `next-server` child, not just the tracked parent), then run foreground bound to `0.0.0.0`. `ai_router_install` enforces "only one at a time" (installing one removes the other) and writes the single pin to `~/.npm-pinned-tools`. There is intentionally **no** CLI-routing / provider-config injection — providers are configured in the router's own dashboard.
 
 ### npm version pins are literals, and the updater must not defeat them
 
-- CI's `check-pinned-versions` job **greps `install_cli_tools.sh` for literal `name@version` strings** (e.g. `9router@0.5.18`). Keep the pins as literals in that file even when refactoring into variables.
-- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (currently the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `install_cli_tools.sh` and re-applied by `auto_update.sh` after every update run. New "pinned forever" tools go in that manifest, not in ad-hoc updater logic.
+- CI's `check-pinned-versions` job **greps for literal `name@version` strings**: auto-installed tools in `install_cli_tools.sh`, and the routers in `docker/lib/router_utils.sh` (`AI_ROUTER_PIN_9ROUTER`/`AI_ROUTER_PIN_OMNIROUTE`). Keep the pins as literals even when refactoring into variables.
+- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `ai_router_install` when a router is installed and re-applied by `auto_update.sh` after every update run.
 
 ### Release asset names are an API (self-update depends on them)
 
@@ -116,10 +122,6 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 ### Published ports bind to the host loopback interface only
 
 `docker-compose.yml` publishes the web dashboards as `127.0.0.1:<port>:<port>`. The router dashboard stores linked AI provider credentials and has no authentication — never publish it (or new web UIs) without the `127.0.0.1` prefix. Remote/mobile access goes through the SSH ports in `docker-compose.mobile.yml`, not through dashboard ports.
-
-### CLI routing contract
-
-`~/.router-data/cli-routing.env` (written by `configure_tools.sh`, mode 600) exports `OPENAI_BASE_URL`/`OPENAI_API_KEY` (and optionally the Anthropic equivalents) and is sourced by the managed `.bashrc` block. Absent file = routing disabled and CLIs talk to providers directly. Anything that creates or removes it must go through the AI Router menu's logic so enable/disable stays symmetric.
 
 ---
 

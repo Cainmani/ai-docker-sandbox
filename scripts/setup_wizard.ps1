@@ -1834,7 +1834,7 @@ $btnNext.Add_Click({
             # AI CLI tools will be auto-installed by entrypoint.sh
             $status.Text = 'Installing AI CLI tools suite...'
             Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
-            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex, Vibe Kanban, 9router, OmniRoute, OpenCode..." -ForegroundColor Yellow
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex, Vibe Kanban, OpenCode..." -ForegroundColor Yellow
             Write-Host "[INFO] This will take 5-10 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
@@ -1896,13 +1896,12 @@ $btnNext.Add_Click({
             }
 
             # Check installation progress by looking for the marker file.
-            # 9 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
-            # 9router, OmniRoute, OpenCode). The install marker is written only after ALL of
-            # them finish, so this cap must exceed the total install time or the wizard reports
-            # "taking longer than expected" even on a fully successful run. OmniRoute alone
-            # bundles 200+ providers and is the slowest single install; adding OpenCode as a 9th
-            # tool pushed 8-tool runs past the old 10-minute cap.
-            $maxWaitTime = 900  # 15 minutes
+            # 7 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
+            # OpenCode). The AI routers (9router/OmniRoute) are NOT installed here - they are
+            # opt-in and installed on demand by the `9router`/`omniroute` commands. The install
+            # marker is written only after all 7 finish, so this cap must exceed total install
+            # time or the wizard reports "taking longer than expected" on a successful run.
+            $maxWaitTime = 900  # 15 minutes (ample headroom for 7 tools)
             $waitedTime = 0
             $checkInterval = 3  # Check more frequently for better UI updates
 
@@ -1954,18 +1953,16 @@ $btnNext.Add_Click({
                         $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
                         Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
 
-                        # Update progress based on which tool is currently installing (9 tools total)
+                        # Update progress based on which tool is currently installing (7 tools total)
                         # Names must match update_install_status calls in docker/install_cli_tools.sh
                         $toolProgress = switch ($toolName) {
                             'GitHub CLI' { 15 }
                             'Claude Code CLI' { 30 }
-                            'Google Gemini CLI' { 45 }
-                            'OpenAI Python SDK' { 55 }
-                            'OpenAI Codex CLI' { 65 }
-                            'Vibe Kanban' { 78 }
-                            '9router' { 86 }
-                            'OmniRoute' { 92 }
-                            'OpenCode CLI' { 96 }
+                            'Google Gemini CLI' { 50 }
+                            'OpenAI Python SDK' { 62 }
+                            'OpenAI Codex CLI' { 74 }
+                            'Vibe Kanban' { 86 }
+                            'OpenCode CLI' { 95 }
                             default { $progress.Value }  # Keep current if unknown
                         }
                         $progress.Value = $toolProgress

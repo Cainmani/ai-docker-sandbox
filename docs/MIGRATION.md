@@ -165,6 +165,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
+| v1.5.0 | 2026-07 | AI routers (9router/OmniRoute) are now opt-in (run `9router`/`omniroute` to install one; only one at a time) and the CLI-routing feature was removed. Force rebuild/recreate once; linked-subscription data is preserved |
 | v1.4.3 | 2026-07 | None — setup wizard install-wait raised to 15 min (no rebuild needed; launcher-only fix) |
 | v1.4.2 | 2026-07 | None — adds the OpenCode CLI and a self-updating launcher (force rebuild recommended to install OpenCode) |
 | v1.4.1 | 2026-07 | Router/Vibe Kanban dashboards now bind to the host loopback interface only — no longer reachable from the LAN (force rebuild/recreate required; use SSH mobile access for remote use) |

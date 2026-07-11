@@ -341,6 +341,8 @@ elif [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|   * codex        - OpenAI Codex CLI                         |"
   echo "|   * opencode     - OpenCode AI coding agent (TUI)           |"
   echo "|   * python3      - OpenAI Python SDK (import openai)        |"
+  echo "|                                                             |"
+  echo "| Optional AI routers (run the command to install & start):   |"
   echo "|   * 9router      - Unified AI router (dashboard :20128)     |"
   echo "|   * omniroute    - Unified AI router (alt. to 9router)      |"
   echo "|                                                             |"

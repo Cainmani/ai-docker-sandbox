@@ -168,7 +168,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=3
+MANAGED_BLOCK_VERSION=4
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -223,25 +223,18 @@ install_managed_block() {
 ${MANAGED_BLOCK_BEGIN} v${MANAGED_BLOCK_VERSION} >>>
 EOF
     cat >> "$bashrc" << 'EOF'
-# AI router wrappers (9router / OmniRoute): bind the dashboard to 0.0.0.0 so
-# it is reachable from the host browser at http://localhost:20128/dashboard
-# (port overridable via AI_ROUTER_PORT). DATA_DIR points each router at its
-# own persisted data dir. Only one router runs at a time - starting one stops
-# the other (owned-PID stop with TERM->KILL escalation, then waits for the
-# shared port to actually be released before binding).
+# AI router commands (9router / OmniRoute). The routers are opt-in - not
+# installed by default. Running `9router` (or `omniroute`) installs it on first
+# use (removing the other; only one at a time), reclaims the shared dashboard
+# port from any stale listener, and runs it in the foreground bound to 0.0.0.0
+# so the host browser reaches http://localhost:20128/dashboard (port overridable
+# via AI_ROUTER_PORT). Configure providers in the router's own dashboard.
 # Managed by ai-docker-sandbox - do not edit inside this block; it is
 # regenerated on container start.
 if [ -f /usr/local/lib/router_utils.sh ]; then
     . /usr/local/lib/router_utils.sh
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
-fi
-# CLI routing: when enabled via configure-tools (AI Router menu), this env
-# file exports the router endpoint/key (OPENAI_BASE_URL etc.) so the container
-# CLIs send requests through the local router instead of directly to each
-# provider. Absent file = routing disabled.
-if [ -f "$HOME/.router-data/cli-routing.env" ]; then
-    . "$HOME/.router-data/cli-routing.env"
 fi
 EOF
     cat >> "$bashrc" << EOF

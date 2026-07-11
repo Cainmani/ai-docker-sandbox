@@ -31,6 +31,92 @@ AI_ROUTER_PID_DIR="${AI_ROUTER_PID_DIR:-${HOME}/.router-data}"
 # Poll interval (seconds) for wait loops; tests override this for speed.
 AI_ROUTER_POLL_INTERVAL="${AI_ROUTER_POLL_INTERVAL:-1}"
 
+# Pinned router versions (name@version literals; CI's check-pinned-versions
+# greps these). The routers are NOT installed by default - they are installed
+# on demand the first time you run `9router` or `omniroute`, at these versions.
+AI_ROUTER_PIN_9ROUTER="9router@0.5.18"
+AI_ROUTER_PIN_OMNIROUTE="omniroute@3.8.45"
+
+# The npm package name for a router equals its command name.
+__ai_router_pin() {
+    case "$1" in
+        9router)   echo "$AI_ROUTER_PIN_9ROUTER" ;;
+        omniroute) echo "$AI_ROUTER_PIN_OMNIROUTE" ;;
+    esac
+}
+__ai_router_other() {
+    case "$1" in
+        9router)   echo "omniroute" ;;
+        omniroute) echo "9router" ;;
+    esac
+}
+
+# True when the router's npm package is installed globally.
+ai_router_installed() {
+    npm list -g "$1" >/dev/null 2>&1
+}
+
+# Install a router at its pinned version, enforcing "only one at a time": if the
+# other router is installed it is removed first. Records the single pin so the
+# weekly updater holds it. Returns nonzero on install failure.
+ai_router_install() {
+    local name="$1" other pin
+    other=$(__ai_router_other "$name")
+    pin=$(__ai_router_pin "$name")
+    if [ -z "$pin" ]; then
+        echo "Unknown router: $name" >&2
+        return 1
+    fi
+    if [ -n "$other" ] && ai_router_installed "$other"; then
+        echo "Removing $other (only one router can be installed at a time)..."
+        npm uninstall -g "$other" >/dev/null 2>&1 || true
+    fi
+    echo "Installing $pin (first run only - this can take a minute)..."
+    if ! npm install -g "$pin"; then
+        echo "ERROR: failed to install $pin. Try manually: npm install -g $pin" >&2
+        return 1
+    fi
+    # Record the single active pin so auto_update.sh holds it at this version.
+    printf '%s\n' "$pin" > "${HOME}/.npm-pinned-tools"
+    return 0
+}
+
+# Echo the PIDs of processes listening on the given TCP port (one per line).
+# Catches the Next.js `next-server` child that actually binds the port, which
+# can outlive the router process the wrappers launched.
+ai_router_port_pids() {
+    local port="$1"
+    command -v ss >/dev/null 2>&1 || return 0
+    ss -tlnp 2>/dev/null | awk -v port="$port" '
+        NR == 1 { next }
+        { n = split($4, a, /[:.]/); if (a[n] == port) print $0 }
+    ' | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
+}
+
+# Free the shared router port by terminating whatever is listening on it
+# (TERM, then KILL for survivors). This is what makes `9router` self-healing:
+# a stale or orphaned listener from a previous run is reclaimed rather than
+# blocking the next start. Best-effort; returns 0.
+ai_router_free_port() {
+    local port="${1:-${AI_ROUTER_PORT:-20128}}" pids attempt=0
+    pids=$(ai_router_port_pids "$port")
+    [ -z "$pids" ] && return 0
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    while [ "$attempt" -lt 10 ]; do
+        pids=$(ai_router_port_pids "$port")
+        [ -z "$pids" ] && return 0
+        sleep 0.3
+        attempt=$((attempt + 1))
+    done
+    pids=$(ai_router_port_pids "$port")
+    if [ -n "$pids" ]; then
+        # shellcheck disable=SC2086
+        kill -KILL $pids 2>/dev/null || true
+    fi
+    return 0
+}
+
 __ai_router_pid_file() {
     echo "${AI_ROUTER_PID_DIR}/$1.pid"
 }
@@ -218,64 +304,55 @@ __ai_router_legacy_kill() {
 # Usage: ai_router_stop_all [port] [timeout_polls]
 # Returns 0 = port free, 1 = port still busy after timeout, 2 = no port probe.
 ai_router_stop_all() {
-    local port="${1:-${AI_ROUTER_PORT:-20128}}" timeout="${2:-10}" rc
+    local port="${1:-${AI_ROUTER_PORT:-20128}}" timeout="${2:-10}"
+    # Stop any process we recorded ownership of (clears its pid file), then
+    # definitively reclaim the port from whatever still holds it - including an
+    # orphaned next-server child the recorded-PID stop can't see.
     ai_router_stop_process 9router
     ai_router_stop_process omniroute
-
-    ai_router_port_busy "$port"
-    rc=$?
-    [ "$rc" -eq 2 ] && return 2
-    if [ "$rc" -eq 0 ]; then
-        # Something (an old-wrapper router) still holds the port.
-        __ai_router_legacy_kill 9router TERM
-        __ai_router_legacy_kill omniroute TERM
-        ai_router_wait_port_free "$port" 5
-        rc=$?
-        [ "$rc" -eq 2 ] && return 2
-        if [ "$rc" -ne 0 ]; then
-            __ai_router_legacy_kill 9router KILL
-            __ai_router_legacy_kill omniroute KILL
-        fi
-    fi
+    ai_router_free_port "$port"
     ai_router_wait_port_free "$port" "$timeout"
 }
 
-# Run a router in the FOREGROUND with the env it needs (bind 0.0.0.0 so the
-# host browser can reach the published port; DATA_DIR = its own persisted
-# data dir), after cleanly stopping any other router and confirming the shared
-# port is actually free. Used by the ~/.bashrc wrapper functions.
+# Entry point for the `9router` / `omniroute` shell commands.
+#
+# Goal: typing `9router` just works and drops you into the router's own
+# interface. Specifically:
+#   1. If the router isn't installed, offer to install it on the spot (routers
+#      are opt-in, not part of first-time setup). Installing one removes the
+#      other, so only one is ever present.
+#   2. Reclaim the shared dashboard port from any stale/orphaned listener
+#      (no "port in use" refusal - it self-heals instead).
+#   3. Run the router in the FOREGROUND, bound to 0.0.0.0 so the host browser
+#      reaches http://localhost:<port>/dashboard, with its own persisted
+#      DATA_DIR. You configure providers in the router's own dashboard.
+# Stop it with Ctrl+C; the next run reclaims the port regardless of how it exited.
 ai_router_exec() {
     local name="$1"
     shift
-    local port="${AI_ROUTER_PORT:-20128}" rc status pid
-    ai_router_stop_all "$port"
-    rc=$?
-    if [ "$rc" -eq 2 ]; then
-        echo "ERROR: neither 'ss' nor 'netstat' is available to check port ${port} - not starting ${name}." >&2
-        return 1
-    elif [ "$rc" -ne 0 ]; then
-        echo "ERROR: port ${port} is still in use by another process - not starting ${name} (inspect with: ss -tlnp)." >&2
-        return 1
+    local port="${AI_ROUTER_PORT:-20128}" other reply
+
+    if ! ai_router_installed "$name"; then
+        other=$(__ai_router_other "$name")
+        printf '%s is not installed. Install it now' "$name"
+        if [ -n "$other" ] && ai_router_installed "$other"; then
+            printf ' (this removes %s - only one router at a time)' "$other"
+        fi
+        printf '? [y/N] '
+        read -r reply
+        case "$reply" in
+            [yY]|[yY][eE][sS]) ;;
+            *) echo "Not installed. Run '${name}' again to install it later."; return 1 ;;
+        esac
+        ai_router_install "$name" || return 1
     fi
+
+    # Reclaim the port from any stale/orphaned listener, then run in foreground.
+    ai_router_free_port "$port"
     mkdir -p "${HOME}/.router-data/${name}"
+    echo "Starting ${name} - dashboard at http://localhost:${port}/dashboard  (Ctrl+C to stop)"
     env HOST=0.0.0.0 HOSTNAME=0.0.0.0 PORT="$port" \
-        DATA_DIR="${HOME}/.router-data/${name}" "$name" "$@" &
-    pid=$!
-    if ! ai_router_record_pid "$name" "$pid"; then
-        kill -TERM "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
-        echo "ERROR: could not record ownership for ${name}; process stopped." >&2
-        return 1
-    fi
-    trap 'kill -TERM "$pid" 2>/dev/null || true' INT TERM
-    if wait "$pid"; then
-        status=0
-    else
-        status=$?
-    fi
-    trap - INT TERM
-    ai_router_clear_pid "$name"
-    return "$status"
+        DATA_DIR="${HOME}/.router-data/${name}" "$name" "$@"
 }
 
 # Start a router DETACHED (nohup, logging to a file) and record ownership.
