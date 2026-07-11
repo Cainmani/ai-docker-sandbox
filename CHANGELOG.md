@@ -5,7 +5,9 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.2] - 2026-07-11
+
+Adds the OpenCode CLI to the workspace and a self-updating launcher, with build-time hardening. Rebuild the container once to pick up OpenCode; the self-update takes effect from the next release after this one.
 
 ### Added
 - **OpenCode CLI is now installed in the container** (`opencode-ai@1.17.18`, command `opencode`) and listed in the workspace welcome banner. Authenticate inside the container with `opencode auth login`. Like the other tools it participates in install status/repair and the weekly updater, and the wizard's install progress tracks it (now 9 tools).

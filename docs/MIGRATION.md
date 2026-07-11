@@ -165,6 +165,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
+| v1.4.2 | 2026-07 | None — adds the OpenCode CLI and a self-updating launcher (force rebuild recommended to install OpenCode) |
 | v1.4.1 | 2026-07 | Router/Vibe Kanban dashboards now bind to the host loopback interface only — no longer reachable from the LAN (force rebuild/recreate required; use SSH mobile access for remote use) |
 | v1.4.0 | 2026-07 | Mobile SSH/Mosh ports moved to `docker-compose.mobile.yml` — base Compose no longer publishes them (force rebuild recommended; install marker is upgraded automatically) |
 | v1.2.4 | 2026-07 | None — dependency refresh (force rebuild recommended to get updated AI CLI tools) |
