@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Makes the AI routers (9router / OmniRoute) opt-in and simplifies them down to "run the command, use the router's own dashboard." Force Rebuild/recreate once to pick up the new install set and the regenerated `~/.bashrc` router commands.
 
+### Fixed
+- **Setup no longer shows a false "Container did not become ready" error on a healthy build.** The wizard waited only 120 seconds for the container to report ready, but the container writes its readiness marker only after the entrypoint finishes the first-time CLI tool install (Claude's native installer plus several npm packages), which routinely takes 2–4 minutes. Both build-time readiness waits (initial build and the mobile-access recreate) now allow 15 minutes, matching the actual install time. A genuinely crashed container still fails fast, and the status text now says tools are installing so the wait isn't mistaken for a hang.
+
 ### Changed
 - **9router and OmniRoute are no longer installed during first-time setup.** They are opt-in: run `9router` or `omniroute` in the workspace and it offers to install the tool on the spot (at its pinned version), then starts it. First-time setup now installs 7 tools instead of 9, so it finishes noticeably faster.
 - **Only one router can be installed at a time.** Installing one automatically removes the other (with confirmation) — there is no state where both are present.

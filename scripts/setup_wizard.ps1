@@ -1710,10 +1710,17 @@ $btnNext.Add_Click({
             Write-Host "[SUCCESS] Container started" -ForegroundColor Green
 
             # Wait for the real container health/readiness state instead of a
-            # blind delay or a one-shot "Up" string check.
-            $script:lblBuildStatus.Text = 'Waiting for container readiness...'
-            $script:buildTerminalBox.AppendText(">> Waiting for container readiness...`r`n")
-            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 120 -PollIntervalMs 250)) {
+            # blind delay or a one-shot "Up" string check. The container writes
+            # its readiness marker only AFTER the entrypoint finishes the
+            # first-time CLI tool install (Claude native installer + several npm
+            # packages), which routinely takes 2-4 minutes - so this timeout must
+            # comfortably exceed that or it fires a false "did not become ready"
+            # on a perfectly healthy build. Wait-ContainerReady still returns
+            # immediately if the container actually exits/dies, so a real crash
+            # still fails fast.
+            $script:lblBuildStatus.Text = 'Installing CLI tools in container (first run can take several minutes)...'
+            $script:buildTerminalBox.AppendText(">> Waiting for container readiness - first-time CLI tool install can take several minutes...`r`n")
+            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 900 -PollIntervalMs 250)) {
                 $script:buildTerminalBox.AppendText(">> ERROR: Container did not become ready!`r`n")
                 $logs = Run-Process-UI -file $script:dockerExe -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
                 $script:buildTerminalBox.AppendText(">> Container logs:`r`n$($logs.StdOut)`r`n$($logs.StdErr)`r`n")
@@ -1821,7 +1828,11 @@ $btnNext.Add_Click({
                 return
             }
 
-            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 120 -PollIntervalMs 250)) {
+            # Recreating the container reinstalls the CLI tools in the fresh
+            # container layer, so this readiness wait faces the same multi-minute
+            # first-run install as the initial build - use the same generous
+            # timeout (a real crash still returns immediately).
+            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 900 -PollIntervalMs 250)) {
                 Show-Error 'The container did not become ready after applying the mobile access setting.'
                 return
             }
