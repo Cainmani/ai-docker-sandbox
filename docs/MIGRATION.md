@@ -165,6 +165,7 @@ curl -fsSL https://claude.ai/install.sh | sh
 
 | Version | Date | Breaking Changes |
 |---------|------|------------------|
+| v1.5.3 | 2026-07 | None — setup now starts the container only after the Mobile Access choice (tools install once), and the "Container Update Recommended" dialog only appears when a release actually changed container-side files (launcher-only fix) |
 | v1.5.2 | 2026-07 | None — Mobile Access "Next" no longer force-recreates the container (and reinstalls all tools) when the setting is unchanged, and the wizard now detects install completion instead of waiting out its 15-min timeout (launcher-only fix) |
 | v1.5.1 | 2026-07 | None — setup readiness wait raised to 15 min so first-time installs stop triggering a false "did not become ready" error (launcher-only fix) |
 | v1.5.0 | 2026-07 | AI routers (9router/OmniRoute) are now opt-in (run `9router`/`omniroute` to install one; only one at a time) and the CLI-routing feature was removed. Force rebuild/recreate once; linked-subscription data is preserved |

@@ -158,6 +158,32 @@ Describe 'Test-ContainerVersionSkew' {
         $result.SkewDetected | Should -BeFalse
         $result.Error | Should -Match 'daemon unavailable'
     }
+
+    It 'does not report skew after a launcher-only release when the container meets the baseline' {
+        Mock Invoke-DockerCommand { @{ Success = $true; ExitCode = 0; Output = "1.5.1`n"; Error = ''; TimedOut = $false } }
+        $result = Test-ContainerVersionSkew -LauncherVersion '1.5.2' -ContainerBaselineVersion '1.5.0' -DockerPath 'docker'
+        $result.SkewDetected | Should -BeFalse
+        $result.ContainerVersion | Should -Be '1.5.1'
+    }
+
+    It 'reports skew when the container predates the baseline' {
+        Mock Invoke-DockerCommand { @{ Success = $true; ExitCode = 0; Output = "1.4.3`n"; Error = ''; TimedOut = $false } }
+        $result = Test-ContainerVersionSkew -LauncherVersion '1.5.2' -ContainerBaselineVersion '1.5.0' -DockerPath 'docker'
+        $result.SkewDetected | Should -BeTrue
+    }
+
+    It 'falls back to the launcher version when the baseline is invalid' {
+        Mock Invoke-DockerCommand { @{ Success = $true; ExitCode = 0; Output = "1.4.3`n"; Error = ''; TimedOut = $false } }
+        $result = Test-ContainerVersionSkew -LauncherVersion '1.5.2' -ContainerBaselineVersion 'not-a-version' -DockerPath 'docker'
+        $result.SkewDetected | Should -BeTrue
+    }
+
+    It 'still flags a legacy image when a baseline is provided' {
+        Mock Invoke-DockerCommand { @{ Success = $true; ExitCode = 0; Output = "0.0.0`n"; Error = ''; TimedOut = $false } }
+        $result = Test-ContainerVersionSkew -LauncherVersion '1.5.2' -ContainerBaselineVersion '1.5.0' -DockerPath 'docker'
+        $result.SkewDetected | Should -BeTrue
+        $result.LegacyImage | Should -BeTrue
+    }
 }
 
 Describe 'Wait-ContainerReady' {

@@ -1600,9 +1600,8 @@ $btnNext.Add_Click({
                 [System.Windows.Forms.Application]::DoEvents()
                 Write-Host "[DEV MODE] Build simulation complete" -ForegroundColor Magenta
 
-                Write-Host "[DEV MODE] Simulating docker compose up..." -ForegroundColor Magenta
-                $status.Text = '[DEV MODE] Simulating container start...'
-                Start-Sleep -Milliseconds 500
+                # The real flow starts the container on the Mobile Access page,
+                # so the build simulation ends here.
                 $progress.Value = 0
                 [System.Windows.Forms.Application]::DoEvents()
 
@@ -1646,8 +1645,9 @@ $btnNext.Add_Click({
                 Write-Host "[INFO] No cached image found" -ForegroundColor Yellow
             }
 
-            # Use the persisted mobile setting for the initial create so existing
-            # mobile users retain their published ports during a recreate.
+            # Compose args are needed for the build command; use the persisted
+            # mobile setting to pick a valid compose file set (the port
+            # mappings it controls only matter for the 'up' on the next page).
             $savedEnv = Read-EnvFile -Path $script:envPath
             $mobileEnabled = ($savedEnv.ContainsKey('ENABLE_MOBILE_ACCESS') -and $savedEnv['ENABLE_MOBILE_ACCESS'] -eq '1')
             try {
@@ -1693,46 +1693,17 @@ $btnNext.Add_Click({
                 Write-Host "[SUCCESS] Docker image built" -ForegroundColor Green
             }
 
-            # docker compose up -d
-            $script:lblBuildStatus.Text = 'Starting container...'
-            $script:buildTerminalBox.AppendText("`r`n>> Starting container...`r`n")
-            Write-Host "[INFO] Starting container" -ForegroundColor Cyan
+            # The container is deliberately NOT started here. Starting it would
+            # kick off the first-time CLI tool install immediately, and the
+            # Mobile Access choice on the next page decides the compose file
+            # set - a changed choice would recreate the container and throw
+            # that whole install away. The single 'up' happens on the Mobile
+            # Access page, after the user has confirmed their choice.
+            $script:lblBuildStatus.Text = 'Image ready'
+            $script:buildTerminalBox.AppendText("`r`n>> Image ready - configure Mobile Access next...`r`n")
+            Write-Host "[SUCCESS] Image ready - proceeding to Mobile Access configuration" -ForegroundColor Green
 
-            $upArgs = "$composeArgs up -d"
-            $r2 = Run-Process-WithTerminal -file $script:dockerExe -arguments $upArgs -terminalBox $script:buildTerminalBox -statusLabel $script:lblBuildStatus -workingDirectory $dockerPath -operationName 'Container Start'
-            if (-not $r2.Ok) {
-                if ($r2.Cancelled) { return }  # User cancelled - no error popup
-                $errMsg = 'up failed' + [Environment]::NewLine + $r2.StdErr
-                Write-Host "[ERROR] Container startup failed" -ForegroundColor Red
-                Show-Error $errMsg
-                return
-            }
-            Write-Host "[SUCCESS] Container started" -ForegroundColor Green
-
-            # Wait for the real container health/readiness state instead of a
-            # blind delay or a one-shot "Up" string check. The container writes
-            # its readiness marker only AFTER the entrypoint finishes the
-            # first-time CLI tool install (Claude native installer + several npm
-            # packages), which routinely takes 2-4 minutes - so this timeout must
-            # comfortably exceed that or it fires a false "did not become ready"
-            # on a perfectly healthy build. Wait-ContainerReady still returns
-            # immediately if the container actually exits/dies, so a real crash
-            # still fails fast.
-            $script:lblBuildStatus.Text = 'Installing CLI tools in container (first run can take several minutes)...'
-            $script:buildTerminalBox.AppendText(">> Waiting for container readiness - first-time CLI tool install can take several minutes...`r`n")
-            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 900 -PollIntervalMs 250)) {
-                $script:buildTerminalBox.AppendText(">> ERROR: Container did not become ready!`r`n")
-                $logs = Run-Process-UI -file $script:dockerExe -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
-                $script:buildTerminalBox.AppendText(">> Container logs:`r`n$($logs.StdOut)`r`n$($logs.StdErr)`r`n")
-                Show-Error 'Container did not become ready. Check the console output and Docker logs.'
-                return
-            }
-            $script:buildTerminalBox.AppendText(">> Container is ready!`r`n")
-            Write-Host "[SUCCESS] Container is ready" -ForegroundColor Green
-            $script:buildTerminalBox.AppendText("`r`n>> Container ready - proceeding to Mobile Access configuration...`r`n")
-            Write-Host "[SUCCESS] Container ready" -ForegroundColor Green
-
-            $status.Text = 'Container started - configure Mobile Access'
+            $status.Text = 'Image ready - configure Mobile Access'
             # Move to Mobile Access page (page 6)
             $script:current++; Show-Page $script:current
         }
@@ -1803,54 +1774,50 @@ $btnNext.Add_Click({
                 return
             }
 
-            # Persist the selected state. The container from the build step was
-            # created with compose files matching the previously saved setting,
-            # so a recreate is only needed when the user actually changed it.
-            # Recreating unconditionally discards the container layer - where
-            # the CLI tools and their install marker live - and forces a full
-            # multi-minute reinstall of every tool.
+            # Persist the selected state, then perform the single container
+            # start of the whole setup with exactly the compose files that
+            # correspond to it. The build page deliberately leaves the
+            # container down so the first-time CLI tool install runs only
+            # once, with the user's Mobile Access choice already applied.
+            # Plain 'up -d' (no --force-recreate) creates the container fresh
+            # on first setup, recreates an existing one only when its
+            # configuration actually changed (image, SSH/Mosh port mappings),
+            # and is a no-op when nothing changed - preserving the container
+            # layer where the installed CLI tools live.
             $mobileEnabled = $script:chkMobileAccess.Checked
             $mobileValue = if ($mobileEnabled) { '1' } else { '0' }
-            $priorEnv = Read-EnvFile -Path $script:envPath
-            $priorValue = if ($priorEnv.ContainsKey('ENABLE_MOBILE_ACCESS')) { $priorEnv['ENABLE_MOBILE_ACCESS'] } else { '0' }
             if (-not (Set-EnvKey -Path $script:envPath -Key 'ENABLE_MOBILE_ACCESS' -Value $mobileValue)) {
                 Show-Error 'Could not save the mobile access setting to .env.'
                 return
             }
 
-            if ($priorValue -eq $mobileValue) {
-                $status.Text = 'Mobile access setting unchanged - keeping current container'
-                Write-Host "[INFO] Mobile access setting unchanged ($mobileValue) - skipping container recreate" -ForegroundColor Cyan
-            } else {
-                try {
-                    $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
-                } catch {
-                    Show-Error $_.Exception.Message
-                    return
-                }
-
-                # Recreate with exactly the compose files that correspond to the
-                # new setting. Omitting the override removes stale SSH/Mosh port
-                # mappings from the existing container.
-                $status.Text = if ($mobileEnabled) { 'Applying mobile access ports...' } else { 'Removing mobile access ports...' }
-                Write-Host "[INFO] Recreating container with mobile access set to $mobileValue" -ForegroundColor Cyan
-                $restartResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d --force-recreate" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
-                if (-not $restartResult.Ok) {
-                    Show-Error ("Container recreate failed:`n" + $restartResult.StdErr)
-                    return
-                }
-            }
-
-            # A recreate reinstalls the CLI tools in the fresh container layer,
-            # so this readiness wait faces the same multi-minute first-run
-            # install as the initial build - use the same generous timeout.
-            # When the recreate was skipped the container is already ready and
-            # this returns immediately.
-            if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 900 -PollIntervalMs 250)) {
-                Show-Error 'The container did not become ready after applying the mobile access setting.'
+            try {
+                $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
+            } catch {
+                Show-Error $_.Exception.Message
                 return
             }
-            Write-Host "[SUCCESS] Mobile access setting applied" -ForegroundColor Green
+
+            $status.Text = if ($mobileEnabled) { 'Starting container with mobile access ports...' } else { 'Starting container...' }
+            Write-Host "[INFO] Starting container with mobile access set to $mobileValue" -ForegroundColor Cyan
+            $startResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
+            if (-not $startResult.Ok) {
+                if ($startResult.Cancelled) { return }  # User cancelled - no error popup
+                Show-Error ("Container start failed:`n" + $startResult.StdErr)
+                return
+            }
+
+            # Fail fast if the container died right after starting (bad env,
+            # broken entrypoint). The multi-minute first-time install itself is
+            # waited out on the next page, which streams the container logs
+            # live and polls the structured install marker.
+            $stateResult = Run-Process-UI -file $script:dockerExe -arguments 'inspect --format "{{.State.Running}}" ai-cli' -progressBar $null -statusLabel $null
+            if (-not ($stateResult.Ok -and $stateResult.StdOut.Trim() -eq 'true')) {
+                $logs = Run-Process-UI -file $script:dockerExe -arguments 'logs ai-cli' -progressBar $null -statusLabel $null
+                Show-Error ("The container exited immediately after starting. Container logs:`n" + $logs.StdOut + "`n" + $logs.StdErr)
+                return
+            }
+            Write-Host "[SUCCESS] Container started with mobile access set to $mobileValue" -ForegroundColor Green
 
             # Move to CLI Install page (page 6)
             $status.Text = 'Proceeding to CLI tools installation...'

@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
 **Last Updated:** July 11, 2026
-**Project Version:** 1.5.2
+**Project Version:** 1.5.3
 
 ---
 
@@ -250,6 +250,7 @@ Before creating a release:
 
 - [ ] `VERSION` — the single source of truth; the build script and release workflow read it (ps2exe `-version` and the EXE file name are derived automatically)
 - [ ] `scripts/AI_Docker_Complete.ps1` — `$script:AppVersion = "X.Y.Z"`
+- [ ] `scripts/AI_Docker_Complete.ps1` — `$script:ContainerBaselineVersion`: bump to the new version ONLY if the release changes anything under `docker/` (i.e. requires a container rebuild); leave unchanged for launcher-only releases, or every user gets a false "Container Update Recommended" dialog
 - [ ] `scripts/AI_Docker_Launcher.ps1` — `$script:AppVersion = "X.Y.Z"`
 - [ ] `README.md` — download badge version
 - [ ] `CHANGELOG.md` — new version section
