@@ -5,13 +5,11 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.1] - 2026-07-11
 
-### Fixed
-- **Launcher failed at startup with "running scripts is disabled on this system" followed by "'DockerOk' is not recognized"** on machines with the default `Restricted` PowerShell execution policy. The compiled EXE dot-sourced the extracted helper scripts from disk in its own process, which the execution policy blocks; helpers are now loaded in-process from the embedded content (`[ScriptBlock]::Create()`), which the policy does not govern. The startup Docker check also falls back to a direct `docker info` call if the embedded helpers are unavailable.
+Hardens the AI router integration (loopback-only dashboards, held version pins, real uninstall) and adds CLI routing through the router. Force Rebuild/recreate once for the loopback port binding and the updated `~/.bashrc` managed block.
 
 ### Added
-- **The built executable now carries the version in its file name** (`AI_Docker_Manager_v<version>.exe`). Releases publish both the versioned file and a stable-named `AI_Docker_Manager.exe` copy (checksums for each), so the permanent `releases/latest/download/AI_Docker_Manager.exe` link keeps working.
 - **The AI routers can now be properly uninstalled.** The `configure-tools` AI Router menu gained an "Uninstall the routers" option: it stops any running router, removes the 9router/OmniRoute packages, and disables CLI routing so `claude`/`codex` talk directly to their providers again. The uninstall is remembered (opt-out marker on the persisted router-data volume), so container restarts and `--repair` runs no longer reinstall them; dashboard data is kept for a later reinstall unless you choose to delete it, and picking a router from the same menu reinstalls it at its pinned version.
 - **CLI routing through the AI router.** Linking subscriptions in the 9router/OmniRoute dashboard configures the router, but the container CLIs were never pointed at it — they kept talking to each provider directly. The `configure-tools` AI Router menu now offers to route the OpenAI-compatible CLIs (Codex CLI, OpenAI Python SDK) and optionally Claude Code through the router: it writes the endpoint and your router API key (from the dashboard's settings) to `~/.router-data/cli-routing.env` (mode 600, persisted volume), which the managed `~/.bashrc` block sources. Disable any time from the same menu. Force Rebuild/recreate once so the container regenerates the updated managed block.
 
@@ -21,9 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-07-10
 
-Stabilization release for safe upgrades, lifecycle diagnostics, corporate-network support, and recovery of existing installations. Rebuild/recreate once to pick up the new entrypoint and image metadata; named workspace, authentication, router, Vibe Kanban, and SSH volumes are preserved.
+Stabilization release for safe upgrades, lifecycle diagnostics, corporate-network support, and recovery of existing installations. Rebuild/recreate once to pick up the new entrypoint and image metadata; named workspace, authentication, router, Vibe Kanban, and SSH volumes are preserved. The v1.4.0 release binary was re-cut on 2026-07-11 to include the launcher execution-policy fix and versioned file name below.
 
 ### Added
+- **The built executable now carries the version in its file name** (`AI_Docker_Manager_v<version>.exe`). Releases publish both the versioned file and a stable-named `AI_Docker_Manager.exe` copy (checksums for each), so the permanent `releases/latest/download/AI_Docker_Manager.exe` link keeps working. *(Included in the re-cut v1.4.0 binary.)*
 - Structured CLI installation status and targeted `--repair` recovery without removing working tools.
 - Semantic launcher/container version metadata and non-blocking stale-image warnings.
 - `configure-tools --diagnose` for sanitized install, auth, router, proxy, DNS/TLS, and image-version checks.
@@ -32,6 +31,7 @@ Stabilization release for safe upgrades, lifecycle diagnostics, corporate-networ
 - Windows PowerShell 5.1/PowerShell 7 CI and release-version consistency gates.
 
 ### Fixed
+- **Launcher failed at startup with "running scripts is disabled on this system" followed by "'DockerOk' is not recognized"** on machines with the default `Restricted` PowerShell execution policy. The compiled EXE dot-sourced the extracted helper scripts from disk in its own process, which the execution policy blocks; helpers are now loaded in-process from the embedded content (`[ScriptBlock]::Create()`), which the policy does not govern. The startup Docker check also falls back to a direct `docker info` call if the embedded helpers are unavailable. *(Included in the re-cut v1.4.0 binary.)*
 - Failed force installs and npm updates no longer remove the last working CLI.
 - Partial installs are reported honestly and retried selectively on later starts.
 - Authentication migration now verifies staged data before replacing source paths.
