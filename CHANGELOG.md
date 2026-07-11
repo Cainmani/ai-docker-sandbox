@@ -5,6 +5,14 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-07-11
+
+Launcher-only fix; no container rebuild needed.
+
+### Fixed
+- **The Mobile Access "Next" step no longer reinstalls every CLI tool.** The wizard force-recreated the container on every pass through the Mobile Access page, even when the setting hadn't changed. Recreating throws away the container layer — where the CLI tools and their install marker live — so each pass triggered a full multi-minute reinstall of all 7 tools. The recreate now runs only when the mobile access setting actually changed; leaving it as-is and clicking Next proceeds immediately.
+- **The wizard no longer waits out its full 15-minute install timeout after the tools have already finished installing.** The install-complete check read the container's marker file correctly, but the regex that parsed the result never matched: captured output lines end in CRLF, and in .NET multiline regex `$` matches only before the line feed, so the trailing carriage return made `STATUS=ok` unrecognizable. The wizard therefore showed a stale "Installing: OpenCode CLI" status and sat in the polling loop until the timeout, then continued via the "still installing in the background" path. The pattern now tolerates the carriage return, so the wizard advances as soon as the container reports the install is complete.
+
 ## [1.5.1] - 2026-07-11
 
 Launcher-only fix; no container rebuild needed.
