@@ -5,6 +5,13 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-07-11
+
+Launcher-only fix; no container rebuild needed.
+
+### Fixed
+- **Setup no longer shows a false "Container did not become ready" error on a healthy build.** The wizard waited only 120 seconds for the container to report ready, but the container writes its readiness marker only after the entrypoint finishes the first-time CLI tool install (Claude's native installer plus several npm packages), which routinely takes 2–4 minutes. Both build-time readiness waits (initial build and the mobile-access recreate) now allow 15 minutes, matching the actual install time. A genuinely crashed container still fails fast, and the status text now says tools are installing so the wait isn't mistaken for a hang. (This fix was written for 1.5.0 but missed the tag — the commit landed on the PR branch after the merge.)
+
 ## [1.5.0] - 2026-07-11
 
 Makes the AI routers (9router / OmniRoute) opt-in and simplifies them down to "run the command, use the router's own dashboard." Force Rebuild/recreate once to pick up the new install set and the regenerated `~/.bashrc` router commands.
