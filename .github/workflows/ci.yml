@@ -254,6 +254,15 @@ jobs:
           if ($changelog -notmatch ('(?m)^## \[' + [regex]::Escape($version) + '\]')) {
             throw "Latest release $version is missing from CHANGELOG.md"
           }
+          # The container baseline gates the "Container Update Recommended"
+          # dialog; it must exist, parse, and never exceed the release version.
+          $complete = Get-Content scripts/AI_Docker_Complete.ps1 -Raw
+          if ($complete -notmatch '\$script:ContainerBaselineVersion\s*=\s*"(\d+\.\d+\.\d+)"') {
+            throw "scripts/AI_Docker_Complete.ps1 is missing ContainerBaselineVersion"
+          }
+          if ([Version]$Matches[1] -gt [Version]$version) {
+            throw "ContainerBaselineVersion $($Matches[1]) is newer than VERSION $version"
+          }
           # The wizard must propagate the product version into docker/.env, or the
           # built image silently falls back to the compose default (0.0.0), which
           # the version-skew check would misread as a legacy image.

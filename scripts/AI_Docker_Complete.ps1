@@ -121,7 +121,11 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.5.2"  # Keep in sync with root VERSION file
+$script:AppVersion = "1.5.3"  # Keep in sync with root VERSION file
+# Newest release that changed container-side files (anything under docker/).
+# Bump this ONLY in releases that require a container rebuild; launcher-only
+# releases leave it alone so users are not nagged into a pointless rebuild.
+$script:ContainerBaselineVersion = "1.5.0"
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -856,11 +860,11 @@ $btnLaunch.Add_Click({
             # policy (Restricted by default), which the compiled EXE inherits.
             . ([ScriptBlock]::Create($logUtilsContent))
             . ([ScriptBlock]::Create($dockerHelpersContent))
-            $versionSkew = Test-ContainerVersionSkew -LauncherVersion $script:AppVersion
+            $versionSkew = Test-ContainerVersionSkew -LauncherVersion $script:AppVersion -ContainerBaselineVersion $script:ContainerBaselineVersion
             if ($versionSkew.SkewDetected) {
                 $containerVersionText = if ($versionSkew.ContainerVersion) { "v$($versionSkew.ContainerVersion)" } else { 'a legacy version' }
                 [System.Windows.Forms.MessageBox]::Show(
-                    "This launcher is v$script:AppVersion, but the running container uses $containerVersionText.`n`n" +
+                    "The running container uses $containerVersionText, but the newest container-side changes shipped in v$script:ContainerBaselineVersion.`n`n" +
                     "The workspace can still open, but Force Rebuild is recommended so the container receives the latest fixes.",
                     'Container Update Recommended',
                     [System.Windows.Forms.MessageBoxButtons]::OK,

@@ -110,6 +110,12 @@ function Test-ContainerVersionSkew {
         [Parameter(Mandatory)]
         [string]$LauncherVersion,
 
+        # Newest release that actually changed container-side files (docker/).
+        # When provided, skew is measured against this instead of the launcher
+        # version, so launcher-only releases stop recommending a rebuild that
+        # would change nothing inside the container.
+        [string]$ContainerBaselineVersion = $null,
+
         [string]$DockerPath = $null,
         [string]$ContainerName = 'ai-cli'
     )
@@ -126,6 +132,16 @@ function Test-ContainerVersionSkew {
     if (-not [Version]::TryParse($LauncherVersion, [ref]$launcherParsed)) {
         $result.Error = "Invalid launcher version: $LauncherVersion"
         return $result
+    }
+
+    $referenceParsed = $launcherParsed
+    if ($ContainerBaselineVersion) {
+        $baselineParsed = $null
+        if ([Version]::TryParse($ContainerBaselineVersion, [ref]$baselineParsed)) {
+            $referenceParsed = $baselineParsed
+        } else {
+            Write-AppLog "Invalid container baseline version '$ContainerBaselineVersion' - comparing against the launcher version instead." "WARN"
+        }
     }
 
     $inspect = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
@@ -151,9 +167,9 @@ function Test-ContainerVersionSkew {
     }
 
     $result.ContainerVersion = $containerVersion
-    $result.SkewDetected = ($containerParsed -lt $launcherParsed)
+    $result.SkewDetected = ($containerParsed -lt $referenceParsed)
     if ($result.SkewDetected) {
-        Write-AppLog "Container version $containerVersion is older than launcher version $LauncherVersion." "WARN"
+        Write-AppLog "Container version $containerVersion predates the newest container-side release ($referenceParsed)." "WARN"
     }
     return $result
 }

@@ -5,6 +5,16 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-07-11
+
+Launcher-only fix; no container rebuild needed.
+
+### Changed
+- **First-time setup no longer starts the container (and its CLI tool install) before the Mobile Access choice.** The build page now only builds the image; the single `docker compose up` happens after the user confirms Mobile Access, with the matching compose file set already applied. Previously the container started — and began the multi-minute tool install — before the Mobile Access page, so enabling mobile access recreated the container and threw that whole install away. The install now runs exactly once, and its progress is shown live on the install page (streamed container logs + per-tool progress) instead of behind a static "waiting for readiness" message.
+
+### Fixed
+- **"Container Update Recommended" is no longer shown after launcher-only releases.** The version-skew check compared the container's version against the launcher's, so a launcher-only update (like 1.5.1 → 1.5.2, which changes nothing inside the container) nagged every user to Force Rebuild for no benefit. The launcher now tracks the newest release that actually changed container-side files (`ContainerBaselineVersion`, currently 1.5.0) and warns only when the running container predates *that*. CI verifies the baseline exists and never exceeds the release version.
+
 ## [1.5.2] - 2026-07-11
 
 Launcher-only fix; no container rebuild needed.
