@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Cainmani/ai-docker-sandbox/releases/latest">
-    <img src="https://img.shields.io/badge/Download-v1.4.0-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
+    <img src="https://img.shields.io/badge/Download-v1.4.1-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
   &nbsp;
   <a href="LICENSE">

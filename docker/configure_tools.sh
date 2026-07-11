@@ -99,6 +99,10 @@ is_configured() {
         ai_router)
             # 9router / OmniRoute are configured in their web dashboard (you link each AI
             # subscription there), not via a CLI key. Treat "either installed" as ready-to-use.
+            # A deliberate uninstall via the AI Router menu also counts as "nothing to do".
+            if [ -f "${AI_ROUTER_OPTOUT_FILE:-$HOME/.router-data/routers-optout}" ]; then
+                return 0
+            fi
             if npm list -g 9router >/dev/null 2>&1 || npm list -g omniroute >/dev/null 2>&1; then
                 return 0
             fi
@@ -348,6 +352,179 @@ TOML
     fi
 }
 
+# CLI routing env file: sourced by the managed ~/.bashrc block. The router's
+# own settings (linked providers, its API key) live in its web dashboard, but
+# the container CLIs still have to be TOLD to send requests to the router -
+# that is what these exported variables do. Absent file = routing disabled.
+CLI_ROUTING_ENV_FILE="${CLI_ROUTING_ENV_FILE:-$HOME/.router-data/cli-routing.env}"
+
+# Enable/disable routing the container CLIs through the local AI router.
+configure_cli_routing() {
+    local port="${1:-${AI_ROUTER_PORT:-20128}}"
+    local base_url="http://localhost:${port}/v1"
+
+    echo ""
+    print_status "CLI routing points the container CLIs at the router's endpoint instead"
+    print_status "of each provider directly, so requests use your linked subscriptions."
+    if [ -f "$CLI_ROUTING_ENV_FILE" ]; then
+        print_success "CLI routing is currently ENABLED"
+    else
+        print_status "CLI routing is currently disabled (CLIs talk to providers directly)."
+    fi
+    echo ""
+    echo "  1. Enable for OpenAI-compatible CLIs (Codex CLI + OpenAI Python SDK)"
+    echo "  2. Enable for OpenAI-compatible CLIs AND Claude Code"
+    echo "  3. Disable CLI routing"
+    echo "  0. Leave unchanged"
+    echo ""
+    read -rp "Enter your choice: " routing_choice
+
+    case "$routing_choice" in
+        1|2) ;;
+        3)
+            if [ -f "$CLI_ROUTING_ENV_FILE" ]; then
+                rm -f "$CLI_ROUTING_ENV_FILE"
+                print_success "CLI routing disabled. Open a new shell (or 'source ~/.bashrc') to apply."
+                print_status "Variables already exported in THIS shell keep their values until it closes."
+                config_log "INFO" "CLI routing: disabled"
+            else
+                print_status "CLI routing was already disabled."
+            fi
+            return 0
+            ;;
+        0|"") print_status "CLI routing unchanged."; return 0 ;;
+        *) print_error "Invalid choice"; return 1 ;;
+    esac
+
+    echo ""
+    echo "  Paste the router's API key - you'll find it in the router web dashboard"
+    echo "  (Settings / API keys) at http://localhost:${port}/dashboard"
+    read -rsp "  Router API key (input hidden): " router_key
+    echo ""
+    if [ -z "$router_key" ]; then
+        print_error "No key entered - CLI routing not changed."
+        return 1
+    fi
+
+    local anthropic_base=""
+    if [ "$routing_choice" = "2" ]; then
+        echo ""
+        echo "  Claude Code needs the router's Anthropic-compatible endpoint; check the"
+        echo "  router dashboard for the exact URL (Enter accepts http://localhost:${port})."
+        read -rp "  Anthropic-compatible base URL [http://localhost:${port}]: " anthropic_base
+        anthropic_base="${anthropic_base:-http://localhost:${port}}"
+    fi
+
+    mkdir -p "$(dirname "$CLI_ROUTING_ENV_FILE")"
+    {
+        echo "# Managed by configure-tools (AI Router menu). Sourced by the managed"
+        echo "# ~/.bashrc block; routes the container CLIs through the local AI router."
+        echo "# Disable via: configure-tools -> AI Router -> CLI routing -> disable."
+        printf 'export OPENAI_BASE_URL=%q\n' "$base_url"
+        printf 'export OPENAI_API_KEY=%q\n' "$router_key"
+        if [ -n "$anthropic_base" ]; then
+            printf 'export ANTHROPIC_BASE_URL=%q\n' "$anthropic_base"
+            printf 'export ANTHROPIC_AUTH_TOKEN=%q\n' "$router_key"
+        fi
+    } > "$CLI_ROUTING_ENV_FILE"
+    chmod 600 "$CLI_ROUTING_ENV_FILE"
+
+    print_success "CLI routing enabled. Open a new shell (or 'source ~/.bashrc') to apply."
+    print_status "The key is stored in $CLI_ROUTING_ENV_FILE (mode 600, persisted router-data volume)."
+    if [ -n "$anthropic_base" ]; then
+        print_warning "If 'claude' errors after this, the router may not expose an Anthropic-compatible endpoint - rerun and choose option 1 instead."
+    fi
+    config_log "INFO" "CLI routing: enabled (claude included: $([ -n "$anthropic_base" ] && echo yes || echo no))"
+    return 0
+}
+
+# Opt-out marker: while present, install_cli_tools.sh does not (re)install the
+# routers and does not count them in the install marker, so an uninstall done
+# here survives container restarts and --repair runs. It lives on the persisted
+# router-data volume, so it also survives rebuilds.
+AI_ROUTER_OPTOUT_FILE="${AI_ROUTER_OPTOUT_FILE:-$HOME/.router-data/routers-optout}"
+
+# Reinstall path: choosing a router clears any uninstall opt-out and installs
+# the package if missing (at its pinned version when the pin manifest exists).
+ensure_router_installed() {
+    local name="$1" pin spec
+    rm -f "$AI_ROUTER_OPTOUT_FILE"
+    if npm list -g "$name" >/dev/null 2>&1; then
+        return 0
+    fi
+    spec="$name"
+    if [ -f "$HOME/.npm-pinned-tools" ]; then
+        pin=$(grep "^${name}@" "$HOME/.npm-pinned-tools" | head -n1)
+        [ -n "$pin" ] && spec="$pin"
+    fi
+    print_status "$name is not installed - installing $spec (may take a minute)..."
+    config_log "INFO" "AI router: installing $spec"
+    if npm install -g "$spec" >/dev/null 2>&1; then
+        print_success "$name installed"
+        return 0
+    fi
+    print_error "Could not install $name - try manually: npm install -g $spec"
+    config_log "ERROR" "AI router: install failed for $spec"
+    return 1
+}
+
+# Remove the routers entirely and return the CLIs to their normal provider
+# endpoints. Dashboard data (linked subscriptions) is kept unless the user
+# explicitly chooses to delete it.
+uninstall_ai_routers() {
+    local port="${1:-${AI_ROUTER_PORT:-20128}}" confirm wipe pkg
+    echo ""
+    print_status "This stops any running router, uninstalls the 9router and OmniRoute"
+    print_status "packages, and disables CLI routing, so claude/codex talk directly to"
+    print_status "their providers again. The routers stay uninstalled across container"
+    print_status "restarts and rebuilds until you reinstall them from this menu."
+    echo ""
+    read -rp "Uninstall both routers? [y/N]: " confirm
+    case "$confirm" in
+        y|Y) ;;
+        *) print_status "Uninstall cancelled."; return 0 ;;
+    esac
+
+    print_status "Stopping any running router..."
+    ai_router_stop_all "$port" >/dev/null 2>&1
+
+    # Direct CLI traffic back at the providers (new shells pick this up).
+    rm -f "$CLI_ROUTING_ENV_FILE"
+
+    for pkg in 9router omniroute; do
+        if npm list -g "$pkg" >/dev/null 2>&1; then
+            if npm uninstall -g "$pkg" >/dev/null 2>&1; then
+                print_success "Uninstalled $pkg"
+                config_log "INFO" "AI router: uninstalled $pkg"
+            else
+                print_error "Failed to uninstall $pkg - try manually: npm uninstall -g $pkg"
+                config_log "ERROR" "AI router: failed to uninstall $pkg"
+            fi
+        fi
+    done
+
+    mkdir -p "$(dirname "$AI_ROUTER_OPTOUT_FILE")"
+    printf 'Routers uninstalled via configure-tools on %s\n' "$(date)" > "$AI_ROUTER_OPTOUT_FILE"
+
+    echo ""
+    echo "  The routers' stored data (SQLite DB + linked provider credentials) is"
+    echo "  still under ~/.router-data and would be reused on a reinstall."
+    read -rp "Also DELETE that stored router data? [y/N]: " wipe
+    case "$wipe" in
+        y|Y)
+            rm -rf "$HOME/.router-data/9router" "$HOME/.router-data/omniroute"
+            print_success "Router data deleted."
+            config_log "INFO" "AI router: stored router data deleted"
+            ;;
+        *) print_status "Router data kept." ;;
+    esac
+
+    echo ""
+    print_success "Routers removed and CLI routing disabled - claude/codex use their"
+    print_success "normal provider endpoints in new shells (or after 'source ~/.bashrc')."
+    return 0
+}
+
 # Function to configure the AI router slot (9router / OmniRoute)
 # 9router and OmniRoute are interchangeable unified-router tools that share one dashboard port,
 # so only ONE runs at a time. This helper shows which (if any) is running, lets the user pick
@@ -364,7 +541,7 @@ configure_ai_router() {
     npm list -g 9router   >/dev/null 2>&1 && have_9router=true
     npm list -g omniroute >/dev/null 2>&1 && have_omniroute=true
 
-    if [ "$have_9router" = false ] && [ "$have_omniroute" = false ]; then
+    if [ "$have_9router" = false ] && [ "$have_omniroute" = false ] && [ ! -f "$AI_ROUTER_OPTOUT_FILE" ]; then
         print_error "Neither 9router nor OmniRoute is installed"
         echo ""
         echo "They normally install automatically during setup - try 'update-container-tools',"
@@ -372,6 +549,12 @@ configure_ai_router() {
         echo ""
         read -rp "Press Enter to continue..." _
         return 1
+    fi
+
+    if [ -f "$AI_ROUTER_OPTOUT_FILE" ]; then
+        print_status "The routers are currently UNINSTALLED (opted out via this menu);"
+        print_status "the CLIs talk directly to their providers. Picking one reinstalls it."
+        echo ""
     fi
 
     print_status "9router and OmniRoute both link multiple AI subscriptions behind one"
@@ -390,18 +573,23 @@ configure_ai_router() {
         echo ""
     fi
 
-    # Offer only the installed routers
+    # Installed routers are offered directly; a missing one can be (re)installed
+    # when the routers were uninstalled via this menu.
     echo "Which router do you want to run?"
-    [ "$have_9router"   = true ] && echo "  1. 9router"
-    [ "$have_omniroute" = true ] && echo "  2. OmniRoute"
+    if [ "$have_9router" = true ];   then echo "  1. 9router";   else echo "  1. 9router (not installed - will be installed)"; fi
+    if [ "$have_omniroute" = true ]; then echo "  2. OmniRoute"; else echo "  2. OmniRoute (not installed - will be installed)"; fi
+    echo "  3. CLI routing settings only (keep current router state)"
+    echo "  4. Uninstall the routers (CLIs talk directly to their providers)"
     echo "  0. Keep current / skip"
     echo ""
     read -rp "Enter your choice: " router_choice
 
     local tool=""
     case "$router_choice" in
-        1) if [ "$have_9router" = true ];   then tool="9router";   else print_error "9router is not installed";   read -rp "Press Enter to continue..." _; return 1; fi ;;
-        2) if [ "$have_omniroute" = true ]; then tool="omniroute"; else print_error "OmniRoute is not installed"; read -rp "Press Enter to continue..." _; return 1; fi ;;
+        1) if ensure_router_installed 9router;   then tool="9router";   else read -rp "Press Enter to continue..." _; return 1; fi ;;
+        2) if ensure_router_installed omniroute; then tool="omniroute"; else read -rp "Press Enter to continue..." _; return 1; fi ;;
+        3) configure_cli_routing "$port"; local routing_rc=$?; read -rp "Press Enter to continue..." _; return "$routing_rc" ;;
+        4) uninstall_ai_routers "$port"; local uninstall_rc=$?; read -rp "Press Enter to continue..." _; return "$uninstall_rc" ;;
         0|"") print_status "No change."; read -rp "Press Enter to continue..." _; return 0 ;;
         *) print_error "Invalid choice"; read -rp "Press Enter to continue..." _; return 1 ;;
     esac
@@ -448,6 +636,10 @@ configure_ai_router() {
     echo "  Open the dashboard from your host browser and link your subscriptions there:"
     echo "    http://localhost:$port/dashboard"
     echo ""
+
+    # Linking subscriptions in the dashboard configures the ROUTER; the CLIs
+    # only use it once routing is enabled here too.
+    configure_cli_routing "$port"
     read -rp "Press Enter to continue..." _
 }
 

@@ -168,7 +168,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=2
+MANAGED_BLOCK_VERSION=3
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -235,6 +235,13 @@ if [ -f /usr/local/lib/router_utils.sh ]; then
     . /usr/local/lib/router_utils.sh
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
+fi
+# CLI routing: when enabled via configure-tools (AI Router menu), this env
+# file exports the router endpoint/key (OPENAI_BASE_URL etc.) so the container
+# CLIs send requests through the local router instead of directly to each
+# provider. Absent file = routing disabled.
+if [ -f "$HOME/.router-data/cli-routing.env" ]; then
+    . "$HOME/.router-data/cli-routing.env"
 fi
 EOF
     cat >> "$bashrc" << EOF
