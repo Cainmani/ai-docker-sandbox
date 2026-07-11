@@ -202,6 +202,37 @@ jobs:
           $result = Invoke-Pester -Path tests -PassThru
           if ($result.FailedCount -gt 0) { exit 1 }
 
+  exe-smoke:
+    # Build the real EXE with ps2exe and launch it under the Windows DEFAULT
+    # (Restricted) execution policy. Every other suite tests the scripts; this
+    # is the only check that exercises the compiled artifact, catching bugs
+    # that exist only inside the ps2exe host (e.g. the v1.4.0 in-process
+    # dot-sourcing that the execution policy blocked).
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install ps2exe
+        shell: pwsh
+        run: |
+          Install-Module -Name ps2exe -RequiredVersion 1.0.17 -Force -Scope CurrentUser
+          Import-Module ps2exe
+
+      - name: Build executable
+        shell: pwsh
+        working-directory: scripts/build
+        run: |
+          & powershell.exe -ExecutionPolicy Bypass -File "build_complete_exe.ps1" -NonInteractive
+
+      - name: Smoke-test the EXE under Restricted execution policy
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $exePath = Join-Path $PWD "AI_Docker_Manager_v$version.exe"
+          & pwsh -NoProfile -File scripts/build/test_exe_smoke.ps1 -ExePath $exePath
+          if ($LASTEXITCODE -ne 0) { throw "EXE smoke test failed" }
+
   version-consistency:
     runs-on: ubuntu-latest
     steps:
@@ -300,6 +331,7 @@ jobs:
           gemini_ver=$(grep -oP '@google/gemini-cli@\K[0-9.]+' "$SCRIPT" | head -1)
           codex_ver=$(grep -oP '@openai/codex@\K[0-9.]+' "$SCRIPT" | head -1)
           vibe_ver=$(grep -oP 'vibe-kanban@\K[0-9.]+' "$SCRIPT" | head -1)
+          opencode_ver=$(grep -oP 'opencode-ai@\K[0-9.]+' "$SCRIPT" | head -1)
           ninerouter_ver=$(grep -oP '9router@\K[0-9.]+' "$SCRIPT" | head -1)
           omniroute_ver=$(grep -oP 'omniroute@\K[0-9.]+' "$SCRIPT" | head -1)
           openai_ver=$(grep -oP 'openai==\K[0-9.]+' "$SCRIPT" | head -1)
@@ -308,6 +340,7 @@ jobs:
           echo "  @google/gemini-cli: ${gemini_ver:-NOT FOUND}"
           echo "  @openai/codex: ${codex_ver:-NOT FOUND}"
           echo "  vibe-kanban: ${vibe_ver:-NOT FOUND}"
+          echo "  opencode-ai: ${opencode_ver:-NOT FOUND}"
           echo "  9router: ${ninerouter_ver:-NOT FOUND}"
           echo "  omniroute: ${omniroute_ver:-NOT FOUND}"
           echo "  openai (pip): ${openai_ver:-NOT FOUND}"
@@ -317,6 +350,7 @@ jobs:
           [ -n "$gemini_ver" ] && check_npm "@google/gemini-cli" "$gemini_ver"
           [ -n "$codex_ver" ] && check_npm "@openai/codex" "$codex_ver"
           [ -n "$vibe_ver" ] && check_npm "vibe-kanban" "$vibe_ver"
+          [ -n "$opencode_ver" ] && check_npm "opencode-ai" "$opencode_ver"
           [ -n "$ninerouter_ver" ] && check_npm "9router" "$ninerouter_ver"
           [ -n "$omniroute_ver" ] && check_npm "omniroute" "$omniroute_ver"
           [ -n "$openai_ver" ] && check_pip "openai" "$openai_ver"

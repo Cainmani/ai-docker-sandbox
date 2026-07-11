@@ -1834,7 +1834,7 @@ $btnNext.Add_Click({
             # AI CLI tools will be auto-installed by entrypoint.sh
             $status.Text = 'Installing AI CLI tools suite...'
             Write-Host "[INFO] Container is auto-installing AI CLI tools..." -ForegroundColor Cyan
-            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex, Vibe Kanban, 9router, OmniRoute..." -ForegroundColor Yellow
+            Write-Host "[INFO] Installing: Claude, GitHub CLI, Gemini, OpenAI SDK, Codex, Vibe Kanban, 9router, OmniRoute, OpenCode..." -ForegroundColor Yellow
             Write-Host "[INFO] This will take 5-10 minutes on first run..." -ForegroundColor Yellow
             Write-Host "[INFO] This step requires internet connection" -ForegroundColor Yellow
 
@@ -1896,8 +1896,8 @@ $btnNext.Add_Click({
             }
 
             # Check installation progress by looking for the marker file
-            # 8 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
-            # 9router, OmniRoute) - 5 minutes was routinely exceeded after the routers were added
+            # 9 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
+            # 9router, OmniRoute, OpenCode) - 5 minutes was routinely exceeded after the routers were added
             $maxWaitTime = 600  # 10 minutes
             $waitedTime = 0
             $checkInterval = 3  # Check more frequently for better UI updates
@@ -1950,7 +1950,7 @@ $btnNext.Add_Click({
                         $script:lblCurrentTool.Text = "Installing $toolName via $pkgMgr..."
                         Write-Host "[STATUS] Installing: $toolName ($pkgMgr)" -ForegroundColor Cyan
 
-                        # Update progress based on which tool is currently installing (8 tools total)
+                        # Update progress based on which tool is currently installing (9 tools total)
                         # Names must match update_install_status calls in docker/install_cli_tools.sh
                         $toolProgress = switch ($toolName) {
                             'GitHub CLI' { 15 }
@@ -1958,9 +1958,10 @@ $btnNext.Add_Click({
                             'Google Gemini CLI' { 45 }
                             'OpenAI Python SDK' { 55 }
                             'OpenAI Codex CLI' { 65 }
-                            'Vibe Kanban' { 80 }
-                            '9router' { 90 }
-                            'OmniRoute' { 95 }
+                            'Vibe Kanban' { 78 }
+                            '9router' { 86 }
+                            'OmniRoute' { 92 }
+                            'OpenCode CLI' { 96 }
                             default { $progress.Value }  # Keep current if unknown
                         }
                         $progress.Value = $toolProgress
