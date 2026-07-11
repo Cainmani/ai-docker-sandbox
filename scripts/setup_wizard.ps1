@@ -1803,35 +1803,49 @@ $btnNext.Add_Click({
                 return
             }
 
-            # Persist the selected state, then recreate with exactly the compose
-            # files that correspond to it. Omitting the override removes stale
-            # SSH/Mosh port mappings from an existing container.
+            # Persist the selected state. The container from the build step was
+            # created with compose files matching the previously saved setting,
+            # so a recreate is only needed when the user actually changed it.
+            # Recreating unconditionally discards the container layer - where
+            # the CLI tools and their install marker live - and forces a full
+            # multi-minute reinstall of every tool.
             $mobileEnabled = $script:chkMobileAccess.Checked
             $mobileValue = if ($mobileEnabled) { '1' } else { '0' }
+            $priorEnv = Read-EnvFile -Path $script:envPath
+            $priorValue = if ($priorEnv.ContainsKey('ENABLE_MOBILE_ACCESS')) { $priorEnv['ENABLE_MOBILE_ACCESS'] } else { '0' }
             if (-not (Set-EnvKey -Path $script:envPath -Key 'ENABLE_MOBILE_ACCESS' -Value $mobileValue)) {
                 Show-Error 'Could not save the mobile access setting to .env.'
                 return
             }
 
-            try {
-                $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
-            } catch {
-                Show-Error $_.Exception.Message
-                return
+            if ($priorValue -eq $mobileValue) {
+                $status.Text = 'Mobile access setting unchanged - keeping current container'
+                Write-Host "[INFO] Mobile access setting unchanged ($mobileValue) - skipping container recreate" -ForegroundColor Cyan
+            } else {
+                try {
+                    $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
+                } catch {
+                    Show-Error $_.Exception.Message
+                    return
+                }
+
+                # Recreate with exactly the compose files that correspond to the
+                # new setting. Omitting the override removes stale SSH/Mosh port
+                # mappings from the existing container.
+                $status.Text = if ($mobileEnabled) { 'Applying mobile access ports...' } else { 'Removing mobile access ports...' }
+                Write-Host "[INFO] Recreating container with mobile access set to $mobileValue" -ForegroundColor Cyan
+                $restartResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d --force-recreate" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
+                if (-not $restartResult.Ok) {
+                    Show-Error ("Container recreate failed:`n" + $restartResult.StdErr)
+                    return
+                }
             }
 
-            $status.Text = if ($mobileEnabled) { 'Applying mobile access ports...' } else { 'Removing mobile access ports...' }
-            Write-Host "[INFO] Recreating container with mobile access set to $mobileValue" -ForegroundColor Cyan
-            $restartResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d --force-recreate" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
-            if (-not $restartResult.Ok) {
-                Show-Error ("Container recreate failed:`n" + $restartResult.StdErr)
-                return
-            }
-
-            # Recreating the container reinstalls the CLI tools in the fresh
-            # container layer, so this readiness wait faces the same multi-minute
-            # first-run install as the initial build - use the same generous
-            # timeout (a real crash still returns immediately).
+            # A recreate reinstalls the CLI tools in the fresh container layer,
+            # so this readiness wait faces the same multi-minute first-run
+            # install as the initial build - use the same generous timeout.
+            # When the recreate was skipped the container is already ready and
+            # this returns immediately.
             if (-not (Wait-ContainerReady -DockerPath $script:dockerExe -ContainerName 'ai-cli' -TimeoutSeconds 900 -PollIntervalMs 250)) {
                 Show-Error 'The container did not become ready after applying the mobile access setting.'
                 return
@@ -1935,7 +1949,11 @@ $btnNext.Add_Click({
                 $checkInstallCmd = 'exec ai-cli sh -c "marker=/home/' + $state.UserName + '/.cli_tools_installed; if test -f \"$marker\"; then status=$(sed -n ''s/^STATUS=//p'' \"$marker\" | head -n1); failed=$(sed -n ''s/^FAILED_TOOLS=//p'' \"$marker\" | head -n1); test -n \"$status\" || status=legacy; printf ''STATUS=%s\nFAILED_TOOLS=%s\n'' \"$status\" \"$failed\"; fi"'
                 $checkResult = Run-Process-UI -file $script:dockerExe -arguments $checkInstallCmd -progressBar $null -statusLabel $null
 
-                if ($checkResult.Ok -and $checkResult.StdOut -match '(?m)^STATUS=(ok|partial|legacy)$') {
+                # Run-Process-UI joins captured lines with CRLF, and in .NET
+                # multiline regex '$' matches only before LF - so the pattern
+                # must absorb the trailing CR or the marker is never recognized
+                # and this loop silently runs to its full timeout.
+                if ($checkResult.Ok -and $checkResult.StdOut -match '(?m)^STATUS=(ok|partial|legacy)\r?$') {
                     $installStatus = $Matches[1]
                     if ($checkResult.StdOut -match '(?m)^FAILED_TOOLS=(.*)$') { $failedTools = $Matches[1].Trim() }
                     if ($installStatus -eq 'partial') {
