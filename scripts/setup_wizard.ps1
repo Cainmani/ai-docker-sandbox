@@ -1895,10 +1895,14 @@ $btnNext.Add_Click({
                 }
             }
 
-            # Check installation progress by looking for the marker file
+            # Check installation progress by looking for the marker file.
             # 9 tools install sequentially (gh, Claude, Gemini, OpenAI SDK, Codex, Vibe Kanban,
-            # 9router, OmniRoute, OpenCode) - 5 minutes was routinely exceeded after the routers were added
-            $maxWaitTime = 600  # 10 minutes
+            # 9router, OmniRoute, OpenCode). The install marker is written only after ALL of
+            # them finish, so this cap must exceed the total install time or the wizard reports
+            # "taking longer than expected" even on a fully successful run. OmniRoute alone
+            # bundles 200+ providers and is the slowest single install; adding OpenCode as a 9th
+            # tool pushed 8-tool runs past the old 10-minute cap.
+            $maxWaitTime = 900  # 15 minutes
             $waitedTime = 0
             $checkInterval = 3  # Check more frequently for better UI updates
 
@@ -1980,11 +1984,12 @@ $btnNext.Add_Click({
             [System.Windows.Forms.Application]::DoEvents()
 
             if ($waitedTime -ge $maxWaitTime) {
-                Write-Host "[WARNING] Installation is taking longer than expected, but will continue in background" -ForegroundColor Yellow
-                Write-Host "[INFO] This is not an error - the container keeps installing after this window closes" -ForegroundColor Cyan
-                Write-Host "[INFO] Watch progress with: docker logs -f ai-cli" -ForegroundColor Cyan
-                Write-Host "[INFO] Or check status inside the container: cat ~/.cli_tools_installed" -ForegroundColor Cyan
-                $script:terminalBox.AppendText("`r`n>> Installation taking longer than expected, continuing in background...`r`n")
+                Write-Host "[INFO] The tools are still installing and will finish on their own in the background." -ForegroundColor Cyan
+                Write-Host "[INFO] This is NOT an error - you can close this window; the container keeps installing." -ForegroundColor Cyan
+                Write-Host "[INFO] The AI tools (e.g. claude) become available in your shell once install completes." -ForegroundColor Cyan
+                Write-Host "[INFO] Watch progress with:  docker logs -f ai-cli" -ForegroundColor Cyan
+                Write-Host "[INFO] Or check status inside the container:  cat ~/.cli_tools_installed" -ForegroundColor Cyan
+                $script:terminalBox.AppendText("`r`n>> Tools are still installing and will finish in the background - this is not an error.`r`n")
             }
 
             # Verify at least the core tools are available
