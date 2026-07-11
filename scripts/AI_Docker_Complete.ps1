@@ -743,8 +743,11 @@ $btnLaunch.Add_Click({
         if ($dockerHelpersContent -and $logUtilsContent) {
             [System.IO.File]::WriteAllText((Join-Path $filesDir 'docker_helpers.ps1'), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
             [System.IO.File]::WriteAllText((Join-Path $filesDir 'log_utils.ps1'), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
-            . (Join-Path $filesDir 'log_utils.ps1')
-            . (Join-Path $filesDir 'docker_helpers.ps1')
+            # Load in-process from embedded content, not the extracted files:
+            # dot-sourcing a .ps1 from disk is subject to the machine's execution
+            # policy (Restricted by default), which the compiled EXE inherits.
+            . ([ScriptBlock]::Create($logUtilsContent))
+            . ([ScriptBlock]::Create($dockerHelpersContent))
             $versionSkew = Test-ContainerVersionSkew -LauncherVersion $script:AppVersion
             if ($versionSkew.SkewDetected) {
                 $containerVersionText = if ($versionSkew.ContainerVersion) { "v$($versionSkew.ContainerVersion)" } else { 'a legacy version' }
@@ -975,9 +978,23 @@ function Test-DockerRunning {
         }
     }
 
-    . $logUtils
-    . $dockerHelpers
-    return DockerOk -TimeoutSeconds 30
+    # Load in-process from embedded content, not the extracted files:
+    # dot-sourcing a .ps1 from disk is subject to the machine's execution
+    # policy (Restricted by default), which the compiled EXE inherits. The
+    # files above are still extracted for the child launch scripts, which
+    # run with -ExecutionPolicy Bypass.
+    foreach ($helperName in @('log_utils.ps1', 'docker_helpers.ps1')) {
+        $helperContent = Get-EmbeddedFileContent $helperName
+        if ($helperContent) {
+            . ([ScriptBlock]::Create($helperContent))
+        }
+    }
+    if (Get-Command DockerOk -ErrorAction SilentlyContinue) {
+        return DockerOk -TimeoutSeconds 30
+    }
+    Write-AppLog "Docker helpers unavailable in embedded resources - falling back to direct docker check" "WARN"
+    docker info 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
 }
 
 $dockerRunning = Test-DockerRunning

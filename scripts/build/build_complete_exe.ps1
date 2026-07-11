@@ -171,8 +171,9 @@ Write-Host "  OK Created AI_Docker_Complete_Bundled.ps1" -ForegroundColor Green
 # Compile to exe
 Write-Host "[3/4] Compiling to executable..." -ForegroundColor Cyan
 
-# Output to project root
-$exePath = Join-Path $projectRoot "AI_Docker_Manager.exe"
+# Output to project root, with the version in the file name
+$exeName = "AI_Docker_Manager_v$appVersion.exe"
+$exePath = Join-Path $projectRoot $exeName
 
 try {
     Invoke-ps2exe `
@@ -186,7 +187,7 @@ try {
         -noConsole
 
     if (Test-Path $exePath) {
-        Write-Host "  OK AI_Docker_Manager.exe created successfully!" -ForegroundColor Green
+        Write-Host "  OK $exeName created successfully!" -ForegroundColor Green
 
         $fileSize = (Get-Item $exePath).Length / 1MB
         Write-Host "  Size: $([math]::Round($fileSize, 2)) MB" -ForegroundColor Gray
@@ -219,7 +220,7 @@ Write-Host "  OK All shell scripts" -ForegroundColor Green
 Write-Host "  OK Complete documentation" -ForegroundColor Green
 Write-Host ""
 Write-Host "Users can:" -ForegroundColor Cyan
-Write-Host "  1. Download AI_Docker_Manager.exe" -ForegroundColor Yellow
+Write-Host "  1. Download $exeName" -ForegroundColor Yellow
 Write-Host "  2. Run it (extracts files on first run)" -ForegroundColor Yellow
 Write-Host "  3. Click First Time Setup to install" -ForegroundColor Yellow
 Write-Host "  4. Click Launch AI Workspace for terminal access" -ForegroundColor Yellow
