@@ -42,6 +42,7 @@ case " $* " in
     *' --version '*) printf '10.0.0\n' ;;
     *' list -g --depth=0 '*) printf '/fake\n' ;;
     *' list -g vibe-kanban '*) printf 'vibe-kanban@1.0.0\n' ;;
+    *' list -g opencode-ai '*) printf 'opencode-ai@1.0.0\n' ;;
     *' list -g 9router '*) printf '9router@1.0.0\n' ;;
     *' list -g omniroute '*) printf 'omniroute@1.0.0\n' ;;
     *' view '*) printf '1.0.0\n' ;;

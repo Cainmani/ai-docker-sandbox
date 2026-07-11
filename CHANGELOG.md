@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **OpenCode CLI is now installed in the container** (`opencode-ai@1.17.18`, command `opencode`) and listed in the workspace welcome banner. Authenticate inside the container with `opencode auth login`. Like the other tools it participates in install status/repair and the weekly updater, and the wizard's install progress tracks it (now 9 tools).
 - **The launcher can now update itself.** When a new release is detected at startup, "Yes" downloads the new EXE, verifies its SHA256 against the release's published checksum, swaps the file in after the app exits, and relaunches automatically. An unverified or failed download changes nothing and falls back to the manual download page. ("No" still opens the download page; "Cancel" skips.)
 
 ### Changed

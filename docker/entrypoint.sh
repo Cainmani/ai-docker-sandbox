@@ -210,7 +210,7 @@ TOOL_AUTH_DIR="/home/$USER_NAME/.tool-auth"
 mkdir -p "$TOOL_AUTH_DIR"
 
 # Create subdirs and symlink each tool's config path
-for tool_dir in gh openai gemini codex; do
+for tool_dir in gh openai gemini codex opencode opencode-data; do
     mkdir -p "$TOOL_AUTH_DIR/$tool_dir"
 done
 
@@ -218,13 +218,20 @@ done
 # before removing the source: on failure the original directory (and its
 # credentials) stays in place and in use, and no broken symlink is created.
 mkdir -p "/home/$USER_NAME/.config"
-for tool_dir in gh openai gemini; do
+for tool_dir in gh openai gemini opencode; do
     config_path="/home/$USER_NAME/.config/$tool_dir"
     volume_path="$TOOL_AUTH_DIR/$tool_dir"
     if ! safe_migrate_dir "$config_path" "$volume_path"; then
         entrypoint_log "WARN" "Migration of $config_path failed - continuing with the original directory"
     fi
 done
+
+# OpenCode keeps credentials (auth.json) in its XDG data dir, not ~/.config
+mkdir -p "/home/$USER_NAME/.local/share"
+OPENCODE_DATA="/home/$USER_NAME/.local/share/opencode"
+if ! safe_migrate_dir "$OPENCODE_DATA" "$TOOL_AUTH_DIR/opencode-data"; then
+    entrypoint_log "WARN" "Migration of $OPENCODE_DATA failed - continuing with the original directory"
+fi
 
 # Symlink ~/.codex separately (not under ~/.config)
 CODEX_CONFIG="/home/$USER_NAME/.codex"
@@ -245,6 +252,8 @@ fi
 chown -R "$USER_NAME:$USER_NAME" "$TOOL_AUTH_DIR"
 chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
 chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG" 2>/dev/null || true
+chown -h "$USER_NAME:$USER_NAME" "$OPENCODE_DATA" 2>/dev/null || true
+chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.local" "/home/$USER_NAME/.local/share" 2>/dev/null || true
 entrypoint_log "INFO" "Tool-auth persistence setup complete"
 
 # Ensure the AI router data volume exists with correct ownership. 9router and OmniRoute each
@@ -330,6 +339,7 @@ elif [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|   * gh           - GitHub CLI                               |"
   echo "|   * gemini       - Google Gemini CLI                        |"
   echo "|   * codex        - OpenAI Codex CLI                         |"
+  echo "|   * opencode     - OpenCode AI coding agent (TUI)           |"
   echo "|   * python3      - OpenAI Python SDK (import openai)        |"
   echo "|   * 9router      - Unified AI router (dashboard :20128)     |"
   echo "|   * omniroute    - Unified AI router (alt. to 9router)      |"

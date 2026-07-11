@@ -331,6 +331,7 @@ jobs:
           gemini_ver=$(grep -oP '@google/gemini-cli@\K[0-9.]+' "$SCRIPT" | head -1)
           codex_ver=$(grep -oP '@openai/codex@\K[0-9.]+' "$SCRIPT" | head -1)
           vibe_ver=$(grep -oP 'vibe-kanban@\K[0-9.]+' "$SCRIPT" | head -1)
+          opencode_ver=$(grep -oP 'opencode-ai@\K[0-9.]+' "$SCRIPT" | head -1)
           ninerouter_ver=$(grep -oP '9router@\K[0-9.]+' "$SCRIPT" | head -1)
           omniroute_ver=$(grep -oP 'omniroute@\K[0-9.]+' "$SCRIPT" | head -1)
           openai_ver=$(grep -oP 'openai==\K[0-9.]+' "$SCRIPT" | head -1)
@@ -339,6 +340,7 @@ jobs:
           echo "  @google/gemini-cli: ${gemini_ver:-NOT FOUND}"
           echo "  @openai/codex: ${codex_ver:-NOT FOUND}"
           echo "  vibe-kanban: ${vibe_ver:-NOT FOUND}"
+          echo "  opencode-ai: ${opencode_ver:-NOT FOUND}"
           echo "  9router: ${ninerouter_ver:-NOT FOUND}"
           echo "  omniroute: ${omniroute_ver:-NOT FOUND}"
           echo "  openai (pip): ${openai_ver:-NOT FOUND}"
@@ -348,6 +350,7 @@ jobs:
           [ -n "$gemini_ver" ] && check_npm "@google/gemini-cli" "$gemini_ver"
           [ -n "$codex_ver" ] && check_npm "@openai/codex" "$codex_ver"
           [ -n "$vibe_ver" ] && check_npm "vibe-kanban" "$vibe_ver"
+          [ -n "$opencode_ver" ] && check_npm "opencode-ai" "$opencode_ver"
           [ -n "$ninerouter_ver" ] && check_npm "9router" "$ninerouter_ver"
           [ -n "$omniroute_ver" ] && check_npm "omniroute" "$omniroute_ver"
           [ -n "$openai_ver" ] && check_pip "openai" "$openai_ver"

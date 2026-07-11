@@ -38,6 +38,7 @@ Windows (.exe)                          Docker Container (Linux)
 | OpenAI Codex CLI | `codex` | npm (`@openai/codex`) |
 | OpenAI Python SDK | `python3 -c "import openai"` | pip |
 | Vibe Kanban | `vibe-kanban` | npm |
+| OpenCode | `opencode` | npm (`opencode-ai`) |
 
 ---
 

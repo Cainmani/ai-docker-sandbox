@@ -113,6 +113,7 @@ tool_healthy() {
         gemini)     command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1 ;;
         codex)      command_exists codex ;;
         vibe-kanban) npm list -g vibe-kanban >/dev/null 2>&1 ;;
+        opencode)   npm list -g opencode-ai >/dev/null 2>&1 ;;
         9router)    npm list -g 9router >/dev/null 2>&1 ;;
         omniroute)  npm list -g omniroute >/dev/null 2>&1 ;;
         openai)     pip3 show openai >/dev/null 2>&1 ;;
@@ -308,6 +309,9 @@ get_version() {
         vibe-kanban)
             npm list -g vibe-kanban 2>/dev/null | grep 'vibe-kanban' | cut -d'@' -f2 || echo "not installed"
             ;;
+        opencode)
+            npm list -g opencode-ai 2>/dev/null | grep 'opencode-ai' | cut -d'@' -f2 || echo "not installed"
+            ;;
         9router)
             npm list -g 9router 2>/dev/null | grep '9router' | cut -d'@' -f2 || echo "not installed"
             ;;
@@ -330,6 +334,7 @@ save_versions() {
     echo "vibe-kanban=$(get_version vibe-kanban)" >> "$TOOLS_VERSION_FILE"
     echo "9router=$(get_version 9router)" >> "$TOOLS_VERSION_FILE"
     echo "omniroute=$(get_version omniroute)" >> "$TOOLS_VERSION_FILE"
+    echo "opencode=$(get_version opencode)" >> "$TOOLS_VERSION_FILE"
 }
 
 # Main installation function
@@ -599,6 +604,17 @@ install_cli_tools() {
         print_warning "OmniRoute installation failed - can be installed manually with: npm install -g omniroute"
     fi
 
+    # 8. Install OpenCode (open-source multi-provider AI coding agent TUI;
+    # authenticate inside the container with: opencode auth login)
+    update_install_status "OpenCode CLI" "npm"
+    if ! should_install opencode; then
+        : # already working - skipped in repair mode
+    elif npm_install_with_retry "opencode-ai@1.17.18" "/tmp/opencode_install.log"; then
+        print_success "OpenCode installed successfully"
+    else
+        print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"
+    fi
+
     # Pin manifest consumed by auto_update.sh (one name@version per line).
     printf '%s\n%s\n' "$pinned_9router" "$pinned_omniroute" > "${HOME}/.npm-pinned-tools"
 
@@ -622,11 +638,11 @@ install_cli_tools() {
 # propagate a nonzero exit for a genuinely broken environment).
 create_marker_file() {
     local failed_tools="" failed_required=0 tool
-    local all_tools="claude gh gemini codex vibe-kanban 9router omniroute openai"
+    local all_tools="claude gh gemini codex vibe-kanban opencode 9router omniroute openai"
     # Deliberately uninstalled routers must not count as a partial install,
     # or every container start would run --repair and reinstall them.
     if [ -f "$ROUTER_OPTOUT_FILE" ]; then
-        all_tools="claude gh gemini codex vibe-kanban openai"
+        all_tools="claude gh gemini codex vibe-kanban opencode openai"
     fi
 
     for tool in $all_tools; do
