@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Fixes the setup wizard reporting "taking longer than expected" on a fully successful install.
 
+### Changed
+- **Documented `AI_Docker_Manager.exe` (the stable-named download) as the self-updating build.** The self-update introduced in 1.4.2 overwrites the launcher in place, so the version-stamped `AI_Docker_Manager_v<version>.exe` name would go stale after updating. The README and release notes now recommend the plain `AI_Docker_Manager.exe` for day-to-day use (its name never goes stale) and describe the versioned file as a pin-a-specific-version archive. No code change — both files are the same binary.
+
 ### Fixed
 - **Setup wizard no longer times out during a normal install.** The install marker is written only after all 9 CLI tools finish, and OmniRoute (200+ bundled providers) plus the newly added OpenCode pushed a clean install past the wizard's 10-minute wait — so it showed an alarming "taking longer than expected" message even though every tool installed correctly. The wait is now 15 minutes, and the background-continuation message is reworded to make clear it is not an error. No effect on the actual install, which always continued in the background regardless.
 

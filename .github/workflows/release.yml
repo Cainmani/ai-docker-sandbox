@@ -118,7 +118,7 @@ jobs:
 
             ### Installation
 
-            1. Download `AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe` below (or `AI_Docker_Manager.exe` — same file, stable name)
+            1. Download **`AI_Docker_Manager.exe`** below — this is the recommended, self-updating build. On launch it checks for a newer release and can install it in place, so you won't need to download again. (`AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe` is the same binary with the version pinned in the name, for archiving a specific version.)
             2. Run the executable (you may need to click "More info" → "Run anyway" on Windows SmartScreen)
             3. Click "First Time Setup" to begin
 
