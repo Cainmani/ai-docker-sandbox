@@ -5,6 +5,16 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-07-11
+
+Makes auto-update actually work. Launcher-only; no container rebuild needed.
+
+### Fixed
+- **Auto-update never found new releases because the source repo is private.** The launcher checked `github.com/.../ai-docker-sandbox` for releases, but GitHub returns 404 to unauthenticated requests for private repos — and the running EXE has no credentials — so the check failed silently on every launch. Release EXEs are now published to a separate **public** repo (`Cainmani/ai-docker-releases`) that the launcher checks without a login, so update detection, download, and SHA256 verification work. Source code, CI, and issues stay in the private repo.
+
+### Upgrade note
+- This is a one-time bootstrap: the 1.5.2 launcher is the first build that looks at the public releases repo, so download it once by hand from the new release. From 1.5.2 onward, auto-update works on its own.
+
 ## [1.5.1] - 2026-07-11
 
 Launcher-only fix; no container rebuild needed.

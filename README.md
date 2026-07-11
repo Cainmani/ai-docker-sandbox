@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Cainmani/ai-docker-sandbox/releases/latest">
-    <img src="https://img.shields.io/badge/Download-v1.5.1-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
+  <a href="https://github.com/Cainmani/ai-docker-releases/releases/latest">
+    <img src="https://img.shields.io/badge/Download-v1.5.2-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
   &nbsp;
   <a href="LICENSE">
@@ -36,7 +36,7 @@
 
 ### Windows (Recommended)
 
-**[⬇️ Download AI_Docker_Manager.exe](https://github.com/Cainmani/ai-docker-sandbox/releases/latest/download/AI_Docker_Manager.exe)**
+**[⬇️ Download AI_Docker_Manager.exe](https://github.com/Cainmani/ai-docker-releases/releases/latest/download/AI_Docker_Manager.exe)**
 
 > **Tip:** Keep this `AI_Docker_Manager.exe` (no version in the name) — it **updates itself**.
 > On launch it checks for a newer release and can download, verify, and install it in place,

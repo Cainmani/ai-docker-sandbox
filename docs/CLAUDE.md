@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
 **Last Updated:** July 11, 2026
-**Project Version:** 1.5.1
+**Project Version:** 1.5.2
 
 ---
 
@@ -114,6 +114,15 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 - CI's `check-pinned-versions` job **greps for literal `name@version` strings**: auto-installed tools in `install_cli_tools.sh`, and the routers in `docker/lib/router_utils.sh` (`AI_ROUTER_PIN_9ROUTER`/`AI_ROUTER_PIN_OMNIROUTE`). Keep the pins as literals even when refactoring into variables.
 - The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `ai_router_install` when a router is installed and re-applied by `auto_update.sh` after every update run.
+
+### Releases are published to a separate PUBLIC repo
+
+This source repo is **private**, and GitHub returns 404 to the unauthenticated release API for private repos — the running EXE has no credentials, so it can never see releases here. Release binaries are therefore published to a **public** repo (`Cainmani/ai-docker-releases`, holding only EXEs + checksums). Three things must stay in sync:
+- the launcher's `$script:ReleasesRepo` (in `AI_Docker_Complete.ps1` **and** `AI_Docker_Launcher.ps1`),
+- `release.yml`'s `RELEASES_REPO` env var, and
+- the README download link.
+
+`release.yml` publishes to the public repo using the **`RELEASES_REPO_TOKEN`** secret (a token with `contents:write` on the public repo — the default `GITHUB_TOKEN` only reaches this repo). The workflow fails fast with a clear message if that secret is missing.
 
 ### Release asset names are an API (self-update depends on them)
 

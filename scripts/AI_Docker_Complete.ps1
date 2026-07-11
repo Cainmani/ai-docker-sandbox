@@ -121,15 +121,21 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.5.1"  # Keep in sync with root VERSION file
+$script:AppVersion = "1.5.2"  # Keep in sync with root VERSION file
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
+# Auto-update reads releases from a SEPARATE PUBLIC repo that holds only the
+# built EXEs. The source repo above is private, and GitHub returns 404 to the
+# unauthenticated release API for private repos - so the running EXE (which has
+# no credentials) can never see its own releases there. Publishing the binaries
+# to a public repo lets the update check and download work without a login.
+$script:ReleasesRepo = "Cainmani/ai-docker-releases"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 # Function to check for updates
 function Check-ForUpdates {
     try {
         Write-AppLog "Checking for updates..." "DEBUG"
-        $releaseUrl = "https://api.github.com/repos/$script:GitHubRepo/releases/latest"
+        $releaseUrl = "https://api.github.com/repos/$script:ReleasesRepo/releases/latest"
         $response = Invoke-RestMethod -Uri $releaseUrl -Method Get -TimeoutSec 5 -ErrorAction Stop
 
         $latestVersion = $response.tag_name -replace '^v', ''

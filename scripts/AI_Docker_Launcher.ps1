@@ -20,15 +20,18 @@ Write-AppLog "========================================" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.5.1"  # Keep in sync with root VERSION file
+$script:AppVersion = "1.5.2"  # Keep in sync with root VERSION file
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
+# Auto-update reads releases from a separate PUBLIC repo (the source repo is
+# private, so the unauthenticated release API 404s). See AI_Docker_Complete.ps1.
+$script:ReleasesRepo = "Cainmani/ai-docker-releases"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 # Function to check for updates
 function Check-ForUpdates {
     try {
         Write-AppLog "Checking for updates..." "DEBUG"
-        $releaseUrl = "https://api.github.com/repos/$script:GitHubRepo/releases/latest"
+        $releaseUrl = "https://api.github.com/repos/$script:ReleasesRepo/releases/latest"
         $response = Invoke-RestMethod -Uri $releaseUrl -Method Get -TimeoutSec 5 -ErrorAction Stop
 
         $latestVersion = $response.tag_name -replace '^v', ''

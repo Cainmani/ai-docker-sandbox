@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+# The PUBLIC repo that hosts release EXEs for unauthenticated auto-update.
+# The launcher's $script:ReleasesRepo must match this.
+env:
+  RELEASES_REPO: Cainmani/ai-docker-releases
+
 # Prevent duplicate release builds if a tag is pushed multiple times
 concurrency:
   group: release-${{ github.ref }}
@@ -105,9 +110,29 @@ jobs:
           echo "$hash  AI_Docker_Manager.exe" | Out-File -FilePath "AI_Docker_Manager.exe.sha256" -Encoding utf8
           Write-Host "SHA256: $hash"
 
-      - name: Create Release
+      # Publish the release to the PUBLIC releases repo, not this private one.
+      # The running EXE checks that public repo for updates without any GitHub
+      # login (a private repo 404s the unauthenticated release API). Requires a
+      # RELEASES_REPO_TOKEN secret: a token with contents:write on the public
+      # repo. If the secret is absent the step fails with a clear message rather
+      # than silently publishing nowhere.
+      - name: Check releases-repo token is configured
+        shell: pwsh
+        env:
+          RELEASES_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          if (-not $env:RELEASES_REPO_TOKEN) {
+            Write-Host "::error::RELEASES_REPO_TOKEN secret is not set. Create a token with contents:write on $env:RELEASES_REPO and add it as the RELEASES_REPO_TOKEN Actions secret. See docs/CLAUDE.md (Release Process)."
+            exit 1
+          }
+
+      - name: Create Release (public releases repo)
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           files: |
             AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe
             AI_Docker_Manager_v${{ steps.get_version.outputs.VERSION }}.exe.sha256
@@ -127,14 +152,9 @@ jobs:
             ${{ steps.checksum.outputs.SHA256 }}
             ```
 
-            ### What's New
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-
             ### Requirements
             - Windows 10/11
             - Docker Desktop
 
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
