@@ -107,6 +107,10 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 - CI's `check-pinned-versions` job **greps `install_cli_tools.sh` for literal `name@version` strings** (e.g. `9router@0.5.18`). Keep the pins as literals in that file even when refactoring into variables.
 - The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (currently the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `install_cli_tools.sh` and re-applied by `auto_update.sh` after every update run. New "pinned forever" tools go in that manifest, not in ad-hoc updater logic.
 
+### Release asset names are an API (self-update depends on them)
+
+`Install-Update` in `AI_Docker_Complete.ps1` locates release assets **by exact name**: `AI_Docker_Manager_v<version>.exe` (fallback `AI_Docker_Manager.exe`) and the matching `<name>.sha256` file, and refuses to install anything whose checksum asset is missing or mismatched. Renaming release assets, changing the checksum file format (`<hash>  <filename>`), or dropping the `.sha256` uploads silently breaks self-update for every deployed EXE.
+
 ### Published ports bind to the host loopback interface only
 
 `docker-compose.yml` publishes the web dashboards as `127.0.0.1:<port>:<port>`. The router dashboard stores linked AI provider credentials and has no authentication — never publish it (or new web UIs) without the `127.0.0.1` prefix. Remote/mobile access goes through the SSH ports in `docker-compose.mobile.yml`, not through dashboard ports.
@@ -240,9 +244,9 @@ A pre-commit hook in `.git/hooks/pre-commit` enforces this — commits will be r
 
 Before creating a release:
 
+- [ ] `VERSION` — the single source of truth; the build script and release workflow read it (ps2exe `-version` and the EXE file name are derived automatically)
 - [ ] `scripts/AI_Docker_Complete.ps1` — `$script:AppVersion = "X.Y.Z"`
 - [ ] `scripts/AI_Docker_Launcher.ps1` — `$script:AppVersion = "X.Y.Z"`
-- [ ] `scripts/build/build_complete_exe.ps1` — ps2exe `-version "X.Y.Z.0"`
 - [ ] `README.md` — download badge version
 - [ ] `CHANGELOG.md` — new version section
 - [ ] `docs/MIGRATION.md` — version history row

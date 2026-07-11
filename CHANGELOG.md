@@ -5,6 +5,14 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **The launcher can now update itself.** When a new release is detected at startup, "Yes" downloads the new EXE, verifies its SHA256 against the release's published checksum, swaps the file in after the app exits, and relaunches automatically. An unverified or failed download changes nothing and falls back to the manual download page. ("No" still opens the download page; "Cancel" skips.)
+
+### Changed
+- **Build hardening:** `build_complete_exe.ps1` now round-trip-verifies every embedded file (the exact Base64 payload must be present in the bundled script), failing the build if a file is in the embed list but its placeholder is missing from the template — previously that shipped an EXE silently missing the file. The five copy-pasted helper-extraction blocks in `AI_Docker_Complete.ps1` were consolidated into one `Export-EmbeddedHelpers` function.
+
 ## [1.4.1] - 2026-07-11
 
 Hardens the AI router integration (loopback-only dashboards, held version pins, real uninstall) and adds CLI routing through the router. Force Rebuild/recreate once for the loopback port binding and the updated `~/.bashrc` managed block.

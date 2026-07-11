@@ -130,6 +130,7 @@ function Check-ForUpdates {
                     DownloadUrl = $response.assets | Where-Object { $_.name -like "*.exe" } | Select-Object -First 1 -ExpandProperty browser_download_url
                     ReleaseUrl = $response.html_url
                     ReleaseNotes = $response.body
+                    Assets = $response.assets
                 }
             }
         }
@@ -137,6 +138,88 @@ function Check-ForUpdates {
     } catch {
         Write-AppLog "Update check failed: $($_.Exception.Message)" "DEBUG"
         return @{ UpdateAvailable = $false; Error = $_.Exception.Message }
+    }
+}
+
+# Download the new EXE, verify its SHA256 against the release's published
+# checksum, and hand off to a small updater script that swaps the file once
+# this process exits, then relaunches it. Returns $true when the handoff
+# started (the caller must exit immediately); $false means nothing was changed
+# and the caller should fall back to the manual download page.
+function Install-Update {
+    param($UpdateInfo)
+
+    try {
+        # Only a compiled EXE can self-replace; running as a plain .ps1 (dev) cannot.
+        $currentExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        if ([System.IO.Path]::GetFileName($currentExe) -match '^(powershell|pwsh)') {
+            Write-AppLog "Self-update skipped: running as a script, not a compiled EXE" "WARN"
+            return $false
+        }
+
+        $latest = $UpdateInfo.LatestVersion
+        $assets = @($UpdateInfo.Assets)
+        # Prefer the versioned asset; fall back to the stable-named copy.
+        $exeAsset = $assets | Where-Object { $_.name -eq "AI_Docker_Manager_v$latest.exe" } | Select-Object -First 1
+        if (-not $exeAsset) {
+            $exeAsset = $assets | Where-Object { $_.name -eq 'AI_Docker_Manager.exe' } | Select-Object -First 1
+        }
+        if (-not $exeAsset) {
+            Write-AppLog "Self-update: no known EXE asset on the release" "WARN"
+            return $false
+        }
+        $shaAsset = $assets | Where-Object { $_.name -eq "$($exeAsset.name).sha256" } | Select-Object -First 1
+        if (-not $shaAsset) {
+            Write-AppLog "Self-update: release has no SHA256 checksum for $($exeAsset.name) - refusing an unverified update" "WARN"
+            return $false
+        }
+
+        $updateDir = Join-Path $appDataDir "updates"
+        if (-not (Test-Path $updateDir)) {
+            New-Item -ItemType Directory -Path $updateDir -Force | Out-Null
+        }
+        $newExe = Join-Path $updateDir $exeAsset.name
+        $shaFile = "$newExe.sha256"
+
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        Write-AppLog "Self-update: downloading $($exeAsset.name) (v$latest)" "INFO"
+        Invoke-WebRequest -Uri $exeAsset.browser_download_url -OutFile $newExe -UseBasicParsing
+        Invoke-WebRequest -Uri $shaAsset.browser_download_url -OutFile $shaFile -UseBasicParsing
+
+        $expectedHash = ((Get-Content $shaFile -Raw).Trim() -split '\s+')[0]
+        $actualHash = (Get-FileHash -Path $newExe -Algorithm SHA256).Hash
+        Remove-Item $shaFile -Force -ErrorAction SilentlyContinue
+        if (-not $expectedHash -or ($actualHash -ne $expectedHash)) {
+            Write-AppLog "Self-update: SHA256 verification FAILED - downloaded file discarded" "ERROR"
+            Remove-Item $newExe -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+        Write-AppLog "Self-update: SHA256 verified" "INFO"
+
+        # The running EXE file is locked, so a helper script retries the copy
+        # until this process exits, then relaunches the updated EXE.
+        $updaterScript = Join-Path $updateDir "apply_update.cmd"
+        $updaterContent = @"
+@echo off
+set RETRIES=60
+:loop
+copy /y "$newExe" "$currentExe" >nul 2>&1
+if not errorlevel 1 goto done
+set /a RETRIES-=1
+if %RETRIES% leq 0 exit /b 1
+timeout /t 1 /nobreak >nul
+goto loop
+:done
+del "$newExe" >nul 2>&1
+start "" "$currentExe"
+"@
+        [System.IO.File]::WriteAllText($updaterScript, $updaterContent)
+        Write-AppLog "Self-update: handing off to updater and exiting" "INFO"
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$updaterScript`"" -WindowStyle Hidden
+        return $true
+    } catch {
+        Write-AppLog "Self-update failed: $($_.Exception.Message) - falling back to manual download" "ERROR"
+        return $false
     }
 }
 
@@ -236,6 +319,25 @@ function Get-EmbeddedFileContent {
     }
     Write-AppLog "WARNING: File $fileName not found in embedded resources" "WARN"
     return $null
+}
+
+# Write embedded helper scripts to the docker-files folder for child processes,
+# which run with -ExecutionPolicy Bypass and dot-source them from disk. (This
+# process itself must never dot-source them - see Load-Bearing Invariants in
+# docs/CLAUDE.md; load embedded content via [ScriptBlock]::Create() instead.)
+# Returns $true only when every requested helper was found and written.
+function Export-EmbeddedHelpers {
+    param([string[]]$Names)
+    $allOk = $true
+    foreach ($name in $Names) {
+        $content = Get-EmbeddedFileContent $name
+        if ($content) {
+            [System.IO.File]::WriteAllText((Join-Path $filesDir $name), $content, [System.Text.UTF8Encoding]::new($false))
+        } else {
+            $allOk = $false
+        }
+    }
+    return $allOk
 }
 
 # Function to silently extract Docker-required files and documentation (no popups, no console output)
@@ -563,33 +665,13 @@ $btnSetup.Add_Click({
                 Write-AppLog "WARNING: wsl_config.ps1 not found in embedded resources - WSL detection may fail" "WARN"
             }
 
-            # Extract log_utils.ps1 (dot-sourced by launch scripts for shared logging)
-            $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
-            if ($logUtilsContent) {
-                $logUtilsScript = Join-Path $filesDir "log_utils.ps1"
-                [System.IO.File]::WriteAllText($logUtilsScript, $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
-                Write-AppLog "Log utils helper written to: [$logUtilsScript]" "DEBUG"
-            }
-
-            # Extract setup_utils.ps1 (dot-sourced by setup_wizard.ps1 for Fix-LineEndings and password cleanup)
-            $setupUtilsContent = Get-EmbeddedFileContent 'setup_utils.ps1'
-            if ($setupUtilsContent) {
-                $setupUtilsScript = Join-Path $filesDir "setup_utils.ps1"
-                [System.IO.File]::WriteAllText($setupUtilsScript, $setupUtilsContent, [System.Text.UTF8Encoding]::new($false))
-                Write-AppLog "Setup utils helper written to: [$setupUtilsScript]" "DEBUG"
-            }
-
-            # Extract docker_helpers.ps1 and env_utils.ps1 (dot-sourced by setup_wizard.ps1
-            # for Wait-ContainerReady, image name constants, and .env helpers)
-            $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
-            if ($dockerHelpersContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
-                Write-AppLog "Docker helpers written for setup wizard" "DEBUG"
-            }
-            $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
-            if ($envUtilsContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
-                Write-AppLog "Env utils written for setup wizard" "DEBUG"
+            # Extract the wizard's dot-sourced dependencies: shared logging,
+            # Fix-LineEndings/password cleanup, Wait-ContainerReady + image
+            # name constants, and .env helpers.
+            if (Export-EmbeddedHelpers @('log_utils.ps1', 'setup_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1')) {
+                Write-AppLog "Setup wizard helper scripts written to: [$filesDir]" "DEBUG"
+            } else {
+                Write-AppLog "WARNING: some setup wizard helper scripts were missing from embedded resources" "WARN"
             }
 
             try {
@@ -741,8 +823,7 @@ $btnLaunch.Add_Click({
         $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
         $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
         if ($dockerHelpersContent -and $logUtilsContent) {
-            [System.IO.File]::WriteAllText((Join-Path $filesDir 'docker_helpers.ps1'), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
-            [System.IO.File]::WriteAllText((Join-Path $filesDir 'log_utils.ps1'), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
+            Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1') | Out-Null
             # Load in-process from embedded content, not the extracted files:
             # dot-sourcing a .ps1 from disk is subject to the machine's execution
             # policy (Restricted by default), which the compiled EXE inherits.
@@ -782,19 +863,8 @@ $btnLaunch.Add_Click({
             Write-AppLog "Writing launch script to: [$launchScript]" "DEBUG"
             [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
 
-            # Extract log_utils.ps1 and docker_helpers.ps1 (dot-sourced by launch script)
-            $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
-            if ($logUtilsContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
-            }
-            $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
-            if ($dockerHelpersContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
-            }
-            $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
-            if ($envUtilsContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
-            }
+            # Extract the launch script's dot-sourced dependencies
+            Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1') | Out-Null
             Write-AppLog "Launch script written successfully" "DEBUG"
 
             $form.Hide()
@@ -901,19 +971,8 @@ $btnVibeKanban.Add_Click({
                 Write-AppLog "Writing Vibe Kanban script to: [$vibeScript]" "DEBUG"
                 [System.IO.File]::WriteAllText($vibeScript, $vibeContent, [System.Text.UTF8Encoding]::new($false))
 
-                # Extract log_utils.ps1 and docker_helpers.ps1 (dot-sourced by launch script)
-                $logUtilsContent = Get-EmbeddedFileContent 'log_utils.ps1'
-                if ($logUtilsContent) {
-                    [System.IO.File]::WriteAllText((Join-Path $filesDir "log_utils.ps1"), $logUtilsContent, [System.Text.UTF8Encoding]::new($false))
-                }
-                $dockerHelpersContent = Get-EmbeddedFileContent 'docker_helpers.ps1'
-                if ($dockerHelpersContent) {
-                    [System.IO.File]::WriteAllText((Join-Path $filesDir "docker_helpers.ps1"), $dockerHelpersContent, [System.Text.UTF8Encoding]::new($false))
-                }
-                $envUtilsContent = Get-EmbeddedFileContent 'env_utils.ps1'
-                if ($envUtilsContent) {
-                    [System.IO.File]::WriteAllText((Join-Path $filesDir "env_utils.ps1"), $envUtilsContent, [System.Text.UTF8Encoding]::new($false))
-                }
+                # Extract the launch script's dot-sourced dependencies
+                Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1') | Out-Null
                 Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
 
                 $form.Hide()
@@ -970,12 +1029,7 @@ function Test-DockerRunning {
     $logUtils = Join-Path $filesDir 'log_utils.ps1'
     if (-not (Test-Path $dockerHelpers) -or -not (Test-Path $logUtils)) {
         Extract-DockerFiles
-        foreach ($helperName in @('log_utils.ps1', 'docker_helpers.ps1')) {
-            $helperContent = Get-EmbeddedFileContent $helperName
-            if ($helperContent) {
-                [System.IO.File]::WriteAllText((Join-Path $filesDir $helperName), $helperContent, [System.Text.UTF8Encoding]::new($false))
-            }
-        }
+        Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1') | Out-Null
     }
 
     # Load in-process from embedded content, not the extracted files:
@@ -1074,18 +1128,35 @@ if ($updateInfo.UpdateAvailable) {
     $updateMessage = "A new version is available!`n`n" +
                      "Current: v$($updateInfo.CurrentVersion)`n" +
                      "Latest: v$($updateInfo.LatestVersion)`n`n" +
-                     "Would you like to open the download page?"
+                     "Yes = Install it now (downloaded, checksum-verified, app restarts)`n" +
+                     "No = Open the download page instead`n" +
+                     "Cancel = Skip this update"
 
     $result = [System.Windows.Forms.MessageBox]::Show(
         $updateMessage,
         "Update Available",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
         [System.Windows.Forms.MessageBoxIcon]::Information
     )
 
     if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-AppLog "User chose to install the update now" "INFO"
+        if (Install-Update -UpdateInfo $updateInfo) {
+            exit 0
+        }
+        # The verified install did not start - offer the manual path instead.
+        [System.Windows.Forms.MessageBox]::Show(
+            "The automatic update could not be completed, so the download page will open instead.`n`nDetails are in the log:`n$script:LogFile",
+            "Update",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+        Start-Process $updateInfo.ReleaseUrl
+    } elseif ($result -eq [System.Windows.Forms.DialogResult]::No) {
         Write-AppLog "User chose to open download page" "INFO"
         Start-Process $updateInfo.ReleaseUrl
+    } else {
+        Write-AppLog "User skipped the update" "INFO"
     }
 }
 

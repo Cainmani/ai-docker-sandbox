@@ -127,6 +127,29 @@ foreach ($fileName in $files.Keys) {
     Write-Host "    Embedded: $fileName -> $placeholder" -ForegroundColor Gray
 }
 
+# Round-trip validation: every source file's exact Base64 payload must now be
+# present (quoted) in the bundled script. This catches the silent failure mode
+# where a file is in $filesToEmbed but its placeholder is missing from the
+# template's $script:EmbeddedFiles - Replace() is then a no-op and the EXE
+# would ship without the file. (The unreplaced-placeholder check below covers
+# the opposite direction: placeholder present, build entry missing.)
+$roundTripFailures = @()
+foreach ($fileName in $files.Keys) {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($files[$fileName])
+    $base64Content = [System.Convert]::ToBase64String($bytes)
+    if (-not $bundledScript.Contains("'$base64Content'")) {
+        $roundTripFailures += $fileName
+    }
+}
+if ($roundTripFailures.Count -gt 0) {
+    Write-Host "  ERROR Round-trip validation failed - these files are in `$filesToEmbed but their content is NOT embedded in the bundled script:" -ForegroundColor Red
+    foreach ($fileName in $roundTripFailures) {
+        Write-Host "    - $fileName (is its placeholder present in AI_Docker_Complete.ps1's `$script:EmbeddedFiles?)" -ForegroundColor Red
+    }
+    exit 1
+}
+Write-Host "  OK Round-trip validation: all $($files.Count) embedded files verified" -ForegroundColor Green
+
 # Save the bundled script to project root
 $projectRoot = Join-Path $PSScriptRoot "..\..\"
 $bundledScriptPath = Join-Path $projectRoot "AI_Docker_Complete_Bundled.ps1"
