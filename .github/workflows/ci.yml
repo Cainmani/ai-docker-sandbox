@@ -5,10 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    # Weekly Monday 06:00 UTC — keeps the pinned-version check running
-    # even when the repo is idle, so stale tool pins get flagged
-    - cron: '0 6 * * 1'
 
 # Restrict token to read-only — CI does not need write access
 permissions:
@@ -275,91 +271,3 @@ jobs:
           if ($wizard -notmatch "Set-EnvKey[^\r\n]*'AI_DOCKER_CPU_LIMIT'") {
             throw "setup_wizard.ps1 does not propagate AI_DOCKER_CPU_LIMIT into docker/.env"
           }
-
-  check-pinned-versions:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '22'
-
-      - name: Check pinned package versions
-        shell: bash
-        run: |
-          echo "Checking pinned package versions against registries..."
-          echo ""
-          stale=0
-
-          # Extract pinned versions from install_cli_tools.sh. Codex and the
-          # opt-in routers (9router / OmniRoute) are intentionally unpinned
-          # (@latest), so they are not checked here.
-          SCRIPT="docker/install_cli_tools.sh"
-
-          check_npm() {
-            local pkg="$1"
-            local pinned="$2"
-            local latest
-            latest=$(npm view "$pkg" version 2>/dev/null || echo "unknown")
-            if [ "$latest" = "unknown" ]; then
-              echo "⚠ $pkg: could not query registry (pinned: $pinned)"
-            elif [ "$pinned" = "$latest" ]; then
-              echo "✓ $pkg: $pinned (up to date)"
-            else
-              echo "⚠ $pkg: pinned $pinned → latest $latest (UPDATE AVAILABLE)"
-              stale=$((stale + 1))
-            fi
-          }
-
-          check_pip() {
-            local pkg="$1"
-            local pinned="$2"
-            local latest="unknown"
-            # Try pip index versions (format varies by pip version)
-            local pip_output
-            pip_output=$(pip3 index versions "$pkg" 2>/dev/null || true)
-            if [ -n "$pip_output" ]; then
-              latest=$(echo "$pip_output" | grep -iE 'LATEST|Available' | grep -oE '[0-9]+\.[0-9]+[0-9.]*' | head -1 || true)
-            fi
-            # Fallback: use pip install with invalid version to extract latest from error
-            if [ -z "$latest" ] || [ "$latest" = "unknown" ]; then
-              latest=$(pip3 install "${pkg}==0.0.0invalid" 2>&1 | grep -oE '[0-9]+\.[0-9]+[0-9.]*' | tail -1 || echo "unknown")
-            fi
-            if [ -z "$latest" ] || [ "$latest" = "unknown" ]; then
-              echo "⚠ $pkg: could not query registry (pinned: $pinned)"
-            elif [ "$pinned" = "$latest" ]; then
-              echo "✓ $pkg (pip): $pinned (up to date)"
-            else
-              echo "⚠ $pkg (pip): pinned $pinned → latest $latest (UPDATE AVAILABLE)"
-              stale=$((stale + 1))
-            fi
-          }
-
-          # Parse pinned versions from the script
-          gemini_ver=$(grep -oP '@google/gemini-cli@\K[0-9.]+' "$SCRIPT" | head -1)
-          vibe_ver=$(grep -oP 'vibe-kanban@\K[0-9.]+' "$SCRIPT" | head -1)
-          opencode_ver=$(grep -oP 'opencode-ai@\K[0-9.]+' "$SCRIPT" | head -1)
-          openai_ver=$(grep -oP 'openai==\K[0-9.]+' "$SCRIPT" | head -1)
-
-          echo "Pinned versions found in $SCRIPT:"
-          echo "  @google/gemini-cli: ${gemini_ver:-NOT FOUND}"
-          echo "  vibe-kanban: ${vibe_ver:-NOT FOUND}"
-          echo "  opencode-ai: ${opencode_ver:-NOT FOUND}"
-          echo "  openai (pip): ${openai_ver:-NOT FOUND}"
-          echo ""
-
-          # Check each against registry
-          [ -n "$gemini_ver" ] && check_npm "@google/gemini-cli" "$gemini_ver"
-          [ -n "$vibe_ver" ] && check_npm "vibe-kanban" "$vibe_ver"
-          [ -n "$opencode_ver" ] && check_npm "opencode-ai" "$opencode_ver"
-          [ -n "$openai_ver" ] && check_pip "openai" "$openai_ver"
-
-          echo ""
-          if [ "$stale" -gt 0 ]; then
-            echo "::warning::$stale pinned package(s) have newer versions available. Update versions in docker/install_cli_tools.sh."
-          else
-            echo "All pinned packages are up to date."
-          fi

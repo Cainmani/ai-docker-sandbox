@@ -110,11 +110,11 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 9router / OmniRoute are **not** installed by `install_cli_tools.sh`. They install on demand via `ai_router_exec` (`docker/lib/router_utils.sh`), which backs the `9router`/`omniroute` shell commands: install-if-missing (prompted), reclaim the shared port from any stale listener (`ai_router_free_port` — kills the `next-server` child, not just the tracked parent), then run foreground bound to `0.0.0.0`. `ai_router_install` enforces "only one at a time" (installing one removes the other) and installs the router unpinned (`@latest`). There is intentionally **no** CLI-routing / provider-config injection — providers are configured in the router's own dashboard.
 
-### npm version pins are literals, and the updater must not defeat them
+### CLI tools are unpinned — always install latest
 
-- CI's `check-pinned-versions` job **greps for literal `name@version` strings** for the auto-installed tools that *are* pinned in `install_cli_tools.sh` (Gemini, Vibe Kanban, OpenCode, and the `openai` pip package). Keep those pins as literals even when refactoring into variables.
-- Codex (`@openai/codex`) and the routers (9router / OmniRoute, `docker/lib/router_utils.sh`) are intentionally **unpinned** (`@latest`) so a Force Rebuild or on-demand install always pulls the newest release instead of snapping back to a stale pin. They are not part of the `check-pinned-versions` grep.
-- The weekly `auto_update.sh` runs a blanket `npm update -g`, which is authoritative: no npm package is held back to an older version afterward. (The old `~/.npm-pinned-tools` restore manifest — which used to re-pin the routers — has been removed.)
+- Every bundled CLI tool installs unpinned: the npm packages (`@openai/codex`, `@google/gemini-cli`, `vibe-kanban`, `opencode-ai`, and the routers 9router / OmniRoute) use `@latest`, the `openai` pip SDK installs with `--upgrade`, and Claude Code uses its native installer. A Force Rebuild or on-demand install therefore always pulls the newest release instead of snapping back to a stale pin.
+- The weekly `auto_update.sh` runs a blanket `npm update -g` (plus a pip `--upgrade`), which is authoritative: no package is held back to an older version afterward. There is no version-pin restore step and no `~/.npm-pinned-tools` manifest — both were removed when the tools were unpinned.
+- Because nothing is pinned, there is no `check-pinned-versions` CI job. If you ever reintroduce a pin, add a staleness check back alongside it rather than letting it silently rot.
 
 ### Release asset names are an API (self-update depends on them)
 
@@ -220,7 +220,7 @@ Scripts are mounted read-only. Only for local development.
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `ci.yml` | Push/PR to main | PowerShell syntax check, Pester tests (5.1 + 7), bash suites, Dockerfile validation, pinned version check, **EXE smoke test** (builds the real EXE and launches it under a `Restricted` execution policy) |
+| `ci.yml` | Push/PR to main | PowerShell syntax check, Pester tests (5.1 + 7), bash suites, Dockerfile validation, **EXE smoke test** (builds the real EXE and launches it under a `Restricted` execution policy) |
 | `release.yml` | Push `v*.*.*` tag | Builds .exe on windows-latest, smoke-tests it under `Restricted` policy, creates GitHub release with checksums |
 
 ### Pester Tests

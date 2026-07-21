@@ -485,7 +485,8 @@ install_cli_tools() {
     elif npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Installing Google Gemini CLI..."
         print_status "Found @google/gemini-cli in npm registry"
-        if npm_install_with_retry "@google/gemini-cli@0.49.0" "/tmp/gemini_install.log"; then
+        # Intentionally unpinned: tracks @latest so rebuilds install the newest release.
+        if npm_install_with_retry "@google/gemini-cli@latest" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
             # Try community version as fallback
@@ -520,7 +521,9 @@ install_cli_tools() {
     # with no system Python packages that could conflict. The flag is required on Ubuntu 24.04+
     # which uses PEP 668 to prevent accidental system package modifications on host systems.
     if ! pip3 show openai >/dev/null 2>&1 || [ "$INSTALL_MODE" = "force" ]; then
-        if pip_install_with_retry "openai==2.44.0" "--break-system-packages"; then
+        # Intentionally unpinned: --upgrade pulls the latest openai SDK (so a
+        # Force Rebuild moves an already-installed SDK forward, not "already satisfied").
+        if pip_install_with_retry "openai" "--break-system-packages --upgrade"; then
             print_success "OpenAI Python SDK installed"
         else
             print_warning "Failed to install OpenAI Python SDK"
@@ -556,7 +559,7 @@ install_cli_tools() {
     update_install_status "Vibe Kanban" "npm"
     if ! should_install vibe-kanban; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "vibe-kanban@0.1.44" "/tmp/vibe_kanban_install.log"; then
+    elif npm_install_with_retry "vibe-kanban@latest" "/tmp/vibe_kanban_install.log"; then
         print_success "Vibe Kanban installed successfully"
         # Create .vibe-kanban directory for data persistence
         mkdir -p "${HOME}/.vibe-kanban"
@@ -576,7 +579,7 @@ install_cli_tools() {
     update_install_status "OpenCode CLI" "npm"
     if ! should_install opencode; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "opencode-ai@1.17.18" "/tmp/opencode_install.log"; then
+    elif npm_install_with_retry "opencode-ai@latest" "/tmp/opencode_install.log"; then
         print_success "OpenCode installed successfully"
     else
         print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"
@@ -661,7 +664,7 @@ update_cli_tools() {
 
     # Update pip packages (only currently installed tools)
     print_status "Updating Python packages..."
-    pip3 install --user --upgrade openai==2.44.0 --quiet || true
+    pip3 install --user --upgrade openai --quiet || true
 
     # Update GitHub CLI
     if command_exists gh; then

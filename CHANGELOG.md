@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.5] - 2026-07-21
 
-Force Rebuild recommended so the container installs the latest Codex/router versions and drops the version-pinning that previously downgraded them.
+Force Rebuild recommended so the container installs the latest versions of every CLI tool and drops the version-pinning that previously downgraded them.
 
 ### Fixed
-- **Codex, 9router, and OmniRoute no longer downgrade on rebuild or update.** They are now unpinned (`@latest`):
-  - `@openai/codex` was hardcoded to `0.142.5` in `install_cli_tools.sh`, so every Force Rebuild reinstalled that stale version even though the weekly updater had since moved it forward. It now installs `@latest`.
-  - The AI routers were pinned (`9router@0.5.18` / `omniroute@3.8.45`) and the weekly `auto_update.sh` actively *restored* the pinned version after each `npm update -g`, so they could never move past it. On-demand installs now pull `@latest` and the updater leaves them at their newest release.
-- **Removed the `~/.npm-pinned-tools` restore manifest.** Its only purpose was re-pinning the routers after updates; with nothing pinned, the blanket `npm update -g` is now authoritative and no tool is rolled back to an older version. Existing installs with a stale manifest self-heal (the file is no longer read).
+- **CLI tools no longer downgrade on rebuild or update — everything now tracks the latest release.** Previously several tools were pinned to specific versions, so a Force Rebuild reinstalled a stale version even after the weekly updater had moved it forward. All of these are now unpinned:
+  - `@openai/codex` (was `0.142.5`), `@google/gemini-cli` (was `0.49.0`), `vibe-kanban` (was `0.1.44`), and `opencode-ai` (was `1.17.18`) now install `@latest`.
+  - The `openai` Python SDK (was `openai==2.44.0`) now installs unpinned with `--upgrade`, so rebuilds move it forward instead of holding it at the old version.
+  - The AI routers 9router (was `0.5.18`) and OmniRoute (was `3.8.45`) install `@latest` on demand. They were doubly stuck: pinned at install *and* actively restored to the pin by the weekly `auto_update.sh` after each `npm update -g`.
+- **Removed the `~/.npm-pinned-tools` restore manifest.** Its only purpose was re-pinning the routers after updates; with nothing pinned, the blanket `npm update -g` (plus a pip `--upgrade`) is now authoritative and no tool is rolled back to an older version. Existing installs with a stale manifest self-heal (the file is no longer read).
 - Claude Code was already always-latest (native installer + background auto-update) and is unchanged.
+
+### Removed
+- **The `check-pinned-versions` CI job and the workflow's weekly schedule.** With no pinned versions left to flag as stale, the job had nothing to check; the weekly `schedule` trigger existed only to run it.
 
 ## [1.5.4] - 2026-07-21
 
