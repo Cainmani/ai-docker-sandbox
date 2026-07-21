@@ -5,6 +5,12 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Codex now finds the system `bubblewrap` package and can create its nested Linux/WSL2 workspace sandbox inside the container.
+- Codex HTTPS, login, and WebSocket clients now use the container's system/custom CA bundle, preventing `UnknownIssuer` WebSocket fallback errors.
+
 ## [1.5.3] - 2026-07-11
 
 Launcher-only fix; no container rebuild needed.

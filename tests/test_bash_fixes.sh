@@ -221,6 +221,25 @@ else
     fail "Dockerfile still installs unused pipx"
 fi
 
+# Codex Linux sandbox and TLS prerequisites
+if grep -qE '^[[:space:]]+bubblewrap \\' docker/Dockerfile; then
+    pass "Dockerfile installs bubblewrap for the Codex sandbox"
+else
+    fail "Dockerfile does not install bubblewrap"
+fi
+
+if grep -q 'seccomp=unconfined' docker/docker-compose.yml; then
+    pass "Compose permits nested bubblewrap namespaces"
+else
+    fail "Compose still blocks nested bubblewrap namespaces"
+fi
+
+if grep -q 'CODEX_CA_CERTIFICATE.*ca-certificates.crt' docker/docker-compose.yml; then
+    pass "Compose configures Codex system CA trust"
+else
+    fail "Compose does not configure CODEX_CA_CERTIFICATE"
+fi
+
 # CQ-024: Fix-LineEndings no stale claude_wrapper.sh reference
 if ! grep -q 'claude_wrapper' scripts/setup_utils.ps1; then
     pass "setup_utils.ps1 Fix-LineEndings list updated (CQ-024)"

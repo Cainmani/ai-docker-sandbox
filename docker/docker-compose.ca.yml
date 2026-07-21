@@ -8,6 +8,7 @@ services:
       NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/ai-docker-custom-ca.crt
       REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
       SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+      CODEX_CA_CERTIFICATE: /etc/ssl/certs/ca-certificates.crt
     volumes:
       - type: bind
         source: ${CUSTOM_CA_HOST_PATH:?Set CUSTOM_CA_HOST_PATH to an absolute .crt file path}

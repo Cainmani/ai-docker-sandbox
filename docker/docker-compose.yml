@@ -18,6 +18,11 @@ services:
     # Fixed image name - referenced by the setup wizard and launchers
     image: ai-docker-cli:latest
     container_name: ai-cli
+    # Codex runs bubblewrap inside this development container. Docker's default
+    # seccomp profile blocks the unprivileged namespace creation bwrap needs;
+    # capabilities remain restricted and bwrap applies the inner sandbox.
+    security_opt:
+      - seccomp=unconfined
     environment:
       USER_NAME: ${USER_NAME}
       # Vibe Kanban configuration
@@ -44,6 +49,8 @@ services:
       NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
       REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-}
       SSL_CERT_FILE: ${SSL_CERT_FILE:-}
+      # Codex uses this bundle for HTTPS, login, and WebSocket connections.
+      CODEX_CA_CERTIFICATE: ${CODEX_CA_CERTIFICATE:-/etc/ssl/certs/ca-certificates.crt}
       CUSTOM_CA_CERT: ${CUSTOM_CA_CERT:-}
     secrets:
       - user_password

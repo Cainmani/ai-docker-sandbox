@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     git \
     ca-certificates \
+    # Codex uses bubblewrap for its Linux/WSL2 workspace sandbox.
+    bubblewrap \
     gnupg \
     lsb-release \
     software-properties-common \
