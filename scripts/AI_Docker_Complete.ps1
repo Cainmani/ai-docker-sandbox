@@ -121,11 +121,11 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.5.4"  # Keep in sync with root VERSION file
+$script:AppVersion = "1.5.5"  # Keep in sync with root VERSION file
 # Newest release that changed container-side files (anything under docker/).
 # Bump this ONLY in releases that require a container rebuild; launcher-only
 # releases leave it alone so users are not nagged into a pointless rebuild.
-$script:ContainerBaselineVersion = "1.5.4"
+$script:ContainerBaselineVersion = "1.5.5"
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
