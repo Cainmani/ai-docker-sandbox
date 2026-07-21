@@ -537,7 +537,9 @@ install_cli_tools() {
         : # already working - skipped in repair mode
     elif npm view @openai/codex version >/dev/null 2>&1; then
         print_status "Installing OpenAI Codex CLI..."
-        if npm_install_with_retry "@openai/codex@0.142.5" "/tmp/codex_install.log"; then
+        # Intentionally unpinned: Codex tracks @latest so a Force Rebuild always
+        # installs the newest release instead of snapping back to a stale pin.
+        if npm_install_with_retry "@openai/codex@latest" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -579,9 +581,6 @@ install_cli_tools() {
     else
         print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"
     fi
-
-    # The pin manifest (~/.npm-pinned-tools) is written by ai_router_install
-    # when a router is installed on demand - not here, since routers are opt-in.
 
     # Save versions to file
     save_versions

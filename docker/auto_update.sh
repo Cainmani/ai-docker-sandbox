@@ -229,31 +229,10 @@ apply_updates() {
         fi
     done <<< "$npm_packages_before"
 
-    # Restore pinned tools that the blanket update moved. The AI routers
-    # (9router / OmniRoute) store linked provider credentials, so they change
-    # versions only deliberately via a release that bumps the pins in
-    # install_cli_tools.sh - which writes this manifest (one name@version per
-    # line). Tools not listed there keep updating normally.
-    pinned_tools_file="${PINNED_TOOLS_FILE:-$HOME/.npm-pinned-tools}"
-    if [ -f "$pinned_tools_file" ]; then
-        while IFS= read -r pin; do
-            case "$pin" in ''|'#'*) continue ;; esac
-            pin_name=${pin%@*}
-            pin_version=${pin##*@}
-            installed_version=$(npm list -g "$pin_name" 2>/dev/null | grep -o "${pin_name}@[0-9][^ ]*" | head -n1 | cut -d@ -f2)
-            # Missing package is handled by the reinstall loop above; only fix drift.
-            if [ -n "$installed_version" ] && [ "$installed_version" != "$pin_version" ]; then
-                update_log "${YELLOW}[PINNED]${NC} $pin_name moved to $installed_version but is pinned - restoring $pin_version..."
-                if pin_output=$(npm install -g "$pin" 2>&1); then
-                    update_log "${GREEN}[SUCCESS]${NC} Restored $pin"
-                else
-                    update_log "${RED}[ERROR]${NC} Could not restore $pin - install manually with: npm install -g $pin"
-                    echo "$pin_output" | tail -n 5 | while read -r line; do update_log "  $line"; done
-                    update_errors=1
-                fi
-            fi
-        done < "$pinned_tools_file"
-    fi
+    # No npm packages are version-pinned: every global tool (including the AI
+    # routers 9router / OmniRoute) tracks its latest release, so the blanket
+    # `npm update -g` above is authoritative and nothing is restored to an
+    # older version here.
 
     # Update ALL user pip packages (dynamic)
     update_log "Updating Python packages..."

@@ -31,17 +31,18 @@ AI_ROUTER_PID_DIR="${AI_ROUTER_PID_DIR:-${HOME}/.router-data}"
 # Poll interval (seconds) for wait loops; tests override this for speed.
 AI_ROUTER_POLL_INTERVAL="${AI_ROUTER_POLL_INTERVAL:-1}"
 
-# Pinned router versions (name@version literals; CI's check-pinned-versions
-# greps these). The routers are NOT installed by default - they are installed
-# on demand the first time you run `9router` or `omniroute`, at these versions.
-AI_ROUTER_PIN_9ROUTER="9router@0.5.18"
-AI_ROUTER_PIN_OMNIROUTE="omniroute@3.8.45"
+# Router install specs. The routers are NOT installed by default - they are
+# installed on demand the first time you run `9router` or `omniroute`. They are
+# intentionally unpinned (@latest) so on-demand installs always pull the newest
+# release rather than a stale pin, and the weekly updater keeps them current.
+AI_ROUTER_SPEC_9ROUTER="9router@latest"
+AI_ROUTER_SPEC_OMNIROUTE="omniroute@latest"
 
 # The npm package name for a router equals its command name.
-__ai_router_pin() {
+__ai_router_spec() {
     case "$1" in
-        9router)   echo "$AI_ROUTER_PIN_9ROUTER" ;;
-        omniroute) echo "$AI_ROUTER_PIN_OMNIROUTE" ;;
+        9router)   echo "$AI_ROUTER_SPEC_9ROUTER" ;;
+        omniroute) echo "$AI_ROUTER_SPEC_OMNIROUTE" ;;
     esac
 }
 __ai_router_other() {
@@ -56,14 +57,14 @@ ai_router_installed() {
     npm list -g "$1" >/dev/null 2>&1
 }
 
-# Install a router at its pinned version, enforcing "only one at a time": if the
-# other router is installed it is removed first. Records the single pin so the
-# weekly updater holds it. Returns nonzero on install failure.
+# Install a router (unpinned, @latest), enforcing "only one at a time": if the
+# other router is installed it is removed first. Returns nonzero on install
+# failure. The router is left unpinned so the weekly updater keeps it current.
 ai_router_install() {
-    local name="$1" other pin
+    local name="$1" other spec
     other=$(__ai_router_other "$name")
-    pin=$(__ai_router_pin "$name")
-    if [ -z "$pin" ]; then
+    spec=$(__ai_router_spec "$name")
+    if [ -z "$spec" ]; then
         echo "Unknown router: $name" >&2
         return 1
     fi
@@ -71,13 +72,11 @@ ai_router_install() {
         echo "Removing $other (only one router can be installed at a time)..."
         npm uninstall -g "$other" >/dev/null 2>&1 || true
     fi
-    echo "Installing $pin (first run only - this can take a minute)..."
-    if ! npm install -g "$pin"; then
-        echo "ERROR: failed to install $pin. Try manually: npm install -g $pin" >&2
+    echo "Installing $spec (first run only - this can take a minute)..."
+    if ! npm install -g "$spec"; then
+        echo "ERROR: failed to install $spec. Try manually: npm install -g $spec" >&2
         return 1
     fi
-    # Record the single active pin so auto_update.sh holds it at this version.
-    printf '%s\n' "$pin" > "${HOME}/.npm-pinned-tools"
     return 0
 }
 

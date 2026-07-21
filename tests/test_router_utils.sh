@@ -96,11 +96,12 @@ else
     if [ "$rc" -eq 2 ]; then pass "missing probe returns status 2"; else fail "missing probe returns status 2"; fi
 fi
 
-# --- opt-in install helpers (pins, mutual exclusion mapping, port pids) ---
+# --- opt-in install helpers (install specs, mutual exclusion mapping, port pids) ---
 
-# The router package name equals its command name and maps to a pinned spec.
-assert_true "9router pin is a name@version literal" test "$(__ai_router_pin 9router)" = "9router@0.5.18"
-assert_true "omniroute pin is a name@version literal" test "$(__ai_router_pin omniroute)" = "omniroute@3.8.45"
+# The router package name equals its command name and maps to an unpinned
+# (@latest) install spec, so on-demand installs always pull the newest release.
+assert_true "9router spec is unpinned (@latest)" test "$(__ai_router_spec 9router)" = "9router@latest"
+assert_true "omniroute spec is unpinned (@latest)" test "$(__ai_router_spec omniroute)" = "omniroute@latest"
 
 # "Only one at a time" mapping: each router's counterpart is the other one.
 assert_true "9router's counterpart is omniroute" test "$(__ai_router_other 9router)" = "omniroute"

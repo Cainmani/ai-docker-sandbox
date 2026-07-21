@@ -108,12 +108,13 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 ### The AI routers are opt-in and mutually exclusive
 
-9router / OmniRoute are **not** installed by `install_cli_tools.sh`. They install on demand via `ai_router_exec` (`docker/lib/router_utils.sh`), which backs the `9router`/`omniroute` shell commands: install-if-missing (prompted), reclaim the shared port from any stale listener (`ai_router_free_port` — kills the `next-server` child, not just the tracked parent), then run foreground bound to `0.0.0.0`. `ai_router_install` enforces "only one at a time" (installing one removes the other) and writes the single pin to `~/.npm-pinned-tools`. There is intentionally **no** CLI-routing / provider-config injection — providers are configured in the router's own dashboard.
+9router / OmniRoute are **not** installed by `install_cli_tools.sh`. They install on demand via `ai_router_exec` (`docker/lib/router_utils.sh`), which backs the `9router`/`omniroute` shell commands: install-if-missing (prompted), reclaim the shared port from any stale listener (`ai_router_free_port` — kills the `next-server` child, not just the tracked parent), then run foreground bound to `0.0.0.0`. `ai_router_install` enforces "only one at a time" (installing one removes the other) and installs the router unpinned (`@latest`). There is intentionally **no** CLI-routing / provider-config injection — providers are configured in the router's own dashboard.
 
 ### npm version pins are literals, and the updater must not defeat them
 
-- CI's `check-pinned-versions` job **greps for literal `name@version` strings**: auto-installed tools in `install_cli_tools.sh`, and the routers in `docker/lib/router_utils.sh` (`AI_ROUTER_PIN_9ROUTER`/`AI_ROUTER_PIN_OMNIROUTE`). Keep the pins as literals even when refactoring into variables.
-- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `ai_router_install` when a router is installed and re-applied by `auto_update.sh` after every update run.
+- CI's `check-pinned-versions` job **greps for literal `name@version` strings** for the auto-installed tools that *are* pinned in `install_cli_tools.sh` (Gemini, Vibe Kanban, OpenCode, and the `openai` pip package). Keep those pins as literals even when refactoring into variables.
+- Codex (`@openai/codex`) and the routers (9router / OmniRoute, `docker/lib/router_utils.sh`) are intentionally **unpinned** (`@latest`) so a Force Rebuild or on-demand install always pulls the newest release instead of snapping back to a stale pin. They are not part of the `check-pinned-versions` grep.
+- The weekly `auto_update.sh` runs a blanket `npm update -g`, which is authoritative: no npm package is held back to an older version afterward. (The old `~/.npm-pinned-tools` restore manifest — which used to re-pin the routers — has been removed.)
 
 ### Release asset names are an API (self-update depends on them)
 

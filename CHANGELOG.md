@@ -5,6 +5,17 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-07-21
+
+Force Rebuild recommended so the container installs the latest Codex/router versions and drops the version-pinning that previously downgraded them.
+
+### Fixed
+- **Codex, 9router, and OmniRoute no longer downgrade on rebuild or update.** They are now unpinned (`@latest`):
+  - `@openai/codex` was hardcoded to `0.142.5` in `install_cli_tools.sh`, so every Force Rebuild reinstalled that stale version even though the weekly updater had since moved it forward. It now installs `@latest`.
+  - The AI routers were pinned (`9router@0.5.18` / `omniroute@3.8.45`) and the weekly `auto_update.sh` actively *restored* the pinned version after each `npm update -g`, so they could never move past it. On-demand installs now pull `@latest` and the updater leaves them at their newest release.
+- **Removed the `~/.npm-pinned-tools` restore manifest.** Its only purpose was re-pinning the routers after updates; with nothing pinned, the blanket `npm update -g` is now authoritative and no tool is rolled back to an older version. Existing installs with a stale manifest self-heal (the file is no longer read).
+- Claude Code was already always-latest (native installer + background auto-update) and is unchanged.
+
 ## [1.5.4] - 2026-07-21
 
 Container rebuild/recreate required to install `bubblewrap` and apply the Codex sandbox and CA configuration.
