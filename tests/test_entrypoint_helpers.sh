@@ -120,11 +120,13 @@ rm -rf "$profile_dir"
 assert_true "writes proxy/CA profile when vars are set" \
     env HTTP_PROXY="http://proxy.example:3128" NO_PROXY="localhost,127.0.0.1" \
         NODE_EXTRA_CA_CERTS="/usr/local/share/ca-certificates/ai-docker-custom-ca.crt" \
+        CODEX_CA_CERTIFICATE="/etc/ssl/certs/ca-certificates.crt" \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; write_proxy_ca_profile '$profile_dir'"
 assert_true "generated profile exists" test -f "$profile_file"
 assert_true "profile exports HTTP_PROXY value" bash -c ". '$profile_file'; [ \"\$HTTP_PROXY\" = 'http://proxy.example:3128' ]"
 assert_true "profile exports NO_PROXY value" bash -c ". '$profile_file'; [ \"\$NO_PROXY\" = 'localhost,127.0.0.1' ]"
 assert_true "profile exports CA bundle value" bash -c ". '$profile_file'; [ \"\$NODE_EXTRA_CA_CERTS\" = '/usr/local/share/ca-certificates/ai-docker-custom-ca.crt' ]"
+assert_true "profile exports Codex CA bundle value" bash -c ". '$profile_file'; [ \"\$CODEX_CA_CERTIFICATE\" = '/etc/ssl/certs/ca-certificates.crt' ]"
 assert_false "profile omits unset vars" grep -q 'HTTPS_PROXY' "$profile_file"
 
 # Values containing single quotes are escaped safely.
@@ -138,13 +140,14 @@ assert_true "escaped value round-trips" bash -c ". '$profile_file'; [ \"\$HTTP_P
 printf 'stale\n' > "$profile_file"
 assert_true "clears profile when no vars set" \
     env -u HTTP_PROXY -u HTTPS_PROXY -u NO_PROXY -u ALL_PROXY -u http_proxy -u https_proxy \
-        -u no_proxy -u all_proxy -u NODE_EXTRA_CA_CERTS -u REQUESTS_CA_BUNDLE -u SSL_CERT_FILE -u CUSTOM_CA_CERT \
+        -u no_proxy -u all_proxy -u NODE_EXTRA_CA_CERTS -u REQUESTS_CA_BUNDLE -u SSL_CERT_FILE -u CODEX_CA_CERTIFICATE -u CUSTOM_CA_CERT \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; write_proxy_ca_profile '$profile_dir'"
 assert_false "stale profile removed when no vars set" test -f "$profile_file"
 
 # The su whitelist covers both proxy and CA variables.
 assert_true "su whitelist includes proxy vars" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; case \",\$PROXY_CA_ENV_VARS,\" in *,HTTPS_PROXY,*) exit 0;; *) exit 1;; esac"
 assert_true "su whitelist includes CA vars" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; case \",\$PROXY_CA_ENV_VARS,\" in *,NODE_EXTRA_CA_CERTS,*) exit 0;; *) exit 1;; esac"
+assert_true "su whitelist includes Codex CA var" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; case \",\$PROXY_CA_ENV_VARS,\" in *,CODEX_CA_CERTIFICATE,*) exit 0;; *) exit 1;; esac"
 
 # su_preserving_env passes the whitelist to a su that supports -w, and preserves
 # the value across a (stubbed) login-shell reset.

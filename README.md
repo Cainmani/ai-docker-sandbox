@@ -253,6 +253,8 @@ docker exec -it ai-cli bash           # Shell access
 
 Proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`) can be set in `docker/.env`. For a corporate CA, set `CUSTOM_CA_HOST_PATH` to an absolute PEM `.crt` path and include `docker-compose.ca.yml` with the base Compose file. See [Remote Access](docs/REMOTE_ACCESS.md#corporate-proxy-and-custom-ca).
 
+Codex uses Ubuntu's system CA bundle for HTTPS and WebSocket connections. The image also includes `bubblewrap`, and Compose permits the unprivileged namespaces required by Codex's Linux workspace sandbox. See [Codex Linux Sandbox](docs/REMOTE_ACCESS.md#codex-linux-sandbox).
+
 ### Diagnostics
 
 Inside the container, run `configure-tools --diagnose` for a sanitized classification of installation, binaries, authentication, router port, DNS/TLS, proxy, and container-version state.

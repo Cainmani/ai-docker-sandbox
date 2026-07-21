@@ -339,7 +339,7 @@ ensure_cron_daemon_running() {
 
 # Space-free, comma-joinable list consumed by `su -w`. Includes upper/lower case
 # variants because different tools read different casings.
-PROXY_CA_ENV_VARS="HTTP_PROXY,HTTPS_PROXY,NO_PROXY,ALL_PROXY,http_proxy,https_proxy,no_proxy,all_proxy,NODE_EXTRA_CA_CERTS,REQUESTS_CA_BUNDLE,SSL_CERT_FILE,CUSTOM_CA_CERT"
+PROXY_CA_ENV_VARS="HTTP_PROXY,HTTPS_PROXY,NO_PROXY,ALL_PROXY,http_proxy,https_proxy,no_proxy,all_proxy,NODE_EXTRA_CA_CERTS,REQUESTS_CA_BUNDLE,SSL_CERT_FILE,CODEX_CA_CERTIFICATE,CUSTOM_CA_CERT"
 
 # su_preserving_env <user> <command-string>
 # Runs `su - <user> -c <command>` while preserving proxy/CA vars across the

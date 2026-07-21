@@ -546,17 +546,29 @@ CUSTOM_CA_CERT=/usr/local/share/ca-certificates/ai-docker-custom.crt
 NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/ai-docker-custom.crt
 REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+CODEX_CA_CERTIFICATE=/etc/ssl/certs/ca-certificates.crt
 ```
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.ca.yml up -d --build
 ```
 
-The override bind-mounts only the selected certificate read-only. Entrypoint startup rejects paths outside `/usr/local/share/ca-certificates/*.crt`, installs the CA idempotently, and makes the resulting system bundle available to Node, Python Requests, OpenSSL, npm, and pip. Run `configure-tools --diagnose` afterward; an API authentication HTTP response can still demonstrate successful DNS/TLS transport (the diagnostic reports `TLS=ok` plus the raw `HTTP_STATUS_*` codes, and only flags `TLS=failed` for genuine DNS/connection/timeout/SSL errors).
+The override bind-mounts only the selected certificate read-only. Entrypoint startup rejects paths outside `/usr/local/share/ca-certificates/*.crt`, installs the CA idempotently, and makes the resulting system bundle available to Node, Python Requests, OpenSSL, npm, pip, and Codex HTTPS/WebSocket connections. Run `configure-tools --diagnose` afterward; an API authentication HTTP response can still demonstrate successful DNS/TLS transport (the diagnostic reports `TLS=ok` plus the raw `HTTP_STATUS_*` codes, and only flags `TLS=failed` for genuine DNS/connection/timeout/SSL errors).
 
 Proxy and CA settings apply in every context, not just the entrypoint's own shell. The startup writes them to `/etc/profile.d/ai-docker-proxy.sh` so interactive `su -`/SSH login shells re-export them, whitelists them across the tool-installation `su -` calls, and has the weekly auto-update cron entry source that profile — so tool installs, updates, and manual sessions all honor the proxy/CA configuration on corporate networks.
 
 This feature extends local trust to the configured CA. Confirm the certificate fingerprint with your administrator before mounting it.
+
+## Codex Linux Sandbox
+
+Codex uses `bubblewrap` for workspace sandboxing on Linux and WSL2. The image includes the distribution package, and the Compose service disables Docker's default seccomp profile because it blocks the nested unprivileged namespace creation that `bubblewrap` requires. Docker capabilities remain restricted; do not add `privileged: true` or mount the Docker socket to work around namespace errors.
+
+After rebuilding, verify the nested sandbox prerequisite inside the container:
+
+```bash
+command -v bwrap
+bwrap --ro-bind / / /bin/true
+```
 
 ## Troubleshooting
 

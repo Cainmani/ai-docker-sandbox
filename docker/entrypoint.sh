@@ -69,6 +69,7 @@ if [ -n "${CUSTOM_CA_CERT:-}" ]; then
         export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$CUSTOM_CA_CERT}"
         export REQUESTS_CA_BUNDLE="${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
         export SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}"
+        export CODEX_CA_CERTIFICATE="${CODEX_CA_CERTIFICATE:-/etc/ssl/certs/ca-certificates.crt}"
       else
         entrypoint_log "ERROR" "CUSTOM_CA_CERT is configured but unreadable"
         exit 1

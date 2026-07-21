@@ -103,7 +103,11 @@ jobs:
             test "$(cat /etc/ai-docker-version)" = "'"$AI_DOCKER_VERSION"'"
             command -v claude
             command -v codex
+            command -v bwrap
+            bwrap --ro-bind / / /bin/true
             command -v configure-tools
+            test "$CODEX_CA_CERTIFICATE" = /etc/ssl/certs/ca-certificates.crt
+            test -r "$CODEX_CA_CERTIFICATE"
             test -L "$HOME/.config/gh"
             test -L "$HOME/.codex"
             crontab -l | grep -q auto_update.sh
