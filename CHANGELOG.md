@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Container rebuild/recreate required for the updater fix to take effect.
 
+### Changed
+- **Bumped the first-install version pins to the current published releases** so a freshly built container ships up-to-date tools instead of an old baseline that only reaches latest after the first `update-container-tools` run: Gemini CLI `0.49.0 → 0.53.0`, Codex `0.142.5 → 0.146.0`, OpenCode `1.17.18 → 1.18.9`, and the opt-in routers 9router `0.5.18 → 0.5.40` and OmniRoute `3.8.45 → 3.8.48`. (Claude Code is unaffected — it uses the native installer and always fetches the latest.)
+
 ### Fixed
 - **`update-container-tools` no longer aborts on leftover npm staging directories.** When a global `npm install`/`update` is interrupted before its final atomic rename (container stopped mid-update, killed process, dropped connection), npm leaves the package's hidden staging directory behind (named `.<pkg>-<hash>`, e.g. `.9router-wciiY0Kj` or `@google/.gemini-cli-yRHhsjle`). npm never cleans these up, and a single one makes the next `npm update -g` abort immediately with `EINVALIDPACKAGENAME` ("name cannot start with a period") — which blocked updates for *every* tool, not just the interrupted one, and left tools like `9router` and `opencode` half-installed. The updater now sweeps these orphaned staging directories (scoped and unscoped) before running `npm update -g`, so an interrupted install self-heals on the next run instead of wedging all future updates. Real entries like `.bin` and `.package-lock.json` are never touched.
 

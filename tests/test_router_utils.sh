@@ -99,8 +99,8 @@ fi
 # --- opt-in install helpers (pins, mutual exclusion mapping, port pids) ---
 
 # The router package name equals its command name and maps to a pinned spec.
-assert_true "9router pin is a name@version literal" test "$(__ai_router_pin 9router)" = "9router@0.5.18"
-assert_true "omniroute pin is a name@version literal" test "$(__ai_router_pin omniroute)" = "omniroute@3.8.45"
+assert_true "9router pin is a name@version literal" test "$(__ai_router_pin 9router)" = "9router@0.5.40"
+assert_true "omniroute pin is a name@version literal" test "$(__ai_router_pin omniroute)" = "omniroute@3.8.48"
 
 # "Only one at a time" mapping: each router's counterpart is the other one.
 assert_true "9router's counterpart is omniroute" test "$(__ai_router_other 9router)" = "omniroute"

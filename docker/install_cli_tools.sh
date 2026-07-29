@@ -480,7 +480,7 @@ install_cli_tools() {
     elif npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Installing Google Gemini CLI..."
         print_status "Found @google/gemini-cli in npm registry"
-        if npm_install_with_retry "@google/gemini-cli@0.49.0" "/tmp/gemini_install.log"; then
+        if npm_install_with_retry "@google/gemini-cli@0.53.0" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
             # Try community version as fallback
@@ -532,7 +532,7 @@ install_cli_tools() {
         : # already working - skipped in repair mode
     elif npm view @openai/codex version >/dev/null 2>&1; then
         print_status "Installing OpenAI Codex CLI..."
-        if npm_install_with_retry "@openai/codex@0.142.5" "/tmp/codex_install.log"; then
+        if npm_install_with_retry "@openai/codex@0.146.0" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -569,7 +569,7 @@ install_cli_tools() {
     update_install_status "OpenCode CLI" "npm"
     if ! should_install opencode; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "opencode-ai@1.17.18" "/tmp/opencode_install.log"; then
+    elif npm_install_with_retry "opencode-ai@1.18.9" "/tmp/opencode_install.log"; then
         print_success "OpenCode installed successfully"
     else
         print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"
