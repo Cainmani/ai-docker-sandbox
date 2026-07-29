@@ -114,11 +114,20 @@ assert_false "reports failed cron registration" env PATH="$cron_bin:$PATH" TEST_
 profile_dir="$TMP_DIR/profile.d"
 profile_file="$profile_dir/ai-docker-proxy.sh"
 
+# Scrub every proxy/CA var the writer looks at from the inherited environment so
+# these assertions test exactly what each invocation sets. Without this, a
+# developer or CI runner that itself sits behind a proxy leaks e.g. HTTPS_PROXY
+# into the generated profile and the "omits unset vars" check fails spuriously.
+proxy_scrub=()
+for _v in $(printf '%s' "$PROXY_CA_ENV_VARS" | tr ',' ' '); do
+    proxy_scrub+=(-u "$_v")
+done
+
 # Only the vars that are actually set get written, and they round-trip through
 # sourcing the generated profile.
 rm -rf "$profile_dir"
 assert_true "writes proxy/CA profile when vars are set" \
-    env HTTP_PROXY="http://proxy.example:3128" NO_PROXY="localhost,127.0.0.1" \
+    env "${proxy_scrub[@]}" HTTP_PROXY="http://proxy.example:3128" NO_PROXY="localhost,127.0.0.1" \
         NODE_EXTRA_CA_CERTS="/usr/local/share/ca-certificates/ai-docker-custom-ca.crt" \
         CODEX_CA_CERTIFICATE="/etc/ssl/certs/ca-certificates.crt" \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; write_proxy_ca_profile '$profile_dir'"
@@ -132,7 +141,7 @@ assert_false "profile omits unset vars" grep -q 'HTTPS_PROXY' "$profile_file"
 # Values containing single quotes are escaped safely.
 rm -rf "$profile_dir"
 assert_true "handles values with single quotes" \
-    env HTTP_PROXY="http://it's-a-proxy:3128" \
+    env "${proxy_scrub[@]}" HTTP_PROXY="http://it's-a-proxy:3128" \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; write_proxy_ca_profile '$profile_dir'"
 assert_true "escaped value round-trips" bash -c ". '$profile_file'; [ \"\$HTTP_PROXY\" = \"http://it's-a-proxy:3128\" ]"
 
