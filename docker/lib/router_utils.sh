@@ -34,8 +34,8 @@ AI_ROUTER_POLL_INTERVAL="${AI_ROUTER_POLL_INTERVAL:-1}"
 # Pinned router versions (name@version literals; CI's check-pinned-versions
 # greps these). The routers are NOT installed by default - they are installed
 # on demand the first time you run `9router` or `omniroute`, at these versions.
-AI_ROUTER_PIN_9ROUTER="9router@0.5.18"
-AI_ROUTER_PIN_OMNIROUTE="omniroute@3.8.45"
+AI_ROUTER_PIN_9ROUTER="9router@0.5.40"
+AI_ROUTER_PIN_OMNIROUTE="omniroute@3.8.48"
 
 # The npm package name for a router equals its command name.
 __ai_router_pin() {

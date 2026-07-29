@@ -159,6 +159,38 @@ check_updates() {
     return 1
 }
 
+# Remove orphaned npm staging directories before a global update.
+#
+# When `npm install/update -g` is interrupted before its final atomic rename
+# (container stopped mid-update, killed process, network drop), it leaves the
+# package's hidden staging directory behind. npm names these ".<pkg>-<hash>"
+# (e.g. ".9router-wciiY0Kj", "@google/.gemini-cli-yRHhsjle"). npm does not clean
+# them up, and a single one makes the NEXT `npm update -g` abort immediately
+# with EINVALIDPACKAGENAME ("name cannot start with a period") - which blocks
+# updates for EVERY tool, not just the interrupted one. Sweeping them first is
+# safe: a real package name can never start with a period, so anything matching
+# this pattern is guaranteed to be an abandoned staging directory.
+#
+# Covers both unscoped (node_modules/.pkg-hash) and scoped
+# (node_modules/@scope/.pkg-hash) layouts. Legitimate entries such as .bin and
+# .package-lock.json have no "-<hash>" suffix and are never matched.
+clean_npm_staging_dirs() {
+    local nm
+    nm=$(npm root -g 2>/dev/null)
+    [ -n "$nm" ] && [ -d "$nm" ] || return 0
+
+    local orphans
+    orphans=$(find "$nm" -maxdepth 2 -type d -name '.*-*' 2>/dev/null)
+    [ -n "$orphans" ] || return 0
+
+    update_log "${YELLOW}[CLEANUP]${NC} Removing leftover staging directories from interrupted installs (these block npm update):"
+    while IFS= read -r orphan; do
+        [ -n "$orphan" ] || continue
+        update_log "  - ${orphan#"$nm"/}"
+        rm -rf "$orphan"
+    done <<< "$orphans"
+}
+
 # Function to apply updates
 # Returns 0 when every stage succeeded, 1 when any npm/pip/apt stage failed.
 apply_updates() {
@@ -180,6 +212,11 @@ apply_updates() {
     # Update ALL global npm packages (dynamic)
     # Note: Claude Code is no longer installed via npm (uses native installer)
     update_log "Updating npm packages..."
+
+    # Clear any abandoned staging directories from a previously interrupted
+    # install first - otherwise `npm update -g` aborts on them (EINVALIDPACKAGENAME)
+    # before updating anything.
+    clean_npm_staging_dirs
 
     # Snapshot the installed global packages BEFORE updating. "npm update -g"
     # removes a package before reinstalling the new version, so a mid-update

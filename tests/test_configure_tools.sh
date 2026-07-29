@@ -49,10 +49,14 @@ else
         # transport with a non-2xx application status.
         python3 -m http.server 0 --bind 127.0.0.1 --directory "$TMP_DIR" >"$TMP_DIR/server.log" 2>&1 &
         SERVER_PID=$!
-        # Discover the assigned port.
+        # Discover the assigned port. Prefer python's own startup banner
+        # ("Serving HTTP on 127.0.0.1 port NNNNN ..."), which needs no
+        # privileges; fall back to ss (which only shows pid= as root, so it
+        # can't be the sole source in an unprivileged container/CI runner).
         port=""
         for _ in $(seq 1 50); do
-            port=$(ss -ltnp 2>/dev/null | grep "pid=$SERVER_PID," | grep -oE '127.0.0.1:[0-9]+' | head -1 | cut -d: -f2)
+            port=$(grep -oE 'port [0-9]+' "$TMP_DIR/server.log" 2>/dev/null | head -1 | awk '{print $2}')
+            [ -z "$port" ] && port=$(ss -ltnp 2>/dev/null | grep "pid=$SERVER_PID," | grep -oE '127.0.0.1:[0-9]+' | head -1 | cut -d: -f2)
             [ -n "$port" ] && break
             sleep 0.1
         done

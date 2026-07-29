@@ -385,7 +385,6 @@ install_cli_tools() {
     # - Check if Claude command works (not just exists - catches broken symlinks)
     # - Detect npm installations (user ~/.npm-global OR system /usr/local)
     claude_native_path="${HOME}/.local/bin/claude"
-    claude_works=false
     is_npm_install=false
     needs_install=false
 
@@ -393,7 +392,6 @@ install_cli_tools() {
     # otherwise non-native installation may be migrated during a normal/force
     # run, but repair must leave it untouched like every other healthy tool.
     if [ "$INSTALL_MODE" = "repair" ] && tool_healthy claude; then
-        claude_works=true
         print_status "claude is already working - skipping (repair mode)"
     # In force mode always reinstall via the native installer. This is NON-
     # destructive: the installer stages the new version under
@@ -407,7 +405,6 @@ install_cli_tools() {
         fi
     # First, check if native installation exists and works
     elif [ -x "$claude_native_path" ] && "$claude_native_path" --version >/dev/null 2>&1; then
-        claude_works=true
         print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
         print_status "Note: Claude Code auto-updates in the background"
     else
@@ -425,12 +422,10 @@ install_cli_tools() {
                 else
                     # Check if it's a native installation (at ~/.local/bin or ~/.local/share/claude)
                     if echo "$claude_path" | grep -qE '(/.local/bin/|/.local/share/claude/)'; then
-                        claude_works=true
                         print_status "Claude Code CLI already installed via native installer ($(get_version claude))"
                         print_status "Note: Claude Code auto-updates in the background"
                     else
                         # Unknown installation type that works - leave it alone
-                        claude_works=true
                         print_status "Claude Code CLI found at: $claude_path ($(get_version claude))"
                     fi
                 fi
@@ -485,7 +480,7 @@ install_cli_tools() {
     elif npm view @google/gemini-cli version >/dev/null 2>&1; then
         print_status "Installing Google Gemini CLI..."
         print_status "Found @google/gemini-cli in npm registry"
-        if npm_install_with_retry "@google/gemini-cli@0.49.0" "/tmp/gemini_install.log"; then
+        if npm_install_with_retry "@google/gemini-cli@0.53.0" "/tmp/gemini_install.log"; then
             print_success "Gemini CLI installed successfully"
         else
             # Try community version as fallback
@@ -537,7 +532,7 @@ install_cli_tools() {
         : # already working - skipped in repair mode
     elif npm view @openai/codex version >/dev/null 2>&1; then
         print_status "Installing OpenAI Codex CLI..."
-        if npm_install_with_retry "@openai/codex@0.142.5" "/tmp/codex_install.log"; then
+        if npm_install_with_retry "@openai/codex@0.146.0" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -574,7 +569,7 @@ install_cli_tools() {
     update_install_status "OpenCode CLI" "npm"
     if ! should_install opencode; then
         : # already working - skipped in repair mode
-    elif npm_install_with_retry "opencode-ai@1.17.18" "/tmp/opencode_install.log"; then
+    elif npm_install_with_retry "opencode-ai@1.18.9" "/tmp/opencode_install.log"; then
         print_success "OpenCode installed successfully"
     else
         print_warning "OpenCode installation failed - can be installed manually with: npm install -g opencode-ai"

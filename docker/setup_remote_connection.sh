@@ -144,7 +144,8 @@ main() {
     # Step 5: Show connection info
     print_step "5" "Connect from Your Phone!"
 
-    local username=$(whoami)
+    local username
+    username=$(whoami)
 
     print_header "Your Connection Details"
 

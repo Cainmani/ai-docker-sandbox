@@ -42,6 +42,7 @@ setup_case() {
     export FAKE_NPM_AFTER=''
     export FAKE_NPM_INSTALL_RC=0
     export FAKE_APT_UPGRADE_RC=0
+    export FAKE_NPM_ROOT=''
     mkdir -p "$HOME" "$CASE_DIR/bin"
     : > "$FAKE_LOG"
 
@@ -50,6 +51,7 @@ setup_case() {
 printf 'npm %s\n' "$*" >> "$FAKE_LOG"
 case " $* " in
     *' config set prefix '*) exit 0 ;;
+    *' root -g '*) printf '%s\n' "$FAKE_NPM_ROOT"; exit 0 ;;
     *' outdated -g '*) printf '%s\n' "$FAKE_NPM_OUTDATED_OUTPUT"; exit "$FAKE_NPM_OUTDATED_RC" ;;
     *' ls -g --depth=0 --parseable '*)
         count_file="$FAKE_STATE.ls-count"
@@ -142,6 +144,28 @@ if printf '%s\n' "$RUN_OUTPUT" | grep -Fq 'Updates completed successfully'; then
 else
     pass "partial apply suppresses success summary"
 fi
+
+# Orphaned staging directories from an interrupted install are swept before the
+# npm update, so a leftover ".<pkg>-<hash>" can no longer abort the whole run.
+setup_case
+FAKE_NPM_ROOT="$CASE_DIR/node_modules"
+export FAKE_NPM_ROOT
+mkdir -p \
+    "$FAKE_NPM_ROOT/.9router-wciiY0Kj" \
+    "$FAKE_NPM_ROOT/@google/.gemini-cli-yRHhsjle" \
+    "$FAKE_NPM_ROOT/@google/gemini-cli" \
+    "$FAKE_NPM_ROOT/vibe-kanban" \
+    "$FAKE_NPM_ROOT/.bin"
+: > "$FAKE_NPM_ROOT/.package-lock.json"
+run_updater --apply
+assert_eq "apply with only staging orphans succeeds" 0 "$RUN_RC"
+if [ -e "$FAKE_NPM_ROOT/.9router-wciiY0Kj" ]; then fail "unscoped staging orphan removed"; else pass "unscoped staging orphan removed"; fi
+if [ -e "$FAKE_NPM_ROOT/@google/.gemini-cli-yRHhsjle" ]; then fail "scoped staging orphan removed"; else pass "scoped staging orphan removed"; fi
+if [ -e "$FAKE_NPM_ROOT/@google/gemini-cli" ]; then pass "real scoped package kept"; else fail "real scoped package kept"; fi
+if [ -e "$FAKE_NPM_ROOT/vibe-kanban" ]; then pass "real package kept"; else fail "real package kept"; fi
+if [ -e "$FAKE_NPM_ROOT/.bin" ]; then pass ".bin kept"; else fail ".bin kept"; fi
+if [ -e "$FAKE_NPM_ROOT/.package-lock.json" ]; then pass ".package-lock.json kept"; else fail ".package-lock.json kept"; fi
+assert_contains "cleanup is reported" "$RUN_OUTPUT" "staging directories from interrupted installs"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
