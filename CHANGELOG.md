@@ -5,6 +5,11 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`update-container-tools` no longer aborts on leftover npm staging directories.** When a global `npm install`/`update` is interrupted before its final atomic rename (container stopped mid-update, killed process, dropped connection), npm leaves the package's hidden staging directory behind (named `.<pkg>-<hash>`, e.g. `.9router-wciiY0Kj` or `@google/.gemini-cli-yRHhsjle`). npm never cleans these up, and a single one makes the next `npm update -g` abort immediately with `EINVALIDPACKAGENAME` ("name cannot start with a period") — which blocked updates for *every* tool, not just the interrupted one, and left tools like `9router` and `opencode` half-installed. The updater now sweeps these orphaned staging directories (scoped and unscoped) before running `npm update -g`, so an interrupted install self-heals on the next run instead of wedging all future updates. Real entries like `.bin` and `.package-lock.json` are never touched.
+
 ## [1.5.4] - 2026-07-21
 
 Container rebuild/recreate required to install `bubblewrap` and apply the Codex sandbox and CA configuration.
