@@ -77,13 +77,11 @@ fi
 # Bash syntax check for all docker shell scripts
 echo ""
 echo "--- Bash syntax validation ---"
-syntax_ok=true
 for script in docker/*.sh; do
     if bash -n "$script" 2>/dev/null; then
         pass "$script passes bash -n"
     else
         fail "$script has syntax errors"
-        syntax_ok=false
     fi
 done
 

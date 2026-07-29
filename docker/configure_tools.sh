@@ -36,12 +36,9 @@ for helper in /usr/local/lib/entrypoint_helpers.sh /usr/local/lib/router_utils.s
         echo "ERROR: required helper is missing: $helper" >&2
         exit 1
     fi
+    # shellcheck disable=SC1090  # helper path is validated above; not statically known
     source "$helper"
 done
-
-# Configuration file
-# Use $HOME instead of USER_NAME since this runs as the user
-CONFIG_FILE="${HOME}/.cli_tools_config"
 
 # Function to print colored headers
 print_header() {
@@ -54,7 +51,6 @@ print_header() {
 # Function to check if a tool is configured
 is_configured() {
     local tool=$1
-    local install_marker="${HOME}/.cli_tools_installed"
 
     case $tool in
         claude)

@@ -119,7 +119,7 @@ rotate_log() {
         fi
 
         # Truncate current log
-        > "$log_file"
+        : > "$log_file"
 
         # Log the rotation (after truncation, so it's the first entry)
         local timestamp
