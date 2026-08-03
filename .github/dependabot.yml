@@ -1,3 +1,29 @@
+# ⚠️ SECURITY UPDATES ARE ENABLED ELSEWHERE BUT *SHAPED* HERE.
+#   `groups:` defaults to `applies-to: version-updates`, so a group with
+#   `patterns: ["*"]` does NOT group security updates -- each advisory opens its
+#   OWN PR, and `open-pull-requests-limit` does not bound security updates
+#   either, so that fan-out is UNBOUNDED. Enabling org-wide Dependabot security
+#   updates on 2026-07-30 produced 53 PRs across the fleet in three days and
+#   buried human review requests (only 6 of 106 queued PRs were from a person).
+#
+#   So every ecosystem below declares TWO groups: the version-update group, and
+#   an `applies-to: security-updates` group collapsing advisories into one PR
+#   per ecosystem. Keep both -- deleting the security group does not "restore
+#   defaults", it restores the flood.
+#
+#   Tell them apart by branch name:
+#     dependabot/pip/pip-a1b2c3d4e5    <- grouped   (hash suffix)
+#     dependabot/pip/httpx-gte-0.28.1  <- UNGROUPED (security, per-advisory)
+#
+#   Trade-off accepted deliberately: a grouped security PR bundles advisories,
+#   so one bad bump blocks the batch. On a 4-lane pool where each PR costs a
+#   ~20min vuln-scan, that is far cheaper than one PR per advisory.
+#
+#   Any `ignore` blocks below use `version-update:semver-major`, which scopes
+#   them to version updates -- a MAJOR *security* bump is still delivered. Do
+#   not drop that prefix, or advisories get silently swallowed.
+#
+#   Ref: infra-cainmani templates/dependabot.yml, docs/dependabot.md
 version: 2
 updates:
   # Keep GitHub Actions pins current (security + Node runtime deprecations)
@@ -6,3 +32,15 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
