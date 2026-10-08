@@ -158,7 +158,7 @@ cleanup_credentials
 # never started. So: chown the mount point synchronously, skip the recursion when chown has no
 # effect (ownership dictated by mount options), and otherwise repair in the background so
 # startup never blocks on it. Docker Desktop mounts drvfs with `metadata`, so chown does stick
-# and the repair runs every start; fix_workspace_ownership only touches mismatched entries
+# and the repair runs every start; fix_ownership only touches mismatched entries
 # (e.g. files created from Windows, which appear as root:root) instead of rewriting them all.
 entrypoint_log "INFO" "Setting ownership of /workspace to $USER_NAME"
 if ! chown "$USER_NAME:$USER_NAME" /workspace 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
@@ -167,8 +167,8 @@ elif [ "$(stat -c %U /workspace 2>/dev/null)" != "$USER_NAME" ]; then
     entrypoint_log "INFO" "/workspace ownership is controlled by the host mount - skipping recursive chown"
 else
     (
-        if type fix_workspace_ownership >/dev/null 2>&1; then
-            fix_workspace_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
+        if type fix_ownership >/dev/null 2>&1; then
+            fix_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
         else
             chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
         fi
@@ -178,10 +178,14 @@ else
 fi
 
 # CRITICAL: Ensure user's home directory has correct ownership
-# This includes the .claude directory which is a Docker volume
+# This includes the .claude directory which is a Docker volume (created root-owned).
+# Only mismatched entries are changed: a blanket chown -R rewrote every inode in
+# the home folder (150k+ files) on every start, before the container was ready.
 entrypoint_log "INFO" "Setting ownership of /home/$USER_NAME to $USER_NAME"
-if ! chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+if ! chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
     entrypoint_log "WARN" "Could not change ownership of /home/$USER_NAME"
+elif ! fix_ownership "/home/$USER_NAME" "$USER_NAME" "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+    entrypoint_log "WARN" "Could not repair ownership under /home/$USER_NAME"
 fi
 
 # Ensure .claude directory exists with correct permissions

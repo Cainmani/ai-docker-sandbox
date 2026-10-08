@@ -140,14 +140,16 @@ swap=$($config.Swap)
 # Number of processors to assign
 processors=$($config.Processors)
 
-# Disable page reporting for better memory management
-pageReporting=false
-
 # Network settings
 networkingMode=mirrored
 dnsTunneling=true
 firewall=true
 autoProxy=true
+
+[experimental]
+# Return unused memory (page cache) to Windows gradually. Without this the
+# WSL VM keeps every page it ever cached, so Task Manager shows memory only rising.
+autoMemoryReclaim=gradual
 "@
 
     try {

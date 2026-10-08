@@ -131,20 +131,22 @@ safe_migrate_file() {
 # Workspace ownership repair (Windows-backed bind mount)
 # ============================================================================
 
-# Directory names whose contents are skipped by fix_workspace_ownership. They
+# Directory names whose contents are skipped by fix_ownership. They
 # hold most of a workspace's file count, are created inside the container (so
 # already user-owned), and a Windows-created copy is still mode 777 there.
 WORKSPACE_CHOWN_PRUNE="node_modules .venv venv"
 
-# fix_workspace_ownership <dir> <user> <group>
+# fix_ownership <dir> <user> <group>
 #
 # Chowns only the entries under <dir> not already owned by <user>:<group>.
+# Used for the Windows-backed /workspace and for the home folder, where a
+# blanket chown -R rewrote every inode (150k+) on every start.
 # On a drvfs mount with `metadata`, files created from Windows show up as
 # root:root, so a repair walk is still needed - but a blanket chown -R writes
 # an NTFS extended attribute for every file on every start, each one a
 # Windows<->WSL round trip that Defender then rescans. find only stats the
 # tree and touches the handful of mismatched entries.
-fix_workspace_ownership() {
+fix_ownership() {
     local dir="$1" user="$2" group="$3" name
     local -a prune=()
 

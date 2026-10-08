@@ -237,7 +237,7 @@ env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
 sleep 3
 assert_false "startup update can be disabled" test -e "$update_marker"
 
-# fix_workspace_ownership chowns only mismatched entries and skips pruned dirs.
+# fix_ownership chowns only mismatched entries and skips pruned dirs.
 # A stub chown records its arguments instead of changing anything.
 ws="$TMP_DIR/ws"
 mkdir -p "$ws/repo/src" "$ws/repo/node_modules/pkg" "$ws/app/.venv/lib"
@@ -255,17 +255,23 @@ my_group=$(id -gn)
 if [ "$me" = root ]; then other_user=nobody; else other_user=root; fi
 
 : > "$chown_log"
-env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_workspace_ownership '$ws' '$me' '$my_group'"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_ownership '$ws' '$me' '$my_group'"
 assert_false "no chown when everything is already owned" test -s "$chown_log"
 
 : > "$chown_log"
-env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_workspace_ownership '$ws' '$other_user' '$my_group'"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_ownership '$ws' '$other_user' '$my_group'"
 assert_true "chowns mismatched files" grep -Fxq "$ws/repo/src/main.py" "$chown_log"
 assert_true "chowns mismatched directories" grep -Fxq "$ws/repo" "$chown_log"
 assert_true "passes target owner" grep -Fxq "$other_user:$my_group" "$chown_log"
 assert_false "skips node_modules contents" grep -Fq "node_modules" "$chown_log"
 assert_false "skips virtualenv contents" grep -Fq ".venv" "$chown_log"
 assert_false "does not chown the mount point itself" grep -Fxq "$ws" "$chown_log"
+
+# The entrypoint repairs home ownership with the targeted helper, never a
+# blanket recursive chown that rewrites every inode on every start.
+entrypoint="$ROOT_DIR/docker/entrypoint.sh"
+assert_false "no blanket recursive chown of the home folder" grep -Eq 'chown -R "\$USER_NAME:\$USER_NAME" "/home/\$USER_NAME"' "$entrypoint"
+assert_true "home ownership uses the targeted helper" grep -Fq 'fix_ownership "/home/$USER_NAME"' "$entrypoint"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

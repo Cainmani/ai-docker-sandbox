@@ -18,6 +18,10 @@ services:
     # Fixed image name - referenced by the setup wizard and launchers
     image: ai-docker-cli:latest
     container_name: ai-cli
+    # Come back after a reboot or Docker Desktop restart without opening the
+    # launcher (needs Docker Desktop's "Start when you sign in" setting).
+    # A container stopped on purpose stays stopped.
+    restart: unless-stopped
     # Codex runs bubblewrap inside this development container. Docker's default
     # seccomp profile blocks the unprivileged namespace creation bwrap needs;
     # capabilities remain restricted and bwrap applies the inner sandbox.
