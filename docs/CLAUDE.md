@@ -113,7 +113,11 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 ### npm version pins are literals, and the updater must not defeat them
 
 - CI's `check-pinned-versions` job **greps for literal `name@version` strings**: auto-installed tools in `install_cli_tools.sh`, and the routers in `docker/lib/router_utils.sh` (`AI_ROUTER_PIN_9ROUTER`/`AI_ROUTER_PIN_OMNIROUTE`). Keep the pins as literals even when refactoring into variables.
-- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `ai_router_install` when a router is installed and re-applied by `auto_update.sh` after every update run.
+- `auto_update.sh` updates every global npm package **except** those in the pin manifest `~/.npm-pinned-tools` (the credential-holding routers, whose version must only change via a release). `ai_router_install` writes the manifest when a router is installed; the updater excludes those names from `npm update -g` and still re-applies the pins afterwards as a guard.
+
+### The update status record is the single source of truth for update health
+
+`auto_update.sh` writes `~/.ai-docker/update-status` (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times, and every mutating mode takes `~/.ai-docker/update.lock` so startup, cron and manual runs cannot overlap.
 
 ### Release asset names are an API (self-update depends on them)
 
