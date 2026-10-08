@@ -263,8 +263,10 @@ cmd_status() {
 MOUNTS_FILE="${AI_DOCKER_MOUNTS_FILE:-/proc/mounts}"
 RESCUE_ROOT="${AI_DOCKER_RESCUE_ROOT:-/workspace/_rescued}"
 # Folders whose contents are reinstalled, never hand-made work.
-RESCUE_SKIP_DIRS="node_modules .venv venv site-packages __pycache__ .cache .npm .npm-global .local .cargo .rustup .gradle"
-RESCUE_DOC_EXTS="png jpg jpeg gif svg ipynb pdf doc docx xls xlsx xlsm ppt pptx odt ods csv kmz kml gpkg shp dbf geojson tif tiff dwg dxf step stp stl 3mf f3d fcstd iges igs zip 7z md txt"
+RESCUE_SKIP_DIRS="node_modules site-packages __pycache__ .cache .npm .npm-global .local .cargo .rustup .gradle"
+# Inside a virtualenv (found by its pyvenv.cfg) only these parts are rebuildable;
+# anything else placed in it is work.
+RESCUE_VENV_PARTS="bin lib lib64 include share Lib Scripts"
 
 # Mount targets inside the scan roots (named volumes) survive a rebuild.
 rescue_mounts() {
@@ -302,16 +304,14 @@ rescue_find() {
         -o \( -type f ! -path "$root/.*" -printf 'doc:%s:%p\0' \) 2>>"${RESCUE_ERRFILE:-/dev/null}"
 }
 
-# rescue_repo_docs <repo>: document files in the working tree (relative paths),
-# skipping .git and dependency/cache folders.
-rescue_repo_docs() {
-    local repo="$1" name ext
-    local -a prune=(-name .git -o) docs=()
+# rescue_repo_files <repo>: every file in the working tree (relative paths),
+# skipping .git, dependency/cache folders and virtualenv folders.
+rescue_repo_files() {
+    local repo="$1" name
+    local -a prune=(-name .git -o -name .venv -o -name venv -o)
     for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
     unset 'prune[${#prune[@]}-1]'
-    for ext in $RESCUE_DOC_EXTS; do docs+=(-iname "*.$ext" -o); done
-    unset 'docs[${#docs[@]}-1]'
-    ( cd "$repo" && find . -mindepth 1 \( \( "${prune[@]}" \) -prune \) -o \( -type f \( "${docs[@]}" \) -print \) 2>/dev/null | sed 's|^\./||' )
+    ( cd "$repo" && find . -mindepth 1 \( \( "${prune[@]}" \) -prune \) -o \( -type f -print \) 2>/dev/null | sed 's|^\./||' )
 }
 
 # rescue_repo_reasons <repo>: comma-separated reasons the repo holds work only
@@ -326,14 +326,17 @@ rescue_repo_reasons() {
         reasons+=("no remote")
     else
         # Every local branch, not just the checked-out one.
-        n=$(git -C "$repo" rev-list --count HEAD --branches --not --remotes 2>/dev/null || echo 0)
+        # Every local branch and tag, not just the checked-out one.
+        n=$(git -C "$repo" rev-list --count HEAD --branches --tags --not --remotes 2>/dev/null || echo 0)
         [ "$n" -gt 0 ] && reasons+=("$n unpushed commit(s)")
     fi
-    # Deliverables hidden by .gitignore (build output, exports) are not in the
-    # remote either. Ask git about document files only: listing every ignored
-    # file would walk node_modules and friends.
-    n=$(rescue_repo_docs "$repo" | git -C "$repo" check-ignore --stdin 2>/dev/null | wc -l)
-    [ "$n" -gt 0 ] && reasons+=("$n ignored document(s)")
+    # Files hidden by .gitignore (exports, data, build output) are not in the
+    # remote either. Dependency and virtualenv folders are skipped.
+    n=$(rescue_repo_files "$repo" | git -C "$repo" check-ignore --stdin 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] && reasons+=("$n ignored file(s)")
+    # Edits git has been told not to report (assume-unchanged, skip-worktree).
+    n=$(git -C "$repo" ls-files -v 2>/dev/null | grep -c '^[a-zS]' || true)
+    [ "$n" -gt 0 ] && reasons+=("$n file(s) hidden from git status")
     local IFS=','
     echo "${reasons[*]}"
 }
@@ -349,7 +352,7 @@ rescue_collect_roots() {
     RESCUE_LINES=()
     RESCUE_UNREADABLE=()
     RESCUE_ERRFILE=$(mktemp)
-    local root entry path reasons repo inside group rel venv
+    local root entry path reasons repo inside group rel venv part
     local -a repos=() docs=() groups=() venvs=()
     local -A doc_root=() doc_size=() group_count=() group_bytes=()
     # find only learns a folder is a repo (or virtualenv) when it reaches its
@@ -387,7 +390,9 @@ rescue_collect_roots() {
             case "$path" in "$repo"/*) inside=1; break ;; esac
         done
         for venv in "${venvs[@]}"; do
-            case "$path" in "$venv"/*) inside=1; break ;; esac
+            for part in $RESCUE_VENV_PARTS; do
+                case "$path" in "$venv/$part"/*) inside=1; break 2 ;; esac
+            done
         done
         [ "$inside" -eq 0 ] || continue
         # Group by top-level folder under the scan root, so one batch of
@@ -460,11 +465,52 @@ rescue_copy() {
             | xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
         ( cd "$dest" && sha256sum --quiet -c "$dest/.verify.$$" ) >/dev/null 2>&1 || { rm -f "$dest/.verify.$$"; return 1; }
         rm -f "$dest/.verify.$$"
+        rescue_materialize_links "$path" "$dest" || return 1
         if [ -e "$path/.git" ]; then
             rescue_make_standalone "$path" "$dest$path" || return 1
             rescue_verify_repo "$path" "$dest$path" || return 1
         fi
     done
+}
+
+# in_discard_zone <path>: storage a rebuild deletes - /tmp or the home folder
+# outside the named-volume mounts.
+in_discard_zone() {
+    local mount
+    case "$1" in
+        "$TMP_ROOT"/*|"$HOME"/*) ;;
+        *) return 1 ;;
+    esac
+    while IFS= read -r mount; do
+        [ -n "$mount" ] && [ "$mount" != "/" ] || continue
+        case "$1/" in "$mount"/*) return 1 ;; esac
+    done < <(rescue_mounts)
+    return 0
+}
+
+# rescue_materialize_links <source item> <dest root>: a copied symlink whose
+# target lies in storage the rebuild deletes - and outside the copied item, or
+# given as an absolute path - would dangle after the rebuild. Replace it with a
+# verified copy of what it points to. Relative links within the item stay.
+rescue_materialize_links() {
+    local item="$1" dest="$2" link src raw target
+    while IFS= read -r -d '' link; do
+        src=${link#"$dest"}
+        raw=$(readlink -- "$src") || continue
+        target=$(readlink -f -- "$src") || continue
+        [ -e "$target" ] || continue
+        case "$raw" in
+            /*) ;;
+            *) case "$target/" in "$item"/*) continue ;; esac ;;
+        esac
+        in_discard_zone "$target" || continue
+        rm -f -- "$link" && cp -a -L -- "$target" "$link" || return 1
+        if [ -d "$target" ]; then
+            diff -r -- "$target" "$link" >/dev/null 2>&1 || return 1
+        else
+            cmp -s -- "$target" "$link" || return 1
+        fi
+    done < <(find "$dest$item" -type l -print0 2>/dev/null)
 }
 
 # rescue_make_standalone <source repo> <copy>: a worktree's .git is a file that
@@ -488,8 +534,23 @@ rescue_make_standalone() {
     else
         git -C "$copy" update-ref --no-deref HEAD "$(git -C "$src" rev-parse HEAD)"
     fi
-    # Rebuild the index from HEAD; the working tree files are already in place.
-    git -C "$copy" reset -q >/dev/null 2>&1
+    # Keep the original index, so staged changes stay staged; rebuild it from
+    # HEAD only if it cannot be read.
+    local index
+    index=$(cd "$src" && realpath -- "$(git rev-parse --git-path index)" 2>/dev/null)
+    if [ -f "$index" ] && cp -- "$index" "$copy/.git/index"; then
+        # Staged content lives as objects in the original repository, which
+        # the bundle (committed history only) does not carry: copy any object
+        # the index needs that the copy lacks.
+        git -C "$copy" ls-files -s 2>/dev/null | awk '{ print $2 }' | sort -u \
+            | git -C "$copy" cat-file --batch-check 2>/dev/null | awk '$2 == "missing" { print $1 }' \
+            | while IFS= read -r sha; do
+                git -C "$src" cat-file blob "$sha" | git -C "$copy" hash-object -w --stdin >/dev/null || exit 1
+            done || return 1
+        git -C "$copy" update-index -q --refresh >/dev/null 2>&1 || true
+    else
+        git -C "$copy" reset -q >/dev/null 2>&1
+    fi
 }
 
 # rescue_verify_repo <source repo> <copy>: the copy must work on its own and
@@ -498,6 +559,13 @@ rescue_make_standalone() {
 # deliberately not copied, so they are left out of this comparison.)
 rescue_verify_repo() {
     local src="$1" copy="$2"
+    # A clone made with --shared (or --reference) borrows objects from another
+    # repository through objects/info/alternates; copy them in and drop the link.
+    if [ -s "$copy/.git/objects/info/alternates" ]; then
+        git -C "$copy" repack -a -d -q >/dev/null 2>&1 || return 1
+        rm -f -- "$copy/.git/objects/info/alternates"
+    fi
+    git -C "$copy" fsck --connectivity-only --no-progress >/dev/null 2>&1 || return 1
     [ "$(git -C "$copy" rev-parse HEAD 2>/dev/null)" = "$(git -C "$src" rev-parse HEAD 2>/dev/null)" ] || return 1
     [ "$(git -C "$copy" status --porcelain --untracked-files=no 2>/dev/null | sort)" \
         = "$(git -C "$src" status --porcelain --untracked-files=no 2>/dev/null | sort)" ] || return 1
@@ -590,7 +658,7 @@ kb_phrase() { human_bytes $(( $1 * 1024 )); }
 # (a pyvenv.cfg marks one, whatever its name) below <dir>, one per line.
 rebuildable_dirs_in() {
     local name
-    local -a names=()
+    local -a names=(-name .venv -o -name venv -o)
     for name in $RESCUE_SKIP_DIRS; do names+=(-name "$name" -o); done
     unset 'names[${#names[@]}-1]'
     {

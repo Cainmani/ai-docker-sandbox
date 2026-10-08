@@ -143,7 +143,7 @@ mkdir -p "$HOME/src/ignoredpdf/out"; head -c 600 /dev/urandom > "$HOME/src/ignor
 mkdir -p "$HOME/src/ignoredpdf/node_modules/x"; : > "$HOME/src/ignoredpdf/node_modules/x/readme.pdf"
 run_scan
 assert_eq "ignored deliverable in a pushed repo is found" 3 "$RUN_RC"
-assert_contains "ignored deliverable reason" "$RUN_OUTPUT" "ignored document"
+assert_contains "ignored deliverable reason" "$RUN_OUTPUT" "ignored file"
 
 setup_case
 clone_to "$HOME/src/sidebranch"
@@ -216,6 +216,85 @@ if [ "$(id -u)" -ne 0 ]; then
     chmod 755 "$AI_DOCKER_TMP_DIR/locked"
     assert_eq "an incomplete scan cannot certify a rescue (exit 1)" 1 "$RUN_RC"
 fi
+
+# --- second review: repository work that still slipped through ---------------
+# 2b: an ignored file of any type is not in the remote.
+setup_case
+clone_to "$HOME/src/ignjson"
+printf 'data/\n' > "$HOME/src/ignjson/.gitignore"; git -C "$HOME/src/ignjson" add .gitignore
+git -C "$HOME/src/ignjson" commit -qm ign && git -C "$HOME/src/ignjson" push -q origin HEAD 2>/dev/null
+mkdir -p "$HOME/src/ignjson/data"; echo '{"m":1}' > "$HOME/src/ignjson/data/measurements.json"
+run_scan
+assert_contains "ignored data file in a pushed repo is work" "$RUN_OUTPUT" "src/ignjson"
+assert_contains "ignored file reason" "$RUN_OUTPUT" "ignored file"
+
+# 2c: a commit kept only by a local tag.
+setup_case
+clone_to "$HOME/src/tagonly"
+git -C "$HOME/src/tagonly" checkout -q --detach
+echo t >> "$HOME/src/tagonly/README"; git -C "$HOME/src/tagonly" commit -qam tagged
+git -C "$HOME/src/tagonly" tag keep-me
+git -C "$HOME/src/tagonly" checkout -q -
+run_scan
+assert_contains "tag-only commit is unpushed work" "$RUN_OUTPUT" "src/tagonly"
+
+# 2d: an edit hidden from git status.
+setup_case
+clone_to "$HOME/src/hidden"
+echo secret-edit >> "$HOME/src/hidden/README"
+git -C "$HOME/src/hidden" update-index --assume-unchanged README
+run_scan
+assert_contains "assume-unchanged edit is work" "$RUN_OUTPUT" "src/hidden"
+assert_contains "hidden-edit reason" "$RUN_OUTPUT" "hidden from git status"
+
+# 3 (rescue side): a real file inside a virtualenv folder is still rescued.
+setup_case
+mkdir -p "$AI_DOCKER_TMP_DIR/proj/.venv/lib/python3/site-packages/pkg" "$AI_DOCKER_TMP_DIR/proj/.venv/bin"
+: > "$AI_DOCKER_TMP_DIR/proj/.venv/pyvenv.cfg"; echo x > "$AI_DOCKER_TMP_DIR/proj/.venv/lib/python3/site-packages/pkg/m.py"
+echo y > "$AI_DOCKER_TMP_DIR/proj/.venv/bin/activate"
+head -c 400 /dev/urandom > "$AI_DOCKER_TMP_DIR/proj/.venv/only-copy.pdf"
+run_scan
+assert_contains "file placed inside a virtualenv is work" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/proj  (1 file"
+run_scan --copy
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+[ -n "$dest" ] && [ -e "$dest$AI_DOCKER_TMP_DIR/proj/.venv/only-copy.pdf" ] && pass "file inside a virtualenv is rescued" || fail "file inside a virtualenv is rescued"
+
+# 4: a --shared clone borrows objects from another repository.
+setup_case
+git clone -q "$CASE_DIR/remote.git" "$CASE_DIR/elsewhere/orig" 2>/dev/null
+echo more >> "$CASE_DIR/elsewhere/orig/README"; git -C "$CASE_DIR/elsewhere/orig" commit -qam second
+git clone -q --shared "$CASE_DIR/elsewhere/orig" "$HOME/src/shared" 2>/dev/null
+echo mine >> "$HOME/src/shared/README"; git -C "$HOME/src/shared" commit -qam "local commit"
+run_scan --copy
+assert_eq "shared clone rescue succeeds" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+rm -rf "$CASE_DIR/elsewhere"
+assert_contains "rescued shared clone keeps full history without the original" "$(git -C "$dest$HOME/src/shared" log --format=%s 2>/dev/null)" "second"
+[ ! -e "$dest$HOME/src/shared/.git/objects/info/alternates" ] && pass "rescued clone borrows no objects" || fail "rescued clone borrows no objects"
+git -C "$dest$HOME/src/shared" fsck --connectivity-only >/dev/null 2>&1 && pass "rescued clone passes fsck on its own" || fail "rescued clone passes fsck on its own"
+
+# 5: a symlink to a unique file that the rebuild will delete.
+setup_case
+git init -q "$HOME/src/linky"; echo a > "$HOME/src/linky/f"; git -C "$HOME/src/linky" add f; git -C "$HOME/src/linky" commit -qm a
+mkdir -p "$AI_DOCKER_TMP_DIR/store"; echo unique-content > "$AI_DOCKER_TMP_DIR/store/unique.txt"
+ln -s "$AI_DOCKER_TMP_DIR/store/unique.txt" "$HOME/src/linky/deliverable.txt"
+ln -s f "$HOME/src/linky/inner-link"
+run_scan --copy
+assert_eq "rescue with a symlink succeeds" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+rm -rf "$AI_DOCKER_TMP_DIR/store"
+assert_eq "linked deliverable survives losing its target" "unique-content" "$(cat "$dest$HOME/src/linky/deliverable.txt" 2>/dev/null)"
+[ -L "$dest$HOME/src/linky/inner-link" ] && pass "links inside the rescued folder stay links" || fail "links inside the rescued folder stay links"
+
+# 7: staged changes in a worktree survive the rescue.
+setup_case
+git clone -q "$CASE_DIR/remote.git" "$CASE_DIR/elsewhere/main" 2>/dev/null
+git -C "$CASE_DIR/elsewhere/main" worktree add -q -b staged "$HOME/src/wtstaged" 2>/dev/null
+echo staged-edit >> "$HOME/src/wtstaged/README"; git -C "$HOME/src/wtstaged" add README
+run_scan --copy
+assert_eq "worktree with a staged change rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_contains "staged change is still staged in the copy" "$(git -C "$dest$HOME/src/wtstaged" diff --cached --name-only 2>/dev/null)" "README"
 
 # Documents inside a repo are judged by the repo, not listed on their own.
 setup_case
