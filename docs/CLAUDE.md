@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
 **Last Updated:** October 8, 2026
-**Project Version:** 1.6.0 (release candidate; not tagged or released)
+**Project Version:** 1.6.0
 
 ---
 
