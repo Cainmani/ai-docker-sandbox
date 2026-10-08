@@ -426,7 +426,9 @@ apply_updates() {
     if [ "$pip_list_ok" -eq 0 ]; then
         :
     elif [ -n "$outdated_packages" ]; then
-        pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade 2>&1)
+        # Same flag the installer uses: Ubuntu 24.04 (PEP 668) refuses user
+        # installs without it, and this is an isolated container.
+        pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade --break-system-packages 2>&1)
         pip_exit_code=$?
         if [ $pip_exit_code -eq 0 ]; then
             echo "$pip_output" | grep -E "Successfully installed" | while read line; do update_log "  ${GREEN}$line${NC}"; done

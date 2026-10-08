@@ -90,7 +90,14 @@ if [ "${1:-}" = list ]; then
     printf '%s\n' "$FAKE_PIP_OUTDATED_OUTPUT"
     exit "$FAKE_PIP_CHECK_RC"
 fi
-if [ "${1:-}" = install ]; then exit "$FAKE_PIP_INSTALL_RC"; fi
+if [ "${1:-}" = install ]; then
+    # Ubuntu 24.04 (PEP 668) refuses user installs without this flag.
+    case " $* " in
+        *' --break-system-packages '*) ;;
+        *) echo "error: externally-managed-environment" >&2; exit 1 ;;
+    esac
+    exit "$FAKE_PIP_INSTALL_RC"
+fi
 exit 0
 SCRIPT
 
@@ -205,7 +212,8 @@ SCRIPT
 setup_case
 export FAKE_PIP_OUTDATED_JSON='[{"name": "openai", "version": "2.44.0", "latest_version": "2.50.0"}]'
 run_updater --apply
-assert_log_contains "outdated pip package is upgraded" "pip3 install --user --upgrade openai"
+assert_log_contains "outdated pip package is upgraded" "openai"
+assert_eq "pip upgrade succeeds on a PEP 668 system" 0 "$RUN_RC"
 assert_log_not_contains "pip is never asked for the unsupported freeze+outdated combination" "--format=freeze"
 
 # A failing pip listing during apply is an error, not "all up to date".

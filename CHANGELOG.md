@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Container rebuild/recreate required for the updater fixes to take effect.
 
 ### Fixed
-- **Python packages are actually updated.** The updater listed outdated pip packages with `pip3 list --outdated --format=freeze`, a combination pip rejects; the error was discarded and the run reported "All Python packages are up to date", so user pip packages (including `openai`) were never upgraded. It now lists them as JSON, and a listing failure is reported as an error. (#87)
+- **Python packages are actually updated.** The updater listed outdated pip packages with `pip3 list --outdated --format=freeze`, a combination pip rejects; the error was discarded and the run reported "All Python packages are up to date", so user pip packages (including `openai`) were never upgraded. It now lists them as JSON, passes `--break-system-packages` like the installer does (Ubuntu 24.04 rejects user installs without it — a second failure the first one had been hiding), and reports any listing or install failure as an error. (#87)
 - **Pinned npm packages are no longer updated and then rolled back.** The AI routers in `~/.npm-pinned-tools` are now excluded from `npm update -g` instead of being moved to the latest version and restored afterwards. (#87)
 
 ### Added
