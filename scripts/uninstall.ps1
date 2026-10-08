@@ -76,6 +76,48 @@ if (-not $dockerCmd) {
         }
     }
 
+    # ---------- rescue work outside the preserved folders ----------
+    # Removing the container deletes /tmp and the home folder outside the named
+    # volumes. Offer to copy anything found there into AI_Work first.
+    $scannerDir = $PSScriptRoot
+    if (-not (Test-Path (Join-Path $scannerDir 'ai_docker.sh'))) {
+        $scannerDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'docker'
+    }
+    if (Get-Command Invoke-ContainerRescueScan -ErrorAction SilentlyContinue) {
+        $scan = Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath $dockerCmd
+        if ($scan.State -eq 'WorkFound') {
+            Write-Host $scan.Output -ForegroundColor Yellow
+            $copyIt = $true
+            if (-not $Force) {
+                $copyAnswer = Read-Host "Copy these into your AI_Work folder before uninstalling? (Y/n)"
+                $copyIt = ($copyAnswer -notmatch '^[Nn]')
+            }
+            if ($copyIt) {
+                $copy = Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath $dockerCmd -Copy
+                if ($copy.State -ne 'Copied') {
+                    Write-Host $copy.Output -ForegroundColor Red
+                    Write-Host "[ERROR] Copy failed - uninstall stopped. Nothing was removed." -ForegroundColor Red
+                    Write-AppLog "Uninstall aborted: rescue copy failed ($($copy.State))" "ERROR"
+                    exit 1
+                }
+                Write-Host $copy.Output -ForegroundColor Green
+            } else {
+                Write-AppLog "User chose to uninstall without rescuing work found by the scan" "WARN"
+            }
+        } elseif ($scan.State -eq 'Error') {
+            Write-Host "[WARN] Could not check the container for unsaved work: $($scan.Error)" -ForegroundColor Yellow
+            if (-not $Force) {
+                $continueAnswer = Read-Host "Continue the uninstall anyway? (y/N)"
+                if ($continueAnswer -notmatch '^[Yy]') {
+                    Write-Host "[INFO] Uninstall cancelled." -ForegroundColor Cyan
+                    exit 2
+                }
+            }
+        }
+    } else {
+        Write-Host "[WARN] Rescue check unavailable (docker_helpers.ps1 not found) - work in /tmp and the home folder will be deleted." -ForegroundColor Yellow
+    }
+
     # ---------- remove container ----------
     Write-Host "[STEP] Removing container 'ai-cli'..." -ForegroundColor Cyan
     $existingContainer = & $dockerCmd ps -a --filter "name=ai-cli" --format "{{.Names}}" 2>$null

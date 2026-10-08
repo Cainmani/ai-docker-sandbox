@@ -126,6 +126,45 @@ function Show-Info([string]$msg) {
     [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Information') | Out-Null
 }
 
+# Before the container is (re)created, make sure nothing outside the folders a
+# rebuild keeps is lost. Returns $true to proceed, $false to stop setup.
+function Invoke-RebuildRescueGate([string]$dockerFilesPath, [bool]$mobileEnabled) {
+    $risk = Test-ContainerRecreateLikely -DockerPath $script:dockerExe -MobileAccess $mobileEnabled
+    if (-not $risk.ContainerExists -or -not $risk.Likely) { return $true }
+
+    Write-Host "[INFO] The container will be recreated ($($risk.Reason)) - checking for work that would be lost" -ForegroundColor Cyan
+    $scan = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe
+    if ($scan.State -eq 'Clean' -or $scan.State -eq 'NoContainer') { return $true }
+
+    if ($scan.State -ne 'WorkFound') {
+        $answer = [System.Windows.Forms.MessageBox]::Show(
+            "Could not check the container for work that the rebuild would delete:`n$($scan.Error)`n`nContinue anyway?",
+            'Setup', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+        return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
+    }
+
+    $lines = @($scan.Output -split "`r?`n" | Where-Object { $_ -and $_ -notmatch 'rescue-scan --copy' })
+    if ($lines.Count -gt 25) { $lines = @($lines[0..23]) + "  ... and $($lines.Count - 24) more" }
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        ($lines -join "`n") + "`n`nCopy these into your AI_Work folder (_rescued) before continuing?`n`nYes = copy first (recommended)`nNo = continue and let them be deleted`nCancel = stop setup",
+        'Work outside the preserved folders', [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($answer -eq [System.Windows.Forms.DialogResult]::Cancel) { return $false }
+    if ($answer -eq [System.Windows.Forms.DialogResult]::No) {
+        Write-AppLog "User chose to recreate the container without rescuing work found by the scan" "WARN"
+        return $true
+    }
+
+    $copy = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe -Copy
+    if ($copy.State -ne 'Copied') {
+        Show-Error ("Copying your work into AI_Work failed, so setup stopped before recreating the container. Nothing was deleted.`n`n" + $copy.Output + $copy.Error)
+        return $false
+    }
+    Show-Info ("Copied and verified:`n" + (($copy.Output -split "`r?`n" | Where-Object { $_ -like 'Copied and verified*' }) -join "`n"))
+    return $true
+}
+
 $script:runningProcess = $null
 $script:operationInProgress = $false   # True while a DoEvents-pumped operation runs (blocks re-entrant button clicks)
 $script:cancelRequested = $false       # Set by the Cancel button; polled by the DoEvents runner loops
@@ -1795,6 +1834,13 @@ $btnNext.Add_Click({
                 $composeArgs = Get-ComposeFileArgs -DockerPath $dockerPath -MobileAccess $mobileEnabled
             } catch {
                 Show-Error $_.Exception.Message
+                return
+            }
+
+            # 'up -d' may recreate the container (new image, changed ports),
+            # which deletes its writable layer: rescue work there first.
+            if (-not (Invoke-RebuildRescueGate -dockerFilesPath $dockerPath -mobileEnabled $mobileEnabled)) {
+                $status.Text = 'Stopped before recreating the container - nothing was deleted.'
                 return
             }
 

@@ -376,7 +376,7 @@ function Export-EmbeddedHelpers {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', 'docker_helpers.ps1', 'log_utils.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"

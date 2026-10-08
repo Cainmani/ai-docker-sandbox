@@ -289,3 +289,132 @@ function Wait-ContainerReady {
     Write-AppLog "Timed out after ${TimeoutSeconds}s waiting for container '$ContainerName'" "WARN"
     return $false
 }
+
+
+# ---------------------------------------------------------------------------
+# Rebuild / uninstall safety
+# ---------------------------------------------------------------------------
+# A recreate, rebuild or uninstall deletes the container's writable layer
+# (/tmp and the home folder outside the named volumes). These helpers predict
+# when that is about to happen and run the in-container rescue scanner first.
+
+function Test-ContainerRecreateLikely {
+    param(
+        [string]$DockerPath = $null,
+        [string]$ContainerName = 'ai-cli',
+        [string]$ImageName = $script:AiDockerImageName,
+        # The mobile access setting about to be applied; $null = not changing.
+        $MobileAccess = $null
+    )
+
+    $result = @{ ContainerExists = $false; Likely = $false; Reason = '' }
+
+    $containerImage = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+        'inspect', '--format', '{{.Image}}', $ContainerName) -TimeoutSeconds 15
+    if (-not $containerImage.Success) { return $result }
+    $result.ContainerExists = $true
+
+    $image = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+        'image', 'inspect', '--format', '{{.Id}}', $ImageName) -TimeoutSeconds 15
+    if (-not $image.Success) {
+        $result.Likely = $true
+        $result.Reason = 'the image could not be inspected'
+        return $result
+    }
+    if ($image.Output.Trim() -ne $containerImage.Output.Trim()) {
+        $result.Likely = $true
+        $result.Reason = 'the container image has changed'
+        return $result
+    }
+
+    if ($null -ne $MobileAccess) {
+        $envList = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+            'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', $ContainerName) -TimeoutSeconds 15
+        $current = ($envList.Output -split "`r?`n") -contains 'ENABLE_MOBILE_ACCESS=1'
+        if ([bool]$MobileAccess -ne $current) {
+            $result.Likely = $true
+            $result.Reason = 'the mobile access setting has changed'
+        }
+    }
+    return $result
+}
+
+# Runs `ai-docker rescue-scan` inside the container using the launcher's own
+# copy of the scanner, so containers built before it existed are covered too.
+# State: NoContainer | Clean | WorkFound | Copied | Failed | Error
+function Invoke-ContainerRescueScan {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScannerDir,
+
+        [switch]$Copy,
+
+        [string]$DockerPath = $null,
+        [string]$ContainerName = 'ai-cli'
+    )
+
+    $result = @{ State = 'Error'; Output = ''; Error = '' }
+    $scanner = Join-Path $ScannerDir 'ai_docker.sh'
+    $helpers = Join-Path (Join-Path $ScannerDir 'lib') 'entrypoint_helpers.sh'
+    if (-not (Test-Path $scanner) -or -not (Test-Path $helpers)) {
+        $result.Error = "Rescue scanner not found in $ScannerDir"
+        return $result
+    }
+
+    $running = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+        'inspect', '--format', '{{.State.Running}}', $ContainerName) -TimeoutSeconds 15
+    if (-not $running.Success) {
+        $result.State = 'NoContainer'
+        return $result
+    }
+    if ($running.Output.Trim() -ne 'true') {
+        $start = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @('start', $ContainerName) -TimeoutSeconds 60
+        if (-not $start.Success) {
+            $result.Error = "Could not start the container to check it: $($start.Error)"
+            return $result
+        }
+    }
+
+    $remoteDir = '/tmp/ai-docker-rescue'
+    $steps = @(
+        @('exec', '-u', 'root', $ContainerName, 'mkdir', '-p', $remoteDir),
+        @('cp', $scanner, "${ContainerName}:$remoteDir/ai_docker.sh"),
+        @('cp', $helpers, "${ContainerName}:$remoteDir/entrypoint_helpers.sh"),
+        # Windows copies may carry CRLF; make the scripts readable by the user.
+        @('exec', '-u', 'root', $ContainerName, 'sh', '-c', "sed -i 's/\r`$//' $remoteDir/*.sh && chmod 755 $remoteDir && chmod 644 $remoteDir/*.sh")
+    )
+    foreach ($step in $steps) {
+        $r = Invoke-DockerCommand -DockerPath $DockerPath -Arguments $step -TimeoutSeconds 60
+        if (-not $r.Success) {
+            $result.Error = "Could not prepare the rescue scan: $($r.Error)"
+            return $result
+        }
+    }
+
+    $user = (Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+        'exec', $ContainerName, 'printenv', 'USER_NAME') -TimeoutSeconds 15).Output.Trim()
+    if (-not $user) {
+        $result.Error = 'Could not determine the container user'
+        return $result
+    }
+
+    # Run as the user: git refuses to inspect repos owned by someone else.
+    $scanArgs = @('exec', '-u', $user, '-w', '/tmp',
+        '-e', "HOME=/home/$user", '-e', "AI_DOCKER_LIB_DIR=$remoteDir",
+        $ContainerName, 'bash', "$remoteDir/ai_docker.sh", 'rescue-scan')
+    if ($Copy) { $scanArgs += '--copy' }
+    $scan = Invoke-DockerCommand -DockerPath $DockerPath -Arguments $scanArgs -TimeoutSeconds 900
+    $result.Output = (($scan.Output, $scan.Error) | Where-Object { $_ }) -join "`n"
+
+    switch ($scan.ExitCode) {
+        0 { if ($Copy) { $result.State = 'Copied' } else { $result.State = 'Clean' } }
+        3 { $result.State = 'WorkFound' }
+        1 { $result.State = 'Failed' }
+        default {
+            $result.State = 'Error'
+            $result.Error = "Rescue scan did not complete (exit $($scan.ExitCode)): $($scan.Error)"
+        }
+    }
+    Write-AppLog "Rescue scan finished: $($result.State)" "INFO"
+    return $result
+}
