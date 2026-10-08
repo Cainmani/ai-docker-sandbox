@@ -1897,8 +1897,8 @@ $btnNext.Add_Click({
                 [System.Windows.Forms.Application]::DoEvents()
             }
 
-            # Track last log position for incremental updates
-            $script:lastLogLines = 0
+            # Timestamp of the newest log line shown (see Select-NewLogLines)
+            $script:logCursor = ''
 
             # Helper function to strip ANSI escape sequences
             # Uses comprehensive pattern to handle all ANSI control sequences including:
@@ -1913,11 +1913,12 @@ $btnNext.Add_Click({
             # Helper function to update terminal display with new docker logs
             function Update-TerminalDisplay {
                 try {
-                    # Get recent docker logs (last 100 lines)
-                    $logResult = & $script:dockerExe logs ai-cli --tail 100 2>&1
+                    # Only lines newer than the last one shown, however long the log grows
+                    $logArgs = Get-ContainerLogArgs -Cursor $script:logCursor
+                    $logResult = & $script:dockerExe @logArgs 2>&1
                     if ($logResult) {
-                        $logLines = $logResult -split "`n"
-                        $newLines = $logLines | Select-Object -Skip $script:lastLogLines
+                        $selection = Select-NewLogLines -Lines ([string[]]($logResult -split "`n")) -Cursor $script:logCursor
+                        $newLines = $selection.Lines
 
                         if ($newLines -and $newLines.Count -gt 0) {
                             foreach ($line in $newLines) {
@@ -1927,7 +1928,7 @@ $btnNext.Add_Click({
                                     $script:terminalBox.AppendText("$cleanLine`r`n")
                                 }
                             }
-                            $script:lastLogLines = $logLines.Count
+                            $script:logCursor = $selection.Cursor
                             # Auto-scroll to bottom
                             $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
                             $script:terminalBox.ScrollToCaret()

@@ -261,3 +261,32 @@ function New-SecurePasswordFile {
     Write-Host "[SECURITY] Password file created at: $passwordFile" -ForegroundColor Green
     return $passwordFile
 }
+
+# Incremental container-log reading for the setup wizard's live output.
+# `docker logs --timestamps` prefixes each line with a fixed-width RFC3339Nano
+# timestamp, so a cursor of the last timestamp shown never skips or repeats
+# output, however long the log grows (a line count inside a sliding
+# `--tail 100` window did both).
+function Get-ContainerLogArgs {
+    param([string]$Cursor = '', [string]$ContainerName = 'ai-cli')
+    if ($Cursor) {
+        return @('logs', '--timestamps', '--since', $Cursor, $ContainerName)
+    }
+    return @('logs', '--timestamps', '--tail', '200', $ContainerName)
+}
+
+# Returns @{ Lines = new message lines (timestamps removed); Cursor = newest timestamp }.
+function Select-NewLogLines {
+    param([string[]]$Lines = @(), [string]$Cursor = '')
+    $newLines = New-Object System.Collections.Generic.List[string]
+    $newest = $Cursor
+    foreach ($line in $Lines) {
+        if ($line -notmatch '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)\s?(.*)$') { continue }
+        $stamp = $Matches[1]
+        $message = $Matches[3].TrimEnd("`r")
+        if ($Cursor -and ([string]::CompareOrdinal($stamp, $Cursor) -le 0)) { continue }
+        $newLines.Add($message)
+        if (-not $newest -or [string]::CompareOrdinal($stamp, $newest) -gt 0) { $newest = $stamp }
+    }
+    return @{ Lines = $newLines.ToArray(); Cursor = $newest }
+}
