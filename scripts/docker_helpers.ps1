@@ -303,8 +303,11 @@ function Test-ContainerRecreateLikely {
         [string]$DockerPath = $null,
         [string]$ContainerName = 'ai-cli',
         [string]$ImageName = $script:AiDockerImageName,
-        # The mobile access setting about to be applied; $null = not changing.
-        $MobileAccess = $null
+        # Absolute compose files and project directory exactly as the coming
+        # `compose up -d` will use them (so the same .env is read).
+        [string[]]$ComposeFiles = @(),
+        [string]$ProjectDirectory = $null,
+        [string]$ServiceName = 'ai'
     )
 
     $result = @{ ContainerExists = $false; Likely = $false; Reason = '' }
@@ -327,14 +330,32 @@ function Test-ContainerRecreateLikely {
         return $result
     }
 
-    if ($null -ne $MobileAccess) {
-        $envList = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
-            'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', $ContainerName) -TimeoutSeconds 15
-        $current = ($envList.Output -split "`r?`n") -contains 'ENABLE_MOBILE_ACCESS=1'
-        if ([bool]$MobileAccess -ne $current) {
-            $result.Likely = $true
-            $result.Reason = 'the mobile access setting has changed'
-        }
+    # Compose recreates the container when its service configuration changes
+    # (ports, mounts, environment, resource limits, ...). It records a hash of
+    # that configuration on the container; compare it with what compose would
+    # generate now. Anything we cannot compare counts as a likely recreate.
+    if (-not $ComposeFiles -or $ComposeFiles.Count -eq 0 -or -not $ProjectDirectory) {
+        $result.Likely = $true
+        $result.Reason = 'the configuration could not be compared'
+        return $result
+    }
+    $label = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+        'inspect', '--format', '{{index .Config.Labels "com.docker.compose.config-hash"}}', $ContainerName) -TimeoutSeconds 15
+    $hashArgs = @('compose', '--project-directory', $ProjectDirectory)
+    foreach ($file in $ComposeFiles) { $hashArgs += @('-f', $file) }
+    $hashArgs += @('config', '--hash', $ServiceName)
+    $expected = Invoke-DockerCommand -DockerPath $DockerPath -Arguments $hashArgs -TimeoutSeconds 30
+    $expectedHash = ''
+    if ($expected.Success -and $expected.Output.Trim()) {
+        $expectedHash = (($expected.Output.Trim() -split '\s+') | Select-Object -Last 1)
+    }
+    $currentHash = $label.Output.Trim()
+    if (-not $label.Success -or -not $expectedHash -or -not $currentHash -or $currentHash -eq '<no value>') {
+        $result.Likely = $true
+        $result.Reason = 'the configuration could not be compared'
+    } elseif ($expectedHash -ne $currentHash) {
+        $result.Likely = $true
+        $result.Reason = 'the container configuration has changed'
     }
     return $result
 }

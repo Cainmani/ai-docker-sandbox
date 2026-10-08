@@ -12,11 +12,13 @@
 #   powershell ... -File uninstall.ps1 -RemoveVolumes                      # also delete auth/data volumes
 #   powershell ... -File uninstall.ps1 -RemoveVolumes -RemoveAppData       # full uninstall
 #   powershell ... -File uninstall.ps1 -Force                              # skip confirmation prompts
+#   powershell ... -File uninstall.ps1 -SkipRescueCheck                    # don't stop if work can't be checked
 
 param(
     [switch]$RemoveVolumes,   # Also remove named volumes (Claude auth, tool auth, etc.)
     [switch]$RemoveAppData,   # Also remove %LOCALAPPDATA%\AI-Docker-CLI (logs, extracted files, .env)
-    [switch]$Force            # Skip confirmation prompts (for scripted use)
+    [switch]$Force,           # Skip confirmation prompts (for scripted use)
+    [switch]$SkipRescueCheck  # Remove the container even if work in it cannot be checked
 )
 
 $ErrorActionPreference = 'Continue'
@@ -105,13 +107,15 @@ if (-not $dockerCmd) {
                 Write-AppLog "User chose to uninstall without rescuing work found by the scan" "WARN"
             }
         } elseif ($scan.State -eq 'Error') {
-            Write-Host "[WARN] Could not check the container for unsaved work: $($scan.Error)" -ForegroundColor Yellow
-            if (-not $Force) {
-                $continueAnswer = Read-Host "Continue the uninstall anyway? (y/N)"
-                if ($continueAnswer -notmatch '^[Yy]') {
-                    Write-Host "[INFO] Uninstall cancelled." -ForegroundColor Cyan
-                    exit 2
-                }
+            # Never delete what we could not check - not even with -Force.
+            Write-Host "[ERROR] Could not check the container for unsaved work: $($scan.Error)" -ForegroundColor Red
+            if ($SkipRescueCheck) {
+                Write-Host "[WARN] -SkipRescueCheck given - continuing without the check." -ForegroundColor Yellow
+                Write-AppLog "Uninstall continuing without rescue check (-SkipRescueCheck): $($scan.Error)" "WARN"
+            } else {
+                Write-Host "[INFO] Uninstall stopped. Nothing was removed. Fix the error, or re-run with -SkipRescueCheck to remove the container anyway." -ForegroundColor Cyan
+                Write-AppLog "Uninstall aborted: rescue check failed ($($scan.Error))" "ERROR"
+                exit 1
             }
         }
     } else {

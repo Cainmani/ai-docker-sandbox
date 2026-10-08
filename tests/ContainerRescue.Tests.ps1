@@ -13,54 +13,67 @@ BeforeAll {
 }
 
 Describe 'Test-ContainerRecreateLikely' {
+    BeforeEach {
+        $script:composeFiles = @((Join-Path $TestDrive 'docker-compose.yml'))
+        # Default world: same image, same compose config hash -> no recreate.
+        $script:containerImage = 'sha256:same'
+        $script:currentImage = 'sha256:same'
+        $script:containerHash = 'abc123'
+        $script:configHash = 'ai abc123'
+        $script:hashExit = 0
+        $script:imageExit = 0
+        Mock Invoke-DockerCommand {
+            $line = $Arguments -join ' '
+            if ($line -like 'inspect --format {{.Image}}*') { return New-DockerResult 0 "$script:containerImage`n" }
+            if ($line -like 'image inspect*') { return New-DockerResult $script:imageExit "$script:currentImage`n" }
+            if ($line -like '*config-hash*') { return New-DockerResult 0 "$script:containerHash`n" }
+            if ($line -like 'compose *config --hash*') { return New-DockerResult $script:hashExit "$script:configHash`n" }
+            return New-DockerResult 0 ''
+        }
+    }
+
     It 'Reports no container when inspect fails' {
         Mock Invoke-DockerCommand { New-DockerResult 1 '' 'No such object' }
-        $r = Test-ContainerRecreateLikely -DockerPath 'docker'
+        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive
         $r.ContainerExists | Should -BeFalse
         $r.Likely | Should -BeFalse
     }
 
-    It 'Predicts a recreate when the image changed' {
-        Mock Invoke-DockerCommand {
-            $line = $Arguments -join ' '
-            if ($line -like 'image inspect*') { return New-DockerResult 0 "sha256:new`n" }
-            if ($line -like '*Config.Env*') { return New-DockerResult 0 "ENABLE_MOBILE_ACCESS=0`n" }
-            return New-DockerResult 0 "sha256:old`n"
-        }
-        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -MobileAccess $false
+    It 'Predicts no recreate when image and configuration are unchanged' {
+        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive
         $r.ContainerExists | Should -BeTrue
+        $r.Likely | Should -BeFalse
+    }
+
+    It 'Predicts a recreate when the image changed' {
+        $script:currentImage = 'sha256:new'
+        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive
         $r.Likely | Should -BeTrue
         $r.Reason | Should -Match 'image'
     }
 
-    It 'Predicts a recreate when the mobile access setting changed' {
-        Mock Invoke-DockerCommand {
-            $line = $Arguments -join ' '
-            if ($line -like '*Config.Env*') { return New-DockerResult 0 "USER_NAME=u`nENABLE_MOBILE_ACCESS=0`n" }
-            return New-DockerResult 0 "sha256:same`n"
-        }
-        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -MobileAccess $true
+    It 'Predicts a recreate for any configuration change (ports, workspace, limits)' {
+        $script:configHash = 'ai def456'
+        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive
         $r.Likely | Should -BeTrue
-        $r.Reason | Should -Match 'mobile'
+        $r.Reason | Should -Match 'configuration'
     }
 
-    It 'Predicts no recreate when nothing changed' {
-        Mock Invoke-DockerCommand {
-            $line = $Arguments -join ' '
-            if ($line -like '*Config.Env*') { return New-DockerResult 0 "ENABLE_MOBILE_ACCESS=1`n" }
-            return New-DockerResult 0 "sha256:same`n"
-        }
-        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -MobileAccess $true
-        $r.Likely | Should -BeFalse
+    It 'Treats an unreadable configuration hash as a likely recreate' {
+        $script:hashExit = 1
+        (Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive).Likely | Should -BeTrue
     }
 
     It 'Treats a missing image as a likely recreate (cannot rule it out)' {
-        Mock Invoke-DockerCommand {
-            $line = $Arguments -join ' '
-            if ($line -like 'image inspect*') { return New-DockerResult 1 '' 'No such image' }
-            return New-DockerResult 0 "sha256:old`n"
+        $script:imageExit = 1
+        (Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive).Likely | Should -BeTrue
+    }
+
+    It 'Asks compose for the hash with absolute files and the project directory' {
+        Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles $script:composeFiles -ProjectDirectory $TestDrive | Out-Null
+        Should -Invoke Invoke-DockerCommand -ParameterFilter {
+            ($Arguments -join ' ') -like "compose --project-directory $TestDrive -f $($script:composeFiles[0]) config --hash ai"
         }
-        (Test-ContainerRecreateLikely -DockerPath 'docker').Likely | Should -BeTrue
     }
 }
 
@@ -139,6 +152,16 @@ Describe 'Invoke-ContainerRescueScan' {
 }
 
 Describe 'Rebuild and uninstall paths run the rescue scan' {
+    It 'Every container removal in the setup wizard goes through the rescue gate' {
+        $wizard = Get-Content "$PSScriptRoot/../scripts/setup_wizard.ps1" -Raw
+        $removals = [regex]::Matches($wizard, 'rm ai-cli')
+        $removals.Count | Should -BeGreaterThan 0
+        foreach ($m in $removals) {
+            $before = $wizard.Substring([Math]::Max(0, $m.Index - 1500), [Math]::Min(1500, $m.Index))
+            $before | Should -Match 'Invoke-RebuildRescueGate'
+        }
+    }
+
     It 'The setup wizard checks before starting (possibly recreating) the container' {
         $wizard = Get-Content "$PSScriptRoot/../scripts/setup_wizard.ps1" -Raw
         $scanIndex = $wizard.IndexOf('Invoke-RebuildRescueGate')
@@ -153,6 +176,15 @@ Describe 'Rebuild and uninstall paths run the rescue scan' {
         $rmIndex = $uninstall.IndexOf('rm ai-cli')
         $scanIndex | Should -BeGreaterThan -1
         $scanIndex | Should -BeLessThan $rmIndex
+    }
+
+    It 'Uninstall -Force stops when the rescue check fails, unless explicitly skipped' {
+        $uninstall = Get-Content "$PSScriptRoot/../scripts/uninstall.ps1" -Raw
+        $uninstall | Should -Match '\[switch\]\$SkipRescueCheck'
+        $errorBranch = $uninstall.Substring($uninstall.IndexOf("`$scan.State -eq 'Error'"))
+        $errorBranch = $errorBranch.Substring(0, $errorBranch.IndexOf('# ---------- remove container'))
+        $errorBranch | Should -Match 'exit 1'
+        $errorBranch | Should -Not -Match 'if \(-not \$Force\)'
     }
 
     It 'The helpers uninstall needs are extracted next to it' {

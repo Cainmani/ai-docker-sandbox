@@ -126,13 +126,18 @@ function Show-Info([string]$msg) {
     [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Information') | Out-Null
 }
 
-# Before the container is (re)created, make sure nothing outside the folders a
-# rebuild keeps is lost. Returns $true to proceed, $false to stop setup.
-function Invoke-RebuildRescueGate([string]$dockerFilesPath, [bool]$mobileEnabled) {
-    $risk = Test-ContainerRecreateLikely -DockerPath $script:dockerExe -MobileAccess $mobileEnabled
-    if (-not $risk.ContainerExists -or -not $risk.Likely) { return $true }
-
-    Write-Host "[INFO] The container will be recreated ($($risk.Reason)) - checking for work that would be lost" -ForegroundColor Cyan
+# Before the container is removed or (re)created, make sure nothing outside the
+# folders a rebuild keeps is lost. -Removing skips the recreate prediction (the
+# caller is about to delete the container outright). Returns $true to proceed,
+# $false to stop.
+function Invoke-RebuildRescueGate([string]$dockerFilesPath, [bool]$mobileEnabled, [switch]$Removing) {
+    if (-not $Removing) {
+        $composeFiles = @((Join-Path $dockerFilesPath 'docker-compose.yml'))
+        if ($mobileEnabled) { $composeFiles += (Join-Path $dockerFilesPath 'docker-compose.mobile.yml') }
+        $risk = Test-ContainerRecreateLikely -DockerPath $script:dockerExe -ComposeFiles $composeFiles -ProjectDirectory $dockerFilesPath
+        if (-not $risk.ContainerExists -or -not $risk.Likely) { return $true }
+        Write-Host "[INFO] The container will be recreated ($($risk.Reason)) - checking for work that would be lost" -ForegroundColor Cyan
+    }
     $scan = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe
     if ($scan.State -eq 'Clean' -or $scan.State -eq 'NoContainer') { return $true }
 
@@ -2180,6 +2185,18 @@ if ($existingContainer -eq "ai-cli") {
 
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
             Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
+            # Deleting the container deletes /tmp and the home folder outside
+            # the named volumes: offer to rescue work there first.
+            if (-not (Invoke-RebuildRescueGate -dockerFilesPath $dockerPath -mobileEnabled $false -Removing)) {
+                Write-Host "[INFO] Container kept - rescue was cancelled or failed" -ForegroundColor Cyan
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Setup stopped before deleting the container. Nothing was deleted.",
+                    "Setup Cancelled",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                ) | Out-Null
+                exit 2
+            }
             Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
             & $script:dockerExe stop ai-cli 2>$null | Out-Null
             & $script:dockerExe rm ai-cli 2>$null | Out-Null
