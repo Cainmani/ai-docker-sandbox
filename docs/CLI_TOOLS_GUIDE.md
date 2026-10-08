@@ -157,6 +157,10 @@ A rebuild, recreate or uninstall replaces the container's own disk: `/tmp`, `~/s
 
 `ai-docker rescue-scan` lists what would be lost: git repos with uncommitted, stashed, ignored or unpushed work (any branch or tag) or no remote, and any other file outside dependency folders and known tool state (including unknown hidden folders and links to files a rebuild deletes). A repo or folder that cannot be checked makes the scan incomplete. `ai-docker rescue-scan --copy` copies it into `AI_Work\_rescued\<date>_container_rescue_vX_XX`, verifies every file, and makes rescued repos independent of the originals. The setup wizard and uninstall run this check automatically before they remove or recreate the container; if the check fails or cannot read something, they stop rather than delete.
 
+Unknown loose dotfiles also count as work; only known shell and tool state is skipped. A link explicitly pointing to a file in a normally skipped folder protects that file too. Directory links exclude nested named volumes when copied. If scan bookkeeping cannot be created, or a recursive directory link cannot be safely copied, the operation stops.
+
+Tracked links that need a new target are adjusted in the rescued working tree so they resolve from the copy. Git keeps their original staged content and history; the adjustment appears as an unstaged change. The original and rescued targets are recorded in `.ai-docker-rescue-metadata/link-relocations.txt` inside the rescue folder. Keep the whole rescue folder together, since a link can point to another rescued item. Initialized submodules and copied Git working-tree settings are handled before the repositories are verified.
+
 ### `ai-docker cleanup`
 
 `ai-docker cleanup` shows what can be removed and how much space it would free (estimates). `ai-docker cleanup --apply` asks group by group:

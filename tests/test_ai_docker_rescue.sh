@@ -413,6 +413,7 @@ dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
 [ -L "$dest$HOME/src/stlink/deliverable" ] && pass "staged symlink stays a symlink" || fail "staged symlink stays a symlink"
 rm -rf "$HOME/.config/exports"
 assert_eq "staged symlink's target is rescued" "target-content" "$(cat "$dest$HOME/.config/exports/unique.txt" 2>/dev/null)"
+assert_eq "staged absolute symlink resolves after the original is gone" "target-content" "$(cat "$dest$HOME/src/stlink/deliverable" 2>/dev/null)"
 
 # 5: a dirty worktree inside a folder that also holds a loose file.
 setup_case
@@ -441,6 +442,127 @@ dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
 [ -e "$dest$HOME/work/notes.txt" ] && pass "work beside a nested volume is copied" || fail "work beside a nested volume is copied"
 [ ! -e "$dest$HOME/work/vol/big.bin" ] && pass "nested volume in a folder is not copied" || fail "nested volume in a folder is not copied"
 [ ! -e "$dest$HOME/src/mrepo/data/big.bin" ] && pass "nested volume in a repo is not copied" || fail "nested volume in a repo is not copied"
+
+# Fourth review: failure to allocate the error file cannot certify a scan.
+if [ "$(id -u)" -ne 0 ]; then
+    setup_case
+    mkdir -p "$CASE_DIR/no-temp" "$AI_DOCKER_TMP_DIR/locked"
+    echo unique > "$AI_DOCKER_TMP_DIR/locked/report.pdf"
+    chmod 555 "$CASE_DIR/no-temp"; chmod 000 "$AI_DOCKER_TMP_DIR/locked"
+    export TMPDIR="$CASE_DIR/no-temp"
+    run_scan
+    assert_eq "failed error-file allocation makes the scan incomplete" 4 "$RUN_RC"
+    assert_not_contains "failed error-file allocation never reports clean" "$RUN_OUTPUT" "Nothing found"
+    run_scan --copy
+    assert_eq "failed error-file allocation stops rescue" 1 "$RUN_RC"
+    unset TMPDIR
+    chmod 755 "$CASE_DIR/no-temp" "$AI_DOCKER_TMP_DIR/locked"
+fi
+
+# An explicit link to unique work is protected even inside known tool folders.
+setup_case
+mkdir -p "$HOME/.local/exports"
+echo local-report > "$HOME/.local/exports/report.pdf"
+ln -s "$HOME/.local/exports/report.pdf" "$AI_DOCKER_TMP_DIR/report.pdf"
+echo hidden-report > "$AI_DOCKER_TMP_DIR/.report.pdf"
+run_scan
+assert_eq "local referent and unknown loose dotfile count as work" 3 "$RUN_RC"
+run_scan --copy
+assert_eq "local referent and unknown loose dotfile rescue" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+rm -rf "$HOME/.local/exports"
+mv "$AI_DOCKER_TMP_DIR/.report.pdf" "$CASE_DIR/original-hidden-report.pdf"
+assert_eq "explicit link to local work survives" "local-report" "$(cat "$dest$AI_DOCKER_TMP_DIR/report.pdf" 2>/dev/null)"
+assert_eq "unknown loose dotfile is copied" "hidden-report" "$(cat "$dest$AI_DOCKER_TMP_DIR/.report.pdf" 2>/dev/null)"
+
+# Git-tracked relative links to persistent storage must work from the copy.
+setup_case
+clone_to "$HOME/src/volume-link"
+echo on-volume > "$HOME/.claude/report.pdf"
+ln -s ../../.claude/report.pdf "$HOME/src/volume-link/report.pdf"
+git -C "$HOME/src/volume-link" add report.pdf
+run_scan --copy
+assert_eq "tracked relative volume link rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_eq "tracked relative volume link resolves in the copy" "on-volume" "$(cat "$dest$HOME/src/volume-link/report.pdf" 2>/dev/null)"
+assert_eq "staged link content is retained in the index" "../../.claude/report.pdf" "$(git -C "$dest$HOME/src/volume-link" show :report.pdf 2>/dev/null)"
+
+# Directory referents use the same mount exclusions as other rescue copies.
+setup_case
+mkdir -p "$AI_DOCKER_TMP_DIR/session/volume"
+echo note > "$AI_DOCKER_TMP_DIR/session/notes.txt"
+echo persistent > "$AI_DOCKER_TMP_DIR/session/volume/data.txt"
+printf 'none %s ext4 rw 0 0\n' "$AI_DOCKER_TMP_DIR/session/volume" >> "$AI_DOCKER_MOUNTS_FILE"
+ln -s "$AI_DOCKER_TMP_DIR/session" "$AI_DOCKER_TMP_DIR/handoff"
+run_scan --copy
+assert_eq "directory symlink with a nested volume rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_eq "directory symlink retains its useful file" "note" "$(cat "$dest$AI_DOCKER_TMP_DIR/handoff/notes.txt" 2>/dev/null)"
+[ ! -e "$dest$AI_DOCKER_TMP_DIR/handoff/volume/data.txt" ] && pass "directory symlink does not copy a named volume" || fail "directory symlink does not copy a named volume"
+
+# Copied Git configuration must refer to the rescued working tree.
+setup_case
+clone_to "$HOME/src/configured"
+git -C "$HOME/src/configured" config core.worktree "$HOME/src/configured"
+echo change >> "$HOME/src/configured/README"
+run_scan --copy
+assert_eq "repo with absolute core.worktree rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+mv "$HOME/src/configured" "$HOME/src/original-removed"
+assert_eq "rescued Git status works after original worktree is gone" " M README" "$(git -C "$dest$HOME/src/configured" status --porcelain 2>/dev/null)"
+
+# Gitlinks in an index are submodule commits, not missing staged file blobs.
+setup_case
+clone_to "$HOME/src/main"
+git -C "$HOME/src/main" -c protocol.file.allow=always submodule add -q "$CASE_DIR/remote.git" sub 2>/dev/null
+git -C "$HOME/src/main" commit -qm submodule
+git -C "$HOME/src/main" push -q origin HEAD 2>/dev/null
+git -C "$HOME/src/main" worktree add -q -b subtask "$AI_DOCKER_TMP_DIR/subtask" 2>/dev/null
+git -C "$AI_DOCKER_TMP_DIR/subtask" -c protocol.file.allow=always submodule update --init -q 2>/dev/null
+echo change >> "$AI_DOCKER_TMP_DIR/subtask/README"
+run_scan --copy
+assert_eq "dirty worktree with an initialized submodule rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+mv "$HOME/src/main" "$CASE_DIR/original-main-removed"
+mv "$AI_DOCKER_TMP_DIR/subtask" "$CASE_DIR/original-worktree-removed"
+assert_eq "rescued submodule remains usable" "base" "$(git -C "$dest$AI_DOCKER_TMP_DIR/subtask/sub" show HEAD:README 2>/dev/null)"
+assert_eq "rescued parent keeps the tracked work" " M README" "$(git -C "$dest$AI_DOCKER_TMP_DIR/subtask" status --porcelain --untracked-files=no 2>/dev/null)"
+
+# Directory referents can contain more links or a repository of their own.
+setup_case
+mkdir -p "$HOME/.config/exports"
+echo nested-target > "$HOME/.config/exports/file.txt"
+clone_to "$HOME/.config/exports/repo"
+echo change >> "$HOME/.config/exports/repo/README"
+ln -s "$HOME/.config/exports/file.txt" "$HOME/.config/exports/linked.txt"
+ln -s "$HOME/.config/exports" "$AI_DOCKER_TMP_DIR/exports"
+run_scan --copy
+assert_eq "directory referent with nested links and repo rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+mv "$HOME/.config/exports" "$CASE_DIR/original-exports-removed"
+assert_eq "nested referent link works after original disappears" "nested-target" "$(cat "$dest$AI_DOCKER_TMP_DIR/exports/linked.txt" 2>/dev/null)"
+assert_eq "repo reached through a directory link stays usable" " M README" "$(git -C "$dest$AI_DOCKER_TMP_DIR/exports/repo" status --porcelain 2>/dev/null)"
+
+setup_case
+clone_to "$HOME/src/metadata-link"
+echo change >> "$HOME/src/metadata-link/README"
+mkdir -p "$HOME/.config"
+mv "$HOME/src/metadata-link/.git" "$HOME/.config/repo-metadata"
+ln -s "$HOME/.config/repo-metadata" "$HOME/src/metadata-link/.git"
+run_scan --copy
+assert_eq "repository with symlinked Git metadata rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+mv "$HOME/.config/repo-metadata" "$CASE_DIR/original-metadata-removed"
+assert_eq "symlinked Git metadata is independent after rescue" " M README" "$(git -C "$dest$HOME/src/metadata-link" status --porcelain 2>/dev/null)"
+
+setup_case
+mkdir -p "$HOME/.config/loop"
+echo note > "$HOME/.config/loop/notes.txt"
+ln -s . "$HOME/.config/loop/self"
+ln -s "$HOME/.config/loop" "$AI_DOCKER_TMP_DIR/loop"
+run_scan --copy
+assert_eq "recursive directory referent stops instead of certifying a copy" 1 "$RUN_RC"
+assert_not_contains "recursive directory referent never claims verified" "$RUN_OUTPUT" "Copied and verified"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

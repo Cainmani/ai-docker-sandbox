@@ -275,19 +275,14 @@ RESCUE_APP_STATE_DIRS=".ai-docker .ai-docker-cli .cache .config .local .npm .npm
     .copilot .router-data .tool-auth .vibe-kanban .mcp-auth .ssh .gnupg .pki .docker .kube .aws .azure
     .gcloud .android .gradle .m2 .cargo .rustup .nvm .bun .deno .dotnet .nuget .vscode-server
     .cursor-server .ipython .jupyter .conda .dbus .X11-unix .ICE-unix .XIM-unix .font-unix .Test-unix"
+RESCUE_APP_STATE_FILES=".bashrc .bash_profile .bash_login .bash_logout .profile .zshrc .zprofile .zshenv
+    .gitconfig .cli_tools_installed .last_update_check .npm-pinned-tools .claude.json
+    .bash_history .python_history .node_repl_history .lesshst .wget-hsts .viminfo .lock-*"
+declare -A RESCUE_LINK_ORIGINAL=() RESCUE_LINK_REPAIRED=() RESCUE_LINK_ACTIVE=()
 
 # Mount targets inside the scan roots (named volumes) survive a rebuild.
 rescue_mounts() {
     awk '{ print $2 }' "$MOUNTS_FILE" 2>/dev/null | sed 's/\\040/ /g'
-}
-
-# rescue_rebuildable <path>: the path lies in a dependency or cache folder.
-rescue_rebuildable() {
-    local name
-    for name in $RESCUE_SKIP_DIRS; do
-        case "/$1/" in */"$name"/*) return 0 ;; esac
-    done
-    return 1
 }
 
 # rescue_find <root>: candidate git repos, virtualenvs, files and symlinks,
@@ -308,14 +303,15 @@ rescue_find() {
 
     # Any regular file a person or agent left is work unless it is provably
     # rebuildable - file types are no guide (scripts, notebooks, images...).
-    # Dotfiles directly in the root (shell rc, install markers, tool config)
-    # are app state, and so is this scan's own error file (TMPDIR may be the
+    # Known shell rc, install markers and tool config are app state, as is
+    # this scan's own error file (TMPDIR may be the
     # scanned /tmp). Each file carries its size so callers need no stat.
     # pyvenv.cfg marks a virtualenv, whatever the folder is called. Symlinks
     # are reported for the caller to judge by their target.
     # Errors (unreadable folders) go to RESCUE_ERRFILE: a scan that could not
     # see everything must never report "nothing found".
-    local -a mine=(! \( -path "$root/.*" ! -path "$root/.*/*" \) ! -path "${RESCUE_ERRFILE:-}")
+    local -a mine=(! -path "${RESCUE_ERRFILE:-}")
+    for name in $RESCUE_APP_STATE_FILES; do mine+=(! -path "$root/$name"); done
     find "$root" -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
         -o \( -name .git -printf 'repo:%h\0' -prune \) \
         -o \( -name pyvenv.cfg -printf 'venv:%h\0' \) \
@@ -407,7 +403,11 @@ rescue_collect_roots() {
     RESCUE_REPOS=()
     RESCUE_GROUPS=()
     RESCUE_FILES=()
-    RESCUE_ERRFILE=$(mktemp)
+    RESCUE_LINK_ORIGINAL=(); RESCUE_LINK_REPAIRED=(); RESCUE_LINK_ACTIVE=()
+    if ! RESCUE_ERRFILE=$(mktemp 2>/dev/null); then
+        RESCUE_UNREADABLE+=("temporary scan error file (could not be created)")
+        return
+    fi
     local root entry path reasons repo inside group rel venv part target
     local -a repos=() docs=() groups=() venvs=() extras=()
     local -A doc_root=() doc_size=() group_count=() group_bytes=()
@@ -470,11 +470,11 @@ rescue_collect_roots() {
             *) group=$path ;;
         esac
         if [ -L "$path" ]; then
-            # A symlink is work only when the rebuild deletes what it points
-            # to (dependencies aside); any other link is copied only along
+            # A symlink explicitly references work even if its target is in
+            # a normally skipped tool folder. Any other link is copied along
             # with work in the same folder.
             if target=$(readlink -f -- "$path") && [ -e "$target" ] \
-                && in_discard_zone "$target" && ! rescue_rebuildable "$target"; then
+                && in_discard_zone "$target"; then
                 doc_size[$path]=$(du -sb -- "$target" 2>/dev/null | cut -f1)
             else
                 extras+=("$path")
@@ -583,12 +583,16 @@ rescue_copy() {
         ( cd / && find "${repo#/}" \( -type d \( "${prune[@]}" \) -prune \) -o -type f -print0 \
             | xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
         rescue_check_sums "$dest" || return 1
+        rescue_register_repos "$repo" "$dest$repo"
     done
     for item in "${RESCUE_GROUPS[@]}" "${items[@]}"; do
         rescue_fix_links "$item" "$dest" || return 1
     done
     for repo in "${RESCUE_REPOS[@]}"; do
         rescue_make_standalone "$repo" "$dest$repo" || return 1
+        rescue_normalize_repo "$dest$repo" || return 1
+    done
+    for repo in "${RESCUE_REPOS[@]}"; do
         rescue_verify_repo "$repo" "$dest$repo" || return 1
     done
 }
@@ -608,16 +612,66 @@ in_discard_zone() {
     return 0
 }
 
-# rescue_copy_verified <source> <copy>: copy what <source> points to (unless
-# <copy> already exists) and check the copy matches.
+# rescue_copy_verified <source> <copy> [logical-source]: copy a referent and
+# check its content. Directory copies preserve child links and exclude named
+# volumes; following links recursively with cp -L would copy those volumes.
 rescue_copy_verified() {
-    local src="$1" copy="$2"
-    [ -e "$copy" ] && return 0
-    mkdir -p -- "$(dirname -- "$copy")" && cp -a -L -- "$src" "$copy" || return 1
+    local src="$1" copy="$2" logical="${3:-$1}" mount list sums rc=0
     if [ -d "$src" ]; then
-        diff -r -- "$src" "$copy" >/dev/null 2>&1
+        local -a prune=(-false)
+        while IFS= read -r mount; do
+            case "$mount" in "$src"/*) prune+=(-o -path "./${mount#"$src"/}") ;; esac
+        done < <(rescue_mounts)
+        list=$(mktemp) || return 1
+        sums=$(mktemp) || { rm -f "$list"; return 1; }
+        if ! ( cd "$src" && find . -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) -o -print0 ) > "$list" 2>/dev/null; then
+            rm -f "$list" "$sums"; return 1
+        fi
+        mkdir -p -- "$copy" \
+            && tar -C "$src" --null --no-recursion -T "$list" -cf - 2>/dev/null \
+                | tar -C "$copy" --skip-old-files -xf - 2>/dev/null || rc=1
+        if [ "$rc" -eq 0 ]; then
+            ( cd "$src" && find . -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
+                -o -type f -print0 | xargs -0 -r sha256sum ) > "$sums" 2>/dev/null || rc=1
+            if [ -s "$sums" ]; then
+                ( cd "$copy" && sha256sum --quiet -c "$sums" ) >/dev/null 2>&1 || rc=1
+            fi
+        fi
+        rescue_register_repos "$logical" "$copy"
+        rm -f "$list" "$sums"
+        return "$rc"
     else
+        if [ ! -e "$copy" ]; then
+            mkdir -p -- "$(dirname -- "$copy")" && cp -a -- "$src" "$copy" || return 1
+        fi
         cmp -s -- "$src" "$copy"
+    fi
+}
+
+# Nested repos and initialized submodules travel with an outer repository,
+# even when they were clean during discovery. Convert and verify them too.
+rescue_register_repos() {
+    local src="$1" copy="$2" path repo known existing
+    while IFS= read -r -d '' path; do
+        repo="$src${path#"$copy"}"
+        known=0
+        for existing in "${RESCUE_REPOS[@]}"; do [ "$existing" != "$repo" ] || known=1; done
+        [ "$known" -eq 1 ] || RESCUE_REPOS+=("$repo")
+    done < <(find "$copy" -mindepth 1 -name .git -printf '%h\0' -prune 2>/dev/null)
+}
+
+# Keep the original tracked link value in the index/history and in the rescue
+# handoff. Relocating its working copy is an intentional unstaged change.
+rescue_relocate_link() {
+    local src="$1" link="$2" raw="$3" target="$4" dest="$5" tracked="$6"
+    [ "$raw" != "$target" ] || return 0
+    ln -sfn -- "$target" "$link" || return 1
+    if [ "$tracked" -eq 1 ]; then
+        RESCUE_LINK_ORIGINAL[$src]=$raw
+        RESCUE_LINK_REPAIRED[$src]=$target
+        mkdir -p "$dest/.ai-docker-rescue-metadata" || return 1
+        printf 'source=%q\noriginal_target=%q\nrescued_target=%q\n\n' "$src" "$raw" "$target" \
+            >> "$dest/.ai-docker-rescue-metadata/link-relocations.txt" || return 1
     fi
 }
 
@@ -627,35 +681,45 @@ rescue_copy_verified() {
 #   elsewhere, so it is made absolute - then it must resolve.
 # - The rebuild deletes the target and the copy does not carry it (outside
 #   the item, or an absolute path): the link is replaced by a verified copy of
-#   the target. If git tracks the link, the link stays (the repository's state
-#   must not change) and the target is copied to its own path in the rescue.
-# - Relative links within the item travel with it; links to dependency data
-#   are left alone.
+#   the target. If git tracks the link, keep it as a link to the rescued target
+#   and retain its original value in the index and relocation handoff.
+# - Relative links within the item travel with it if the copied target exists.
 rescue_fix_links() {
-    local item="$1" dest="$2" link src raw target inside tracked
+    local item="$1" dest="$2" link src raw target inside tracked repaired
     while IFS= read -r -d '' link; do
         src=${link#"$dest"}
-        raw=$(readlink -- "$src") || continue
-        target=$(readlink -f -- "$src") || continue
+        raw=$(readlink -- "$src") || return 1
+        target=$(readlink -f -- "$src") || return 1
         [ -e "$target" ] || continue
         inside=0
         case "$target/" in "$item"/*) inside=1 ;; esac
         tracked=0
         git -C "$(dirname -- "$src")" ls-files --error-unmatch -- ":(literal)$(basename -- "$src")" >/dev/null 2>&1 && tracked=1
         if ! in_discard_zone "$target"; then
-            if [ "$tracked" -eq 0 ]; then
-                case "$raw" in /*) ;; *) ln -sfn -- "$target" "$link" || return 1 ;; esac
-                [ -e "$link" ] || return 1
-            fi
-        elif rescue_rebuildable "$target"; then
-            continue
-        elif [ "$inside" -eq 0 ] || [ "${raw#/}" != "$raw" ]; then
+            case "$raw" in /*) ;; *) rescue_relocate_link "$src" "$link" "$raw" "$target" "$dest" "$tracked" || return 1 ;; esac
+        elif [ "$inside" -eq 0 ] || [ "${raw#/}" != "$raw" ] || [ ! -e "$link" ]; then
             if [ "$tracked" -eq 1 ]; then
                 rescue_copy_verified "$target" "$dest$target" || return 1
+                repaired=$(realpath --relative-to="$(dirname -- "$link")" -- "$dest$target") || return 1
+                rescue_relocate_link "$src" "$link" "$raw" "$repaired" "$dest" "$tracked" || return 1
+                if [ -d "$target" ] && [ -z "${RESCUE_LINK_ACTIVE[$target]:-}" ]; then
+                    RESCUE_LINK_ACTIVE[$target]=1
+                    rescue_fix_links "$target" "$dest" || return 1
+                    unset 'RESCUE_LINK_ACTIVE[$target]'
+                fi
             else
-                rm -f -- "$link" && rescue_copy_verified "$target" "$link" || return 1
+                if [ -d "$target" ]; then
+                    [ -z "${RESCUE_LINK_ACTIVE[$target]:-}" ] || return 1
+                    RESCUE_LINK_ACTIVE[$target]=1
+                fi
+                rm -f -- "$link" && rescue_copy_verified "$target" "$link" "$src" || return 1
+                if [ -d "$target" ]; then
+                    rescue_fix_links "$src" "$dest" || return 1
+                    unset 'RESCUE_LINK_ACTIVE[$target]'
+                fi
             fi
         fi
+        [ -e "$link" ] || return 1
     done < <(find "$dest$item" -type l -print0 2>/dev/null)
 }
 
@@ -688,7 +752,7 @@ rescue_make_standalone() {
         # Staged content lives as objects in the original repository, which
         # the bundle (committed history only) does not carry: copy any object
         # the index needs that the copy lacks.
-        git -C "$copy" ls-files -s 2>/dev/null | awk '{ print $2 }' | sort -u \
+        git -C "$copy" ls-files -s 2>/dev/null | awk '$1 != "160000" { print $2 }' | sort -u \
             | git -C "$copy" cat-file --batch-check 2>/dev/null | awk '$2 == "missing" { print $1 }' \
             | while IFS= read -r sha; do
                 git -C "$src" cat-file blob "$sha" | git -C "$copy" hash-object -w --stdin >/dev/null || exit 1
@@ -703,8 +767,22 @@ rescue_make_standalone() {
 # match the original's HEAD and tracked changes - checksums alone cannot tell.
 # (Untracked files are covered by the checksum step; dependency folders are
 # deliberately not copied, so they are left out of this comparison.)
+rescue_normalize_repo() {
+    local copy="$1" rc
+    # Never let copied config send Git back to the original working tree.
+    git --git-dir="$copy/.git" config --local --unset-all core.worktree >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || return 1
+    if [ -f "$copy/.git/config.worktree" ]; then
+        git --git-dir="$copy/.git" config --file "$copy/.git/config.worktree" --unset-all core.worktree >/dev/null 2>&1
+        rc=$?
+        [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || return 1
+    fi
+    return 0
+}
+
 rescue_verify_repo() {
-    local src="$1" copy="$2"
+    local src="$1" copy="$2" key before after rc=0
     # A clone made with --shared (or --reference) borrows objects from another
     # repository through objects/info/alternates; copy them in and drop the link.
     if [ -s "$copy/.git/objects/info/alternates" ]; then
@@ -713,8 +791,24 @@ rescue_verify_repo() {
     fi
     git -C "$copy" fsck --connectivity-only --no-progress >/dev/null 2>&1 || return 1
     [ "$(git -C "$copy" rev-parse HEAD 2>/dev/null)" = "$(git -C "$src" rev-parse HEAD 2>/dev/null)" ] || return 1
-    [ "$(git -C "$copy" status --porcelain --untracked-files=no 2>/dev/null | sort)" \
-        = "$(git -C "$src" status --porcelain --untracked-files=no 2>/dev/null | sort)" ] || return 1
+    # Compare the original tracked changes before the deliberate link
+    # relocations. Always restore the working links before returning.
+    rc=0
+    for key in "${!RESCUE_LINK_ORIGINAL[@]}"; do
+        case "$key" in "$src"/*)
+            ln -sfn -- "${RESCUE_LINK_ORIGINAL[$key]}" "${copy}${key#"$src"}" || rc=1 ;;
+        esac
+    done
+    before=$(git -C "$src" status --porcelain --untracked-files=no 2>/dev/null | sort) || rc=1
+    after=$(git -C "$copy" status --porcelain --untracked-files=no 2>/dev/null | sort) || rc=1
+    [ "$before" = "$after" ] || rc=1
+    for key in "${!RESCUE_LINK_ORIGINAL[@]}"; do
+        case "$key" in "$src"/*)
+            ln -sfn -- "${RESCUE_LINK_REPAIRED[$key]}" "${copy}${key#"$src"}" || rc=1
+            [ -e "${copy}${key#"$src"}" ] || rc=1 ;;
+        esac
+    done
+    return "$rc"
 }
 
 cmd_rescue_scan() {
@@ -754,6 +848,9 @@ cmd_rescue_scan() {
     if rescue_copy "$dest"; then
         echo ""
         echo "Copied and verified in: $dest"
+        if [ "${#RESCUE_LINK_ORIGINAL[@]}" -gt 0 ]; then
+            echo "Tracked links were relocated to keep working. Their original targets are saved in .ai-docker-rescue-metadata/link-relocations.txt; Git retains the original staged content."
+        fi
         return 0
     fi
     echo ""
