@@ -292,6 +292,22 @@ install_status_get() {
     sed -n "s/^${key}=//p" "$marker" | head -n1
 }
 
+# write_ready_marker <install_state> <marker_file>
+# Writes the readiness marker atomically. ok/legacy are fully ready; partial
+# (some tools failed to install) is still ready but degraded - the working
+# tools stay usable, the healthcheck reports unhealthy and the status banner
+# names the failed tools. Anything else (no install at all) is fatal:
+# returns 1 and writes nothing.
+write_ready_marker() {
+    local state="$1" marker="$2" tmp
+    case "$state" in
+        ok|legacy|partial) ;;
+        *) rm -f "$marker"; return 1 ;;
+    esac
+    tmp="${marker}.tmp.$$"
+    printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$state" > "$tmp" && mv "$tmp" "$marker"
+}
+
 # install_status_state <marker_file>
 # Echoes: "missing" | "legacy" (pre-structured marker) | "ok" | "partial"
 install_status_state() {

@@ -248,10 +248,16 @@ function Wait-ContainerReady {
 
         [int]$PollIntervalMs = 0,
 
-        [string]$DockerPath = $null
+        [string]$DockerPath = $null,
+
+        # Also accept a running container whose tool install is only partial
+        # (ready marker INSTALL_STATUS=partial; healthcheck unhealthy/starting).
+        # The working tools are usable; $script:ContainerReadyState says which.
+        [switch]$AllowDegraded
     )
 
     Write-AppLog "Waiting for container '$ContainerName' to be ready (timeout: ${TimeoutSeconds}s)..." "DEBUG"
+    $script:ContainerReadyState = 'NotReady'
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
     while ((Get-Date) -lt $deadline) {
@@ -268,7 +274,17 @@ function Wait-ContainerReady {
 
             if ($status -eq 'running' -and ($health -eq 'none' -or $health -eq 'healthy')) {
                 Write-AppLog "Container '$ContainerName' is ready (status: $status, health: $health)" "DEBUG"
+                $script:ContainerReadyState = 'Healthy'
                 return $true
+            }
+            if ($AllowDegraded -and $status -eq 'running' -and ($health -eq 'unhealthy' -or $health -eq 'starting')) {
+                $marker = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
+                    'exec', $ContainerName, 'cat', '/run/ai-docker-ready') -TimeoutSeconds 15
+                if ($marker.Success -and $marker.Output -match '(?m)^ENTRYPOINT=ok\r?$' -and $marker.Output -match '(?m)^INSTALL_STATUS=partial\r?$') {
+                    Write-AppLog "Container '$ContainerName' is running DEGRADED: some CLI tools failed to install (see 'ai-docker status')" "WARN"
+                    $script:ContainerReadyState = 'Degraded'
+                    return $true
+                }
             }
             if ($status -in @('exited', 'dead')) {
                 Write-AppLog "Container '$ContainerName' is in terminal state '$status' - not waiting further" "WARN"

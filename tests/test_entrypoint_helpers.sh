@@ -273,5 +273,19 @@ entrypoint="$ROOT_DIR/docker/entrypoint.sh"
 assert_false "no blanket recursive chown of the home folder" grep -Eq 'chown -R "\$USER_NAME:\$USER_NAME" "/home/\$USER_NAME"' "$entrypoint"
 assert_true "home ownership uses the targeted helper" grep -Fq 'fix_ownership "/home/$USER_NAME"' "$entrypoint"
 
+# Readiness: a partial tool install keeps the container up in a degraded
+# state (working tools stay usable); only a missing install is fatal.
+ready="$TMP_DIR/ai-docker-ready"
+for state in ok legacy partial; do
+    rm -f "$ready"
+    assert_true "install state '$state' is ready" write_ready_marker "$state" "$ready"
+    assert_true "marker records install state '$state'" grep -Fxq "INSTALL_STATUS=$state" "$ready"
+    assert_true "marker records entrypoint ok for '$state'" grep -Fxq "ENTRYPOINT=ok" "$ready"
+done
+rm -f "$ready"
+assert_false "missing install is fatal" write_ready_marker missing "$ready"
+assert_false "no marker written for a fatal state" test -e "$ready"
+assert_false "unknown state is fatal" write_ready_marker bogus "$ready"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

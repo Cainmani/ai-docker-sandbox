@@ -225,4 +225,45 @@ Describe 'Wait-ContainerReady' {
         Mock Invoke-DockerCommand { @{ Success = $false; ExitCode = 1; Output = ''; Error = 'No such container'; TimedOut = $false } }
         Wait-ContainerReady -ContainerName 'missing' -TimeoutSeconds 0 | Should -BeFalse
     }
+
+    Context 'Degraded containers (partial tool install)' {
+        BeforeEach {
+            $script:health = 'unhealthy'
+            $script:marker = "ENTRYPOINT=ok`nINSTALL_STATUS=partial`n"
+            Mock Invoke-DockerCommand {
+                $line = $Arguments -join ' '
+                if ($line -like 'exec *cat /run/ai-docker-ready') {
+                    return @{ Success = [bool]$script:marker; ExitCode = $(if ($script:marker) { 0 } else { 1 }); Output = $script:marker; Error = ''; TimedOut = $false }
+                }
+                return @{ Success = $true; ExitCode = 0; Output = "running|$script:health`n"; Error = ''; TimedOut = $false }
+            }
+        }
+
+        It 'Accepts a running, partially installed container with -AllowDegraded' {
+            Wait-ContainerReady -TimeoutSeconds 5 -AllowDegraded | Should -BeTrue
+            $script:ContainerReadyState | Should -Be 'Degraded'
+        }
+
+        It 'Accepts it while the healthcheck is still starting' {
+            $script:health = 'starting'
+            Wait-ContainerReady -TimeoutSeconds 5 -AllowDegraded | Should -BeTrue
+            $script:ContainerReadyState | Should -Be 'Degraded'
+        }
+
+        It 'Keeps the strict behaviour without -AllowDegraded' {
+            Wait-ContainerReady -TimeoutSeconds 0 | Should -BeFalse
+        }
+
+        It 'Keeps waiting when no ready marker exists yet' {
+            $script:health = 'starting'
+            $script:marker = ''
+            Wait-ContainerReady -TimeoutSeconds 0 -AllowDegraded | Should -BeFalse
+        }
+
+        It 'Reports Healthy for a fully healthy container' {
+            $script:health = 'healthy'
+            Wait-ContainerReady -TimeoutSeconds 5 -AllowDegraded | Should -BeTrue
+            $script:ContainerReadyState | Should -Be 'Healthy'
+        }
+    }
 }

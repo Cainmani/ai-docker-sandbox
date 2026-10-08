@@ -481,19 +481,19 @@ fi
 # Readiness is written last and atomically. The Compose healthcheck uses this
 # marker plus the structured install status instead of merely checking that the
 # keepalive process exists.
+# A partial install (some tools failed) keeps the container running in a
+# degraded state: exiting would turn the restart policy into a repair loop and
+# take the working tools away. The healthcheck stays strict (unhealthy), the
+# login banner names the failed tools, and the next start retries --repair.
 READY_FILE="/run/ai-docker-ready"
-READY_TMP="${READY_FILE}.tmp.$$"
 install_state=$(install_status_state "/home/$USER_NAME/.cli_tools_installed")
-case "$install_state" in
-  ok|legacy) ;;
-  *)
-    entrypoint_log "ERROR" "Entrypoint initialization is not ready (install status: $install_state)"
-    rm -f "$READY_TMP" "$READY_FILE"
-    exit 1
-    ;;
-esac
-printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$install_state" > "$READY_TMP"
-mv "$READY_TMP" "$READY_FILE"
+if ! write_ready_marker "$install_state" "$READY_FILE"; then
+  entrypoint_log "ERROR" "Entrypoint initialization is not ready (install status: $install_state)"
+  exit 1
+fi
+if [ "$install_state" = "partial" ]; then
+  entrypoint_log "WARN" "Container running DEGRADED - some CLI tools failed to install: $(install_status_get "/home/$USER_NAME/.cli_tools_installed" "FAILED_TOOLS")"
+fi
 entrypoint_log "INFO" "Entrypoint initialization complete (install status: $install_state)"
 
 # Catch up on missed updates: the weekly cron only fires if the container is
