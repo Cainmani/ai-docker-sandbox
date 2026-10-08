@@ -233,6 +233,15 @@ jobs:
           & pwsh -NoProfile -File scripts/build/test_exe_smoke.ps1 -ExePath $exePath
           if ($LASTEXITCODE -ne 0) { throw "EXE smoke test failed" }
 
+      # Keep the smoke-tested EXE as a release candidate for manual validation
+      # (fresh install, upgrade, reboot) before anything is tagged.
+      - name: Upload release-candidate EXE
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate-exe
+          path: AI_Docker_Manager_v*.exe
+          retention-days: 14
+
   version-consistency:
     runs-on: ubuntu-latest
     steps:
