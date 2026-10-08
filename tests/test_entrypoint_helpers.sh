@@ -190,5 +190,31 @@ result=$(env PATH="$su_bin:$PATH" HTTPS_PROXY="http://proxy.example:3128" \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; su_preserving_env testuser 'echo \$HTTPS_PROXY'")
 assert_true "su_preserving_env preserves proxy across login shell" test "$result" = "http://proxy.example:3128"
 
+# start_background_update hands the updater to a detached process: it returns
+# immediately (readiness is never delayed) and the updater still runs.
+# Reuses the stub su from the su_preserving_env test above.
+fake_updater="$TMP_DIR/fake-auto-update.sh"
+update_marker="$TMP_DIR/update-ran"
+cat > "$fake_updater" <<SCRIPT
+#!/usr/bin/env bash
+sleep 2
+touch "$update_marker"
+SCRIPT
+chmod +x "$fake_updater"
+start_ts=$(date +%s)
+env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
+    bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; start_background_update testuser 1"
+elapsed=$(( $(date +%s) - start_ts ))
+assert_true "background update does not block startup" test "$elapsed" -lt 2
+assert_false "background update has not finished when the helper returns" test -e "$update_marker"
+for _ in 1 2 3 4 5 6; do [ -e "$update_marker" ] && break; sleep 1; done
+assert_true "background update runs after the helper returns" test -e "$update_marker"
+
+rm -f "$update_marker"
+env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
+    bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; start_background_update testuser 0"
+sleep 3
+assert_false "startup update can be disabled" test -e "$update_marker"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

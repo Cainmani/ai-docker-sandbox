@@ -61,6 +61,7 @@ jobs:
           MOSH_PORT_START=$MOSH_PORT_START
           MOSH_PORT_END=$MOSH_PORT_END
           ENABLE_MOBILE_ACCESS=0
+          AI_DOCKER_STARTUP_UPDATE=0
           EOF
 
       - name: Validate base and mobile Compose configuration
