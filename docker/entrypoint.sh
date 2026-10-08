@@ -167,11 +167,7 @@ elif [ "$(stat -c %U /workspace 2>/dev/null)" != "$USER_NAME" ]; then
     entrypoint_log "INFO" "/workspace ownership is controlled by the host mount - skipping recursive chown"
 else
     (
-        if type fix_ownership >/dev/null 2>&1; then
-            fix_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
-        else
-            chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
-        fi
+        fix_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
         entrypoint_log "INFO" "Background ownership repair of /workspace finished"
     ) &
     entrypoint_log "INFO" "Ownership repair of /workspace continuing in background"
@@ -188,10 +184,16 @@ elif ! fix_ownership "/home/$USER_NAME" "$USER_NAME" "$USER_NAME" 2>&1 | tee -a 
     entrypoint_log "WARN" "Could not repair ownership under /home/$USER_NAME"
 fi
 
+# own_tree <dir>: the user owns <dir> and everything in it; only entries with
+# the wrong owner are changed (a recursive chown rewrites every inode).
+own_tree() {
+    chown "$USER_NAME:$USER_NAME" "$1" && fix_ownership "$1" "$USER_NAME" "$USER_NAME"
+}
+
 # Ensure .claude directory exists with correct permissions
 entrypoint_log "INFO" "Ensuring .claude directory exists with correct permissions"
 mkdir -p "/home/$USER_NAME/.claude"
-chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
+own_tree "/home/$USER_NAME/.claude"
 chmod 755 "/home/$USER_NAME/.claude"
 
 # Persist ~/.claude.json across container rebuilds via symlink into claude-config volume
@@ -260,8 +262,9 @@ if migrate_codex_wire_api "$codex_config_toml"; then
     entrypoint_log "INFO" "Codex config.toml migrated to wire_api = \"responses\""
 fi
 
-chown -R "$USER_NAME:$USER_NAME" "$TOOL_AUTH_DIR"
-chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
+# Migrations above run as root, so repair ownership - only mismatched entries.
+own_tree "$TOOL_AUTH_DIR"
+own_tree "/home/$USER_NAME/.config"
 chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG" 2>/dev/null || true
 chown -h "$USER_NAME:$USER_NAME" "$OPENCODE_DATA" 2>/dev/null || true
 chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.local" "/home/$USER_NAME/.local/share" 2>/dev/null || true
@@ -273,7 +276,12 @@ entrypoint_log "INFO" "Tool-auth persistence setup complete"
 entrypoint_log "INFO" "Setting up AI router data persistence"
 ROUTER_DATA_DIR="/home/$USER_NAME/.router-data"
 mkdir -p "$ROUTER_DATA_DIR/9router" "$ROUTER_DATA_DIR/omniroute"
-chown -R "$USER_NAME:$USER_NAME" "$ROUTER_DATA_DIR"
+own_tree "$ROUTER_DATA_DIR"
+
+# Update status records (ai-docker-state volume). Docker creates the mount point
+# root-owned; the updater runs as the user and must be able to write here.
+mkdir -p "/home/$USER_NAME/.ai-docker"
+own_tree "/home/$USER_NAME/.ai-docker"
 
 # Configure npm to use user-local directory for global packages.
 # su_preserving_env keeps proxy/CA vars alive across the login-shell reset; if the

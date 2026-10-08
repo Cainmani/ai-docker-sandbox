@@ -64,7 +64,7 @@ if (-not $dockerCmd) {
         Write-Host "  - Docker container 'ai-cli'" -ForegroundColor Yellow
         Write-Host "  - Docker image 'ai-docker-cli' (and legacy-named images)" -ForegroundColor Yellow
         if ($RemoveVolumes) {
-            Write-Host "  - Named volumes (Claude auth, tool auth, router data, Vibe Kanban data, SSH keys)" -ForegroundColor Red
+            Write-Host "  - Named volumes (Claude auth, tool auth, router data, Vibe Kanban data, SSH keys, update records)" -ForegroundColor Red
         } else {
             Write-Host "  (Named volumes with your Claude auth and tool data are KEPT)" -ForegroundColor Green
         }
@@ -151,7 +151,7 @@ if (-not $dockerCmd) {
         Write-Host "[STEP] Removing named volumes..." -ForegroundColor Cyan
         # Volumes are prefixed with the compose project name. Cover the fixed
         # project name ('ai-docker') plus legacy folder-derived prefixes.
-        $volumeSuffixes = @('claude-config', 'vibe-kanban-data', 'ssh-keys', 'tool-auth', 'router-data')
+        $volumeSuffixes = @('claude-config', 'vibe-kanban-data', 'ssh-keys', 'tool-auth', 'router-data', 'ai-docker-state')
         $projectPrefixes = @('ai-docker', 'docker-files', 'docker')
         $allVolumes = & $dockerCmd volume ls --format "{{.Name}}" 2>$null
         foreach ($vol in $allVolumes) {

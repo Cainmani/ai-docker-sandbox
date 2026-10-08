@@ -188,5 +188,16 @@ assert_eq "broken installed tool fails full status" 1 "$RUN_RC"
 assert_contains "broken tool is named" "$RUN_OUTPUT" "codex is installed but not working"
 assert_not_contains "no healthy verdict with a broken tool" "$RUN_OUTPUT" "Everything looks healthy"
 
+# Review regression: update records must survive a container recreate.
+compose="$ROOT_DIR/docker/docker-compose.yml"
+if grep -Eq '^[[:space:]]*- ai-docker-state:/home/\$\{USER_NAME\}/\.ai-docker[[:space:]]*$' "$compose"; then
+    pass "update records live on a named volume"
+else
+    fail "update records live on a named volume"
+fi
+grep -Eq '^  ai-docker-state:' "$compose" && pass "state volume is declared" || fail "state volume is declared"
+grep -Fq "'ai-docker-state'" "$ROOT_DIR/scripts/uninstall.ps1" && pass "uninstall -RemoveVolumes knows the state volume" || fail "uninstall -RemoveVolumes knows the state volume"
+grep -Fq 'own_tree "/home/$USER_NAME/.ai-docker"' "$ROOT_DIR/docker/entrypoint.sh" && pass "entrypoint hands the state volume to the user" || fail "entrypoint hands the state volume to the user"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

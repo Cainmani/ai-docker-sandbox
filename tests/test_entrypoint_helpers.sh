@@ -272,6 +272,8 @@ assert_false "does not chown the mount point itself" grep -Fxq "$ws" "$chown_log
 entrypoint="$ROOT_DIR/docker/entrypoint.sh"
 assert_false "no blanket recursive chown of the home folder" grep -Eq 'chown -R "\$USER_NAME:\$USER_NAME" "/home/\$USER_NAME"' "$entrypoint"
 assert_true "home ownership uses the targeted helper" grep -Fq 'fix_ownership "/home/$USER_NAME"' "$entrypoint"
+assert_false "no recursive chown anywhere in the entrypoint (volumes included)" \
+    bash -c "grep -v '^[[:space:]]*#' '$entrypoint' | grep -q 'chown -R'"
 
 # Readiness: a partial tool install keeps the container up in a degraded
 # state (working tools stay usable); only a missing install is fatal.

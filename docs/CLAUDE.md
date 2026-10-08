@@ -117,7 +117,7 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 ### The update status record is the single source of truth for update health
 
-`auto_update.sh` writes `~/.ai-docker/update-status` (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times, and every mutating mode takes `~/.ai-docker/update.lock` so startup, cron and manual runs cannot overlap.
+`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times, and every mutating mode takes `~/.ai-docker/update.lock` so startup, cron and manual runs cannot overlap.
 
 ### Release asset names are an API (self-update depends on them)
 

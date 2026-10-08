@@ -85,6 +85,8 @@ services:
       - tool-auth:/home/${USER_NAME}/.tool-auth
       # AI router data persistence (9router / OmniRoute SQLite DB + linked provider credentials)
       - router-data:/home/${USER_NAME}/.router-data
+      # Update status records and version snapshots (survive container recreates)
+      - ai-docker-state:/home/${USER_NAME}/.ai-docker
     tty: true
     stdin_open: true
     healthcheck:
@@ -120,4 +122,6 @@ volumes:
   tool-auth:
     driver: local
   router-data:
+    driver: local
+  ai-docker-state:
     driver: local
