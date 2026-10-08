@@ -275,18 +275,37 @@ function Get-ContainerLogArgs {
     return @('logs', '--timestamps', '--tail', '200', $ContainerName)
 }
 
-# Returns @{ Lines = new message lines (timestamps removed); Cursor = newest timestamp }.
+# Returns @{ Lines = new message lines (timestamps removed); Cursor = newest
+# timestamp; SeenAtCursor = how many lines carrying that timestamp have been
+# shown }. `docker logs --since` is inclusive and several lines can share one
+# timestamp, so the count is what lets a later batch skip exactly the lines
+# already shown at the cursor and keep any new ones.
 function Select-NewLogLines {
-    param([string[]]$Lines = @(), [string]$Cursor = '')
+    param([string[]]$Lines = @(), [string]$Cursor = '', [int]$SeenAtCursor = 0)
     $newLines = New-Object System.Collections.Generic.List[string]
     $newest = $Cursor
+    $seenAtNewest = $SeenAtCursor
+    $atCursor = 0
     foreach ($line in $Lines) {
         if ($line -notmatch '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)\s?(.*)$') { continue }
         $stamp = $Matches[1]
         $message = $Matches[3].TrimEnd("`r")
-        if ($Cursor -and ([string]::CompareOrdinal($stamp, $Cursor) -le 0)) { continue }
+        if ($Cursor) {
+            $order = [string]::CompareOrdinal($stamp, $Cursor)
+            if ($order -lt 0) { continue }
+            if ($order -eq 0) {
+                $atCursor++
+                if ($atCursor -le $SeenAtCursor) { continue }
+            }
+        }
         $newLines.Add($message)
-        if (-not $newest -or [string]::CompareOrdinal($stamp, $newest) -gt 0) { $newest = $stamp }
+        $cmp = [string]::CompareOrdinal($stamp, $newest)
+        if (-not $newest -or $cmp -gt 0) {
+            $newest = $stamp
+            $seenAtNewest = 1
+        } elseif ($cmp -eq 0) {
+            $seenAtNewest++
+        }
     }
-    return @{ Lines = $newLines.ToArray(); Cursor = $newest }
+    return @{ Lines = $newLines.ToArray(); Cursor = $newest; SeenAtCursor = $seenAtNewest }
 }

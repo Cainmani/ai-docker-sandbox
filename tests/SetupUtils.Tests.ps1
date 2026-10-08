@@ -239,7 +239,7 @@ Describe 'Select-NewLogLines' {
 
     It 'Returns only lines newer than the cursor' {
         $first = Select-NewLogLines -Lines @((New-LogLine 1), (New-LogLine 2)) -Cursor ''
-        $r = Select-NewLogLines -Lines @((New-LogLine 2), (New-LogLine 3)) -Cursor $first.Cursor
+        $r = Select-NewLogLines -Lines @((New-LogLine 2), (New-LogLine 3)) -Cursor $first.Cursor -SeenAtCursor $first.SeenAtCursor
         $r.Lines | Should -Be @('line 3')
     }
 
@@ -248,17 +248,40 @@ Describe 'Select-NewLogLines' {
         # --tail 100 window, so output after line 100 was silently lost.
         $seen = @()
         $cursor = ''
+        $seenAt = 0
         $all = 1..250 | ForEach-Object { New-LogLine $_ }
         foreach ($upTo in @(80, 150, 250)) {
             $window = $all[0..($upTo - 1)]
             if ($cursor) { $window = $window | Where-Object { (($_ -split ' ', 2)[0]) -ge $cursor } }
-            $r = Select-NewLogLines -Lines $window -Cursor $cursor
+            $r = Select-NewLogLines -Lines $window -Cursor $cursor -SeenAtCursor $seenAt
             $seen += $r.Lines
             $cursor = $r.Cursor
+            $seenAt = $r.SeenAtCursor
         }
         $seen.Count | Should -Be 250
         $seen[-1] | Should -Be 'line 250'
         ($seen | Select-Object -Unique).Count | Should -Be 250
+    }
+
+    It 'Never drops a new message that shares the cursor timestamp' {
+        # Second review: a later batch with another line at the same
+        # timestamp lost it. docker logs --since is inclusive, so the
+        # already-shown line comes back too and must be skipped exactly once.
+        $t = '2026-10-08T10:00:00.000000001Z'
+        $first = Select-NewLogLines -Lines @("$t a") -Cursor ''
+        $second = Select-NewLogLines -Lines @("$t a", "$t b", '2026-10-08T10:00:00.000000002Z c') -Cursor $first.Cursor -SeenAtCursor $first.SeenAtCursor
+        $second.Lines | Should -Be @('b', 'c')
+        $third = Select-NewLogLines -Lines @('2026-10-08T10:00:00.000000002Z c') -Cursor $second.Cursor -SeenAtCursor $second.SeenAtCursor
+        $third.Lines.Count | Should -Be 0
+    }
+
+    It 'Counts lines at the newest timestamp across batches' {
+        $t = '2026-10-08T10:00:00.000000005Z'
+        $a = Select-NewLogLines -Lines @("$t x", "$t y") -Cursor ''
+        $a.SeenAtCursor | Should -Be 2
+        $b = Select-NewLogLines -Lines @("$t x", "$t y", "$t z") -Cursor $a.Cursor -SeenAtCursor $a.SeenAtCursor
+        $b.Lines | Should -Be @('z')
+        $b.SeenAtCursor | Should -Be 3
     }
 
     It 'Ignores lines without a timestamp and keeps the cursor' {

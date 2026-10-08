@@ -1901,6 +1901,7 @@ $btnNext.Add_Click({
 
             # Timestamp of the newest log line shown (see Select-NewLogLines)
             $script:logCursor = ''
+            $script:logSeenAtCursor = 0
 
             # Helper function to strip ANSI escape sequences
             # Uses comprehensive pattern to handle all ANSI control sequences including:
@@ -1919,7 +1920,7 @@ $btnNext.Add_Click({
                     $logArgs = Get-ContainerLogArgs -Cursor $script:logCursor
                     $logResult = & $script:dockerExe @logArgs 2>&1
                     if ($logResult) {
-                        $selection = Select-NewLogLines -Lines ([string[]]($logResult -split "`n")) -Cursor $script:logCursor
+                        $selection = Select-NewLogLines -Lines ([string[]]($logResult -split "`n")) -Cursor $script:logCursor -SeenAtCursor $script:logSeenAtCursor
                         $newLines = $selection.Lines
 
                         if ($newLines -and $newLines.Count -gt 0) {
@@ -1931,6 +1932,7 @@ $btnNext.Add_Click({
                                 }
                             }
                             $script:logCursor = $selection.Cursor
+                            $script:logSeenAtCursor = $selection.SeenAtCursor
                             # Auto-scroll to bottom
                             $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
                             $script:terminalBox.ScrollToCaret()
