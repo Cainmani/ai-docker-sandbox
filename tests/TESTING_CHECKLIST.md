@@ -1,5 +1,16 @@
 # AI Docker Manager - Testing Checklist
 
+## v1.6.0 resource settings acceptance
+
+- [ ] Upgrade with an existing wizard-created `.wslconfig` containing custom RAM/CPU values. The build page shows those values and the recreated container uses them.
+- [ ] Fresh setup: Light uses 3 GB / up to 2 CPUs, Standard 6 GB / up to 4 CPUs, Heavy 12 GB / up to 6 CPUs.
+- [ ] Open **Resources...** in the compiled EXE under the default Restricted execution policy. The dialog displays current limits and the available WSL/Docker budget.
+- [ ] Apply a change within that budget. `docker stats --no-stream` shows the new limit; container ID and start time are unchanged, and a planted file in `/tmp` remains intact.
+- [ ] Cancel without applying: running limits and saved settings are unchanged.
+- [ ] Later setup that keeps WSL settings preserves saved custom container limits; choosing a new profile explicitly replaces them.
+- [ ] An absent `~/src` says `not present`; an unreadable folder remains `partial`. The status output explains that AI_Work is `/workspace`.
+
+
 ## Pre-CEO Demo Testing Checklist
 
 **Purpose**: Ensure AI_Docker_Manager.exe works flawlessly across different Windows environments before CEO demo.

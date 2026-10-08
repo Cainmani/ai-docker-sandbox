@@ -102,6 +102,38 @@ function Resolve-ContainerCpuLimit {
     }
 }
 
+# Shared memory values for the WSL VM and container resource plan.
+function Get-ProfileMemory {
+    param([string]$Profile)
+    switch ($Profile) {
+        'light' { return '3GB' }
+        'standard' { return '6GB' }
+        'heavy' { return '12GB' }
+        default { throw "Unknown resource profile: $Profile" }
+    }
+}
+
+function ConvertTo-MemoryBytes {
+    param([string]$Value)
+    if ($Value -notmatch '^\s*(\d+)\s*([KMGT]B?|B)?\s*$') {
+        throw 'Invalid memory size. Use a positive whole number with KB, MB or GB.'
+    }
+    $number = [decimal]$Matches[1]
+    $unit = $Matches[2]
+    $factor = switch -Regex ($unit) {
+        '^K' { 1KB; break }
+        '^M' { 1MB; break }
+        '^G' { 1GB; break }
+        '^T' { 1TB; break }
+        default { 1 }
+    }
+    $bytes = $number * $factor
+    if ($bytes -lt 6MB -or $bytes -gt [long]::MaxValue) {
+        throw 'Memory limit must be at least 6 MB and fit in a 64-bit byte count.'
+    }
+    return [long]$bytes
+}
+
 # Create .wslconfig file with specified profile settings
 function New-WSLConfig {
     param(
@@ -123,6 +155,7 @@ function New-WSLConfig {
         Write-Host "[ERROR] Unknown profile: $Profile" -ForegroundColor Red
         return $false
     }
+    $config.Memory = Get-ProfileMemory -Profile $Profile
     $config.Processors = Get-ProfileProcessors -Profile $Profile -SystemCores $SystemCores
 
     $wslConfigContent = @"

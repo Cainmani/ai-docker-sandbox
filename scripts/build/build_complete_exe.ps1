@@ -37,6 +37,7 @@ Write-Host "[1/4] Reading source files..." -ForegroundColor Cyan
 $filesToEmbed = @(
    "..\setup_wizard.ps1",
    "..\wsl_config.ps1",
+   "..\resource_settings.ps1",
    "..\launch_claude.ps1",
    "..\launch_vibe_kanban.ps1",
    "..\log_utils.ps1",

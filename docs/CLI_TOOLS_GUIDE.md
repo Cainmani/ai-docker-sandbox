@@ -151,6 +151,10 @@ AI Docker 1.6.0: ATTENTION - last update failed (pip) 1 day ago - run: ai-docker
 
 `ai-docker status` shows the details: each tool's version, the last update's result and failed stages, disk use, and the container's memory and CPU limits, with the command that fixes each problem. `ai-docker doctor` checks network, DNS and logins.
 
+Container RAM and CPU limits follow your chosen resource profile or existing WSL settings. Setup displays them before deployment. Use **Resources...** in the Windows launcher to edit the running container's limits and save them for future recreates; no image rebuild, container recreation or restart is needed. Limits cannot exceed the currently available WSL/Docker budget. Raising that budget in `.wslconfig` requires restarting WSL/Docker after saving work.
+
+Task Manager's **VmmemWSL** includes the whole WSL VM, Docker, other WSL processes and Linux file cache. It is not this container's RAM usage; `docker stats --no-stream` in Windows PowerShell shows that. `home ~/src` means a separate folder inside the container. Your Windows AI_Work folder is `/workspace`. Missing optional folders say `not present`; `partial` means some paths could not be read.
+
 ### Before a rebuild: `ai-docker rescue-scan`
 
 A rebuild, recreate or uninstall replaces the container's own disk: `/tmp`, `~/src` and the rest of the home folder. Your AI_Work folder and the named volumes (logins, Claude memory, SSH keys, router data) are kept.

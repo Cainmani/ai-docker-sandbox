@@ -139,6 +139,26 @@ assert_contains "disk figures are labelled as estimates" "$RUN_OUTPUT" "estimate
 assert_contains "full status suggests a fix for the failure" "$RUN_OUTPUT" "update-container-tools"
 assert_contains "full status points to doctor for network checks" "$RUN_OUTPUT" "ai-docker doctor"
 
+# Missing optional folders are normal and must not look like failed size checks.
+setup_case
+run_cli status
+assert_contains "missing home src is labelled not present" "$RUN_OUTPUT" "container home ~/src  "
+assert_contains "absent optional folders are labelled not present" "$RUN_OUTPUT" "not present"
+assert_not_contains "missing folders do not make sizes partial" "$RUN_OUTPUT" "(partial)"
+assert_contains "status explains where AI_Work lives" "$RUN_OUTPUT" "your AI_Work folder is /workspace"
+assert_not_contains "limits no longer require a recreate" "$RUN_OUTPUT" "requires recreating"
+mkdir -p "$HOME/src" "$HOME/.npm"
+run_cli status
+assert_not_contains "one missing cache does not make an existing cache partial" "$RUN_OUTPUT" "(partial)"
+assert_contains "present empty home src is measured as zero" "$RUN_OUTPUT" "container home ~/src   0 MB"
+if [ "$(id -u)" -ne 0 ]; then
+    mkdir -p "$HOME/src/locked"
+    chmod 000 "$HOME/src/locked"
+    run_cli status
+    chmod 755 "$HOME/src/locked"
+    assert_contains "unreadable home source folders remain partial" "$RUN_OUTPUT" "(partial) - some paths could not be read"
+fi
+
 # An unreadable folder still yields a (partial) size, not a bogus timeout.
 setup_case
 mkdir -p "$AI_DOCKER_TMP_DIR/locked/inner" "$AI_DOCKER_TMP_DIR/open"

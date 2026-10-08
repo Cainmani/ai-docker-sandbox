@@ -264,6 +264,7 @@ $script:MatrixAccent = [System.Drawing.Color]::FromArgb(0, 180, 50)
 $script:EmbeddedFiles = @{
     'setup_wizard.ps1' = 'SETUP_WIZARD_PS1_BASE64_HERE'
     'wsl_config.ps1' = 'WSL_CONFIG_PS1_BASE64_HERE'
+    'resource_settings.ps1' = 'RESOURCE_SETTINGS_PS1_BASE64_HERE'
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
     'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
     'log_utils.ps1' = 'LOG_UTILS_PS1_BASE64_HERE'
@@ -599,7 +600,7 @@ $form.Controls.Add($lblAppData)
 # Button 4: Exit
 $btnExit = New-Object System.Windows.Forms.Button
 $btnExit.Text = "Exit"
-$btnExit.Left = 250; $btnExit.Top = 555
+$btnExit.Left = 365; $btnExit.Top = 555
 $btnExit.Width = 100; $btnExit.Height = 35
 $btnExit.FlatStyle = 'Flat'
 $btnExit.FlatAppearance.BorderColor = $script:MatrixAccent
@@ -608,6 +609,28 @@ $btnExit.BackColor = $script:MatrixMidGreen
 $btnExit.ForeColor = $script:MatrixGreen
 $btnExit.Font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($btnExit)
+
+# Edit and persist running container limits without a rebuild or recreate.
+$btnResources = New-Object System.Windows.Forms.Button
+$btnResources.Text = 'Resources...'
+$btnResources.Left = 135; $btnResources.Top = 555
+$btnResources.Width = 210; $btnResources.Height = 35
+$btnResources.FlatStyle = 'Flat'
+$btnResources.BackColor = $script:MatrixMidGreen
+$btnResources.ForeColor = $script:MatrixGreen
+$btnResources.Add_Click({
+    try {
+        foreach ($helperName in @('docker_helpers.ps1', 'env_utils.ps1', 'wsl_config.ps1', 'resource_settings.ps1')) {
+            $helperContent = Get-EmbeddedFileContent $helperName
+            if (-not $helperContent) { throw "Could not load resource helper: $helperName" }
+            . ([ScriptBlock]::Create($helperContent))
+        }
+        Show-ContainerResourceDialog -EnvPath (Join-Path $filesDir '.env') -DockerPath (Find-Docker) -Owner $form
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Resources', 'OK', 'Error') | Out-Null
+    }
+})
+$form.Controls.Add($btnResources)
 
 # Footer with version and Report Issue link
 $lblVersion = New-Object System.Windows.Forms.Label
@@ -662,6 +685,7 @@ $btnSetup.Add_Click({
     $btnSetup.Enabled = $false
     $btnLaunch.Enabled = $false
     $btnVibeKanban.Enabled = $false
+    $btnResources.Enabled = $false
     $btnExit.Enabled = $false
     [System.Windows.Forms.Application]::DoEvents()  # Force UI update
     Write-AppLog "Loading indicator shown, buttons disabled" "DEBUG"
@@ -700,7 +724,7 @@ $btnSetup.Add_Click({
             # Extract the wizard's dot-sourced dependencies: shared logging,
             # Fix-LineEndings/password cleanup, Wait-ContainerReady + image
             # name constants, and .env helpers.
-            if (Export-EmbeddedHelpers @('log_utils.ps1', 'setup_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1')) {
+            if (Export-EmbeddedHelpers @('log_utils.ps1', 'setup_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1', 'resource_settings.ps1')) {
                 Write-AppLog "Setup wizard helper scripts written to: [$filesDir]" "DEBUG"
             } else {
                 Write-AppLog "WARNING: some setup wizard helper scripts were missing from embedded resources" "WARN"
@@ -777,6 +801,7 @@ $btnSetup.Add_Click({
                 $btnSetup.Enabled = $true
                 $btnLaunch.Enabled = $true
                 $btnVibeKanban.Enabled = $true
+                $btnResources.Enabled = $true
                 $btnExit.Enabled = $true
 
                 $form.Show()
@@ -815,6 +840,7 @@ $btnSetup.Add_Click({
             $btnSetup.Enabled = $true
             $btnLaunch.Enabled = $true
             $btnVibeKanban.Enabled = $true
+            $btnResources.Enabled = $true
             $btnExit.Enabled = $true
             [System.Windows.Forms.MessageBox]::Show("Error: Setup wizard could not be loaded from embedded resources.`n`nCheck the log file for details:`n$script:LogFile", "Error", 'OK', 'Error')
         }
@@ -827,6 +853,7 @@ $btnSetup.Add_Click({
         $btnSetup.Enabled = $true
         $btnLaunch.Enabled = $true
         $btnVibeKanban.Enabled = $true
+        $btnResources.Enabled = $true
         $btnExit.Enabled = $true
         [System.Windows.Forms.MessageBox]::Show(
             "An error occurred during setup:`n`n$($_.Exception.Message)`n`nPlease check the log file for details:`n$script:LogFile",

@@ -173,15 +173,33 @@ cpu_limit() {
 # huge tree. Prints e.g. "3.2 GB", "3.2 GB (partial)" when some folders were
 # unreadable, or "over time limit".
 size_of() {
-    local out rc kb suffix=""
-    out=$(timeout 20 du -sck "$@" 2>/dev/null)
+    local out rc kb arg parent suffix="" count=0
+    local -a args=()
+    for arg in "$@"; do
+        if [[ "$arg" == --* ]]; then
+            args+=("$arg")
+            continue
+        fi
+        parent=$(dirname -- "$arg")
+        # Only call a path absent when its parent can actually be inspected.
+        if [ ! -e "$arg" ] && [ ! -L "$arg" ] && [ -d "$parent" ] && [ -r "$parent" ] && [ -x "$parent" ]; then
+            continue
+        fi
+        args+=("$arg")
+        count=$((count + 1))
+    done
+    if [ "$count" -eq 0 ]; then
+        echo "not present"
+        return
+    fi
+    out=$(timeout 20 du -sck "${args[@]}" 2>/dev/null)
     rc=$?
     if [ "$rc" -eq 124 ]; then
         echo "over time limit"
         return
     fi
     # du exits 1 when it could not read part of the tree; the total still counts the rest.
-    [ "$rc" -eq 0 ] || suffix=" (partial)"
+    [ "$rc" -eq 0 ] || suffix=" (partial) - some paths could not be read"
     kb=$(printf '%s\n' "$out" | tail -n1 | cut -f1)
     awk -v k="${kb:-0}" -v s="$suffix" 'BEGIN { if (k >= 1048576) printf "%.1f GB%s", k / 1048576, s; else printf "%d MB%s", k / 1024, s }'
 }
@@ -193,7 +211,7 @@ cmd_status() {
     echo "AI Docker status"
     echo ""
     echo "Container   image $(image_version) - $(memory_limit) - $(cpu_limit)"
-    echo "            (limits are set by the launcher's resource profile; changing them requires recreating the container)"
+    echo "            (change limits with Resources in the Windows launcher; no image rebuild needed)"
     echo ""
 
     state=$(install_status_state "$INSTALL_MARKER")
@@ -231,7 +249,8 @@ cmd_status() {
     printf '            %-22s %s\n' "Claude scratch dirs" "$(size_of "$TMP_ROOT/claude-$(id -u)")"
     printf '            %-22s %s\n' "other temp files" "$(size_of --exclude="claude-$(id -u)" "$TMP_ROOT")"
     printf '            %-22s %s\n' "package caches" "$(size_of "$HOME/.npm" "$HOME/.cache")"
-    printf '            %-22s %s\n' 'home src folder' "$(size_of "$HOME/src")"
+    printf '            %-22s %s\n' 'container home ~/src' "$(size_of "$HOME/src")"
+    echo "            (home ~/src is inside the container; your AI_Work folder is /workspace)"
     echo ""
 
     if [ "${#ISSUES[@]}" -eq 0 ]; then
