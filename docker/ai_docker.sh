@@ -255,7 +255,7 @@ cmd_status() {
 # A rebuild, recreate or uninstall deletes the container's writable layer: /tmp
 # and everything in $HOME except the named-volume mounts. rescue-scan lists work
 # there that would be lost (git repos with uncommitted, stashed or unpushed work
-# or no remote; document/CAD/GIS files outside dependency folders) and --copy
+# or no remote; any other file outside dependency folders) and --copy
 # moves it into the workspace, verified by checksum. Exit: 0 nothing found,
 # 3 work found (or, with --copy, 0 once safely copied), 1 copy failed.
 
@@ -263,7 +263,7 @@ MOUNTS_FILE="${AI_DOCKER_MOUNTS_FILE:-/proc/mounts}"
 RESCUE_ROOT="${AI_DOCKER_RESCUE_ROOT:-/workspace/_rescued}"
 # Folders whose contents are reinstalled, never hand-made work.
 RESCUE_SKIP_DIRS="node_modules .venv venv site-packages __pycache__ .cache .npm .npm-global .local .cargo .rustup .gradle"
-RESCUE_DOC_EXTS="pdf doc docx xls xlsx xlsm ppt pptx odt ods csv kmz kml gpkg shp dbf geojson tif tiff dwg dxf step stp stl 3mf f3d fcstd iges igs zip 7z md txt"
+RESCUE_DOC_EXTS="png jpg jpeg gif svg ipynb pdf doc docx xls xlsx xlsm ppt pptx odt ods csv kmz kml gpkg shp dbf geojson tif tiff dwg dxf step stp stl 3mf f3d fcstd iges igs zip 7z md txt"
 
 # Mount targets inside the scan roots (named volumes) survive a rebuild.
 rescue_mounts() {
@@ -273,23 +273,30 @@ rescue_mounts() {
 # rescue_find <root>: candidate git repos and document files, NUL-separated,
 # prefixed "repo:" or "doc:". Never descends into skip dirs, mounts or repos.
 rescue_find() {
-    local root="$1" name ext
-    local -a prune=() docs=()
+    local root="$1" name
+    local -a prune=()
     [ -d "$root" ] || return 0
     for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
     while IFS= read -r name; do
         [ -n "$name" ] && [ "$name" != "/" ] && prune+=(-path "$name" -o)
     done < <(rescue_mounts)
-    # Hidden top-level folders are application state (certificate stores,
-    # tool configs, sockets), and Claude Code's bundled skills are reinstalled.
-    prune+=(-path "$root/.*" -o -path "$root/claude-*/bundled-skills" -o -path "$root/pytest-of-*" -o)
+    # Provably rebuildable or not user work: hidden top-level folders are
+    # application state (certificate stores, tool configs, sockets) - except a
+    # .git, which marks the root itself as a repo; Claude Code's bundled skills
+    # and pytest temp are recreated; ai-docker-rescue is this scanner's own copy.
+    prune+=(\( -path "$root/.*" ! -name .git \) -o -path "$root/claude-*/bundled-skills" -o
+            -path "$root/pytest-of-*" -o -path "$root/ai-docker-rescue" -o)
     unset 'prune[${#prune[@]}-1]'
-    for ext in $RESCUE_DOC_EXTS; do docs+=(-iname "*.$ext" -o); done
-    unset 'docs[${#docs[@]}-1]'
 
+    # Any regular file a person or agent left is work unless it is provably
+    # rebuildable - file types are no guide (scripts, notebooks, images...).
+    # Dotfiles directly in the root (shell rc, install markers, tool config)
+    # are app state. Each entry carries its size so callers need no stat.
+    # pyvenv.cfg marks a virtualenv, whatever the folder is called.
     find "$root" -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
         -o \( -name .git -printf 'repo:%h\0' -prune \) \
-        -o \( -type f \( "${docs[@]}" \) -printf 'doc:%p\0' \) 2>/dev/null
+        -o \( -name pyvenv.cfg -printf 'venv:%h\0' \) \
+        -o \( -type f ! -path "$root/.*" -printf 'doc:%s:%p\0' \) 2>/dev/null
 }
 
 # rescue_repo_docs <repo>: document files in the working tree (relative paths),
@@ -328,20 +335,31 @@ rescue_repo_reasons() {
     echo "${reasons[*]}"
 }
 
-# rescue_collect: fills RESCUE_PATHS and RESCUE_LINES.
+# rescue_collect: fills RESCUE_PATHS and RESCUE_LINES for $HOME and /tmp.
 rescue_collect() {
+    rescue_collect_roots "$HOME" "$TMP_ROOT"
+}
+
+# rescue_collect_roots <root...>: fills RESCUE_PATHS and RESCUE_LINES.
+rescue_collect_roots() {
     RESCUE_PATHS=()
     RESCUE_LINES=()
-    local root entry path reasons repo inside group rel
-    local -a repos=() docs=() groups=()
-    local -A doc_root=() group_count=() group_bytes=()
-    # find only learns a folder is a repo when it reaches .git, so gather
-    # everything first, then judge documents inside a repo by the repo.
-    for root in "$HOME" "$TMP_ROOT"; do
+    local root entry path reasons repo inside group rel venv
+    local -a repos=() docs=() groups=() venvs=()
+    local -A doc_root=() doc_size=() group_count=() group_bytes=()
+    # find only learns a folder is a repo (or virtualenv) when it reaches its
+    # .git (or pyvenv.cfg), so gather everything first, then judge files inside
+    # a repo by the repo and drop files inside a virtualenv.
+    for root in "$@"; do
         while IFS= read -r -d '' entry; do
             case "$entry" in
                 repo:*) repos+=("${entry#repo:}") ;;
-                doc:*) docs+=("${entry#doc:}"); doc_root["${entry#doc:}"]=$root ;;
+                venv:*) venvs+=("${entry#venv:}") ;;
+                doc:*)
+                    entry=${entry#doc:}
+                    path=${entry#*:}
+                    docs+=("$path"); doc_root[$path]=$root; doc_size[$path]=${entry%%:*}
+                    ;;
             esac
         done < <(rescue_find "$root")
     done
@@ -357,6 +375,9 @@ rescue_collect() {
         for repo in "${repos[@]}"; do
             case "$path" in "$repo"/*) inside=1; break ;; esac
         done
+        for venv in "${venvs[@]}"; do
+            case "$path" in "$venv"/*) inside=1; break ;; esac
+        done
         [ "$inside" -eq 0 ] || continue
         # Group by top-level folder under the scan root, so one batch of
         # files is one line (and one copied folder); loose files stand alone.
@@ -371,13 +392,13 @@ rescue_collect() {
             group_bytes[$group]=0
         fi
         group_count[$group]=$(( ${group_count[$group]} + 1 ))
-        group_bytes[$group]=$(( ${group_bytes[$group]} + $(stat -c %s "$path" 2>/dev/null || echo 0) ))
+        group_bytes[$group]=$(( ${group_bytes[$group]} + ${doc_size[$path]:-0} ))
     done
     local -A loose_count=() loose_bytes=()
     for group in "${groups[@]}"; do
         RESCUE_PATHS+=("$group")
         if [ -d "$group" ]; then
-            RESCUE_LINES+=("folder    $group  ($(plural "${group_count[$group]}" document), $(human_bytes "${group_bytes[$group]}"))")
+            RESCUE_LINES+=("folder    $group  ($(plural "${group_count[$group]}" file), $(human_bytes "${group_bytes[$group]}"))")
         else
             # Loose files directly in a scan root: one summary line per root.
             root=${group%/*}
@@ -386,7 +407,7 @@ rescue_collect() {
         fi
     done
     for root in "${!loose_count[@]}"; do
-        RESCUE_LINES+=("files     $root/  ($(plural "${loose_count[$root]}" "loose document"), $(human_bytes "${loose_bytes[$root]}"))")
+        RESCUE_LINES+=("files     $root/  ($(plural "${loose_count[$root]}" "loose file"), $(human_bytes "${loose_bytes[$root]}"))")
     done
 }
 
@@ -522,16 +543,11 @@ in_use_by_process() {
     return 1
 }
 
-# holds_work <dir>: anything rescue-scan would list.
+# holds_work <dir>: anything rescue-scan would list there (same rules: files
+# in a clean, pushed repo or in a virtualenv do not count).
 holds_work() {
-    local entry
-    while IFS= read -r -d '' entry; do
-        case "$entry" in
-            repo:*) [ -n "$(rescue_repo_reasons "${entry#repo:}")" ] && return 0 ;;
-            doc:*) return 0 ;;
-        esac
-    done < <(rescue_find "$1")
-    return 1
+    rescue_collect_roots "$1"
+    [ "${#RESCUE_PATHS[@]}" -gt 0 ]
 }
 
 kb_of() { du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }

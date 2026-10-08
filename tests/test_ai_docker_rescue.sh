@@ -85,7 +85,7 @@ assert_contains "unpushed reason" "$RUN_OUTPUT" "unpushed"
 assert_contains "repo without remote is listed" "$RUN_OUTPUT" "no remote"
 assert_contains "stash is listed" "$RUN_OUTPUT" "stash"
 assert_contains "folder holding a CAD file is listed" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/handoff"
-assert_contains "loose PDF is counted" "$RUN_OUTPUT" "1 loose document"
+assert_contains "loose PDF is counted" "$RUN_OUTPUT" "1 loose file"
 assert_not_contains "clean pushed repo is not listed" "$RUN_OUTPUT" "src/clean"
 assert_not_contains "documents in virtualenvs are ignored" "$RUN_OUTPUT" "bundled.pdf"
 assert_not_contains "documents in node_modules are ignored" "$RUN_OUTPUT" "doc.pdf"
@@ -115,7 +115,7 @@ mkdir -p "$AI_DOCKER_TMP_DIR/batch/sub" "$HOME/.pki/nssdb" "$AI_DOCKER_TMP_DIR/c
 : > "$AI_DOCKER_TMP_DIR/batch/a.pdf"; : > "$AI_DOCKER_TMP_DIR/batch/sub/b.docx"
 : > "$HOME/.pki/nssdb/pkcs11.txt"; : > "$AI_DOCKER_TMP_DIR/claude-$(id -u)/bundled-skills/x/SKILL.md"
 run_scan
-assert_contains "documents are grouped by top-level folder" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/batch  (2 documents"
+assert_contains "documents are grouped by top-level folder" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/batch  (2 files"
 assert_not_contains "grouped files are not listed one by one" "$RUN_OUTPUT" "a.pdf"
 assert_not_contains "hidden app-state folders are skipped" "$RUN_OUTPUT" "pkcs11.txt"
 assert_not_contains "Claude Code bundled skills are skipped" "$RUN_OUTPUT" "SKILL.md"
@@ -126,9 +126,9 @@ setup_case
 mkdir -p "$AI_DOCKER_TMP_DIR/single" "$AI_DOCKER_TMP_DIR/pytest-of-$(id -un)/test0"
 : > "$AI_DOCKER_TMP_DIR/single/only.pdf"; : > "$AI_DOCKER_TMP_DIR/pytest-of-$(id -un)/test0/out.pdf"
 run_scan
-assert_contains "loose files are summarised in one line" "$RUN_OUTPUT" "3 loose documents"
+assert_contains "loose files are summarised in one line" "$RUN_OUTPUT" "3 loose files"
 assert_not_contains "loose files are not listed one by one" "$RUN_OUTPUT" "note1.md"
-assert_contains "a single document is singular" "$RUN_OUTPUT" "(1 document,"
+assert_contains "a single document is singular" "$RUN_OUTPUT" "(1 file,"
 assert_not_contains "pytest temp folders are skipped" "$RUN_OUTPUT" "pytest-of"
 run_scan --copy
 dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
@@ -170,6 +170,36 @@ assert_contains "rescued worktree keeps its unpushed commit" "$(git -C "$dest$HO
 assert_eq "rescued worktree is on its branch" "wtbranch" "$(git -C "$dest$HOME/src/wt" symbolic-ref --short HEAD 2>/dev/null)"
 assert_contains "rescued worktree keeps its uncommitted change" "$(git -C "$dest$HOME/src/wt" status --porcelain 2>/dev/null)" "README"
 [ -d "$dest$HOME/src/wt/.git" ] && pass "rescued worktree is a standalone repository" || fail "rescued worktree is a standalone repository"
+
+# Any file a person or agent made is work - not just known document types.
+setup_case
+echo 'print(1)' > "$AI_DOCKER_TMP_DIR/analysis.py"
+mkdir -p "$AI_DOCKER_TMP_DIR/notes" "$AI_DOCKER_TMP_DIR/shots"
+echo '{}' > "$AI_DOCKER_TMP_DIR/notes/model.ipynb"; head -c 100 /dev/urandom > "$AI_DOCKER_TMP_DIR/shots/site.png"
+# Provably rebuildable: a virtualenv with an unusual name, and the scanner's own copy.
+mkdir -p "$AI_DOCKER_TMP_DIR/venv60/lib/site"; : > "$AI_DOCKER_TMP_DIR/venv60/pyvenv.cfg"; echo x > "$AI_DOCKER_TMP_DIR/venv60/lib/site/mod.py"
+mkdir -p "$AI_DOCKER_TMP_DIR/ai-docker-rescue"; echo x > "$AI_DOCKER_TMP_DIR/ai-docker-rescue/ai_docker.sh"
+run_scan
+assert_eq "loose scripts, notebooks and images are work" 3 "$RUN_RC"
+assert_contains "loose script is counted" "$RUN_OUTPUT" "1 loose file"
+assert_contains "notebook folder is listed" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/notes"
+assert_contains "screenshot folder is listed" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/shots"
+assert_not_contains "virtualenv found by pyvenv.cfg is skipped" "$RUN_OUTPUT" "venv60"
+assert_not_contains "the scanner's own copy is skipped" "$RUN_OUTPUT" "ai-docker-rescue"
+run_scan --copy
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+[ -n "$dest" ] && [ -e "$dest$AI_DOCKER_TMP_DIR/analysis.py" ] && pass "loose script is rescued" || fail "loose script is rescued"
+[ -n "$dest" ] && [ -e "$dest$AI_DOCKER_TMP_DIR/shots/site.png" ] && pass "screenshot is rescued" || fail "screenshot is rescued"
+
+# Top-level dotfiles are app state (shell rc, markers, tool config), not work.
+setup_case
+: > "$HOME/.bashrc"; : > "$HOME/.cli_tools_installed"; : > "$HOME/.gitconfig"; : > "$AI_DOCKER_TMP_DIR/.lock-x"
+echo notes > "$HOME/RECOVERY.md"
+mkdir -p "$AI_DOCKER_TMP_DIR/proj"; echo SECRET=1 > "$AI_DOCKER_TMP_DIR/proj/.env"
+run_scan
+assert_contains "a real file in home is counted" "$RUN_OUTPUT" "$HOME/  (1 loose file"
+assert_contains "a hidden file inside a project folder still counts" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/proj  (1 file"
+assert_not_contains "top-level dotfiles in /tmp are not work" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/  ("
 
 # Documents inside a repo are judged by the repo, not listed on their own.
 setup_case
