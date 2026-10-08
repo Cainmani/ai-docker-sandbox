@@ -38,6 +38,8 @@
 | `claude` | Start Claude CLI |
 | `ai-docker status` | Health check: tools, last update, disk use, container limits |
 | `ai-docker doctor` | Network, DNS and login diagnostics |
+| `ai-docker cleanup` | Preview disposable data (`--apply` to choose what to delete) |
+| `ai-docker rescue-scan` | List work a rebuild would delete (`--copy` saves it to AI_Work) |
 | `pwd` | Show current directory |
 | `ls` | List files |
 | `cd /workspace` | Go to workspace root |

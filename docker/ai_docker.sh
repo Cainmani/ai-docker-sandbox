@@ -415,6 +415,197 @@ cmd_rescue_scan() {
     return 1
 }
 
+# --- cleanup --------------------------------------------------------------------
+#
+# Conservative removal of disposable data. Tool caches with reliable recreation
+# are suggested; anything that could hold work is opt-in; anything rescue-scan
+# would flag is never offered. Every item is re-checked right before deletion.
+
+CLEANUP_AGE_DAYS="${AI_DOCKER_CLEANUP_AGE_DAYS:-3}"
+
+# recently_used <dir>: any file in it modified within CLEANUP_AGE_DAYS.
+# .git internals are ignored: merely checking a repo (git status) rewrites its index.
+recently_used() {
+    [ -n "$(find "$1" -name .git -prune -o -newermt "-$CLEANUP_AGE_DAYS days" -print -quit 2>/dev/null)" ]
+}
+
+# in_use_by_process <dir>: some process has its working directory inside it.
+in_use_by_process() {
+    local proc cwd
+    for proc in /proc/[0-9]*; do
+        cwd=$(readlink "$proc/cwd" 2>/dev/null) || continue
+        case "$cwd/" in "$1"/*) return 0 ;; esac
+    done
+    return 1
+}
+
+# holds_work <dir>: anything rescue-scan would list.
+holds_work() {
+    local entry
+    while IFS= read -r -d '' entry; do
+        case "$entry" in
+            repo:*) [ -n "$(rescue_repo_reasons "${entry#repo:}")" ] && return 0 ;;
+            doc:*) return 0 ;;
+        esac
+    done < <(rescue_find "$1")
+    return 1
+}
+
+kb_of() { du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
+# kb_of_list <newline-separated paths>: total size, safe for spaces in names.
+kb_of_list() {
+    printf '%s\n' "$1" | sed '/^$/d' | tr '\n' '\0' | du -sck --files0-from=- 2>/dev/null | tail -n1 | cut -f1
+}
+kb_phrase() { human_bytes $(( $1 * 1024 )); }
+
+# Groups: parallel arrays. KIND is "cmd" (run CMD) or "paths" (delete ITEMS).
+cleanup_add_group() {
+    G_LABEL+=("$1"); G_DEFAULT+=("$2"); G_KIND+=("$3"); G_CMD+=("$4"); G_ITEMS+=("$5"); G_KB+=("$6")
+}
+
+cleanup_collect() {
+    G_LABEL=(); G_DEFAULT=(); G_KIND=(); G_CMD=(); G_ITEMS=(); G_KB=()
+    KEPT_COUNT=0; KEPT_KB=0
+    local items dir name current prev builds keep path
+
+    [ -d "$HOME/.npm/_cacache" ] && \
+        cleanup_add_group "npm download cache" y cmd "npm cache clean --force" "" "$(kb_of "$HOME/.npm/_cacache")"
+    [ -d "$HOME/.cache/pip" ] && \
+        cleanup_add_group "pip download cache" y cmd "pip3 cache purge" "" "$(kb_of "$HOME/.cache/pip")"
+
+    # Claude Code: keep the running version and the newest other one.
+    dir="$HOME/.local/share/claude/versions"
+    if [ -d "$dir" ]; then
+        current=$(readlink -f "$(command -v claude 2>/dev/null)" 2>/dev/null || true)
+        current=${current#"$dir"/}; current=${current%%/*}
+        prev=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -vxF -- "$current" | sort -V | tail -n1)
+        items=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -vxF -e "$current" -e "${prev:-/}" | sed "s|^|$dir/|")
+        [ -n "$items" ] && cleanup_add_group "Claude Code versions ($(printf '%s\n' "$items" | wc -l) old)" y paths "" "$items" "$(kb_of_list "$items")"
+    fi
+
+    # Playwright: keep the newest build of each browser; a project may pin an
+    # older one, so older builds are opt-in.
+    dir="$HOME/.cache/ms-playwright"
+    if [ -d "$dir" ]; then
+        items=""
+        for name in $(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sed 's/-[0-9]*$//' | sort -u); do
+            builds=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -name "$name-[0-9]*" -printf '%f\n' | sort -V)
+            keep=$(printf '%s\n' "$builds" | tail -n1)
+            items+=$(printf '%s\n' "$builds" | grep -vxF -- "$keep" | sed "s|^|$dir/|")$'\n'
+        done
+        items=$(printf '%s' "$items" | sed '/^$/d')
+        [ -n "$items" ] && cleanup_add_group "Playwright browser builds ($(printf '%s\n' "$items" | wc -l) older)" n paths "" "$items" "$(kb_of_list "$items")"
+    fi
+
+    # Agent scratch folders unused for CLEANUP_AGE_DAYS; never ones holding work.
+    items=""
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        recently_used "$path" && continue
+        in_use_by_process "$path" && continue
+        if holds_work "$path"; then
+            KEPT_COUNT=$((KEPT_COUNT + 1)); KEPT_KB=$((KEPT_KB + $(kb_of "$path"))); continue
+        fi
+        items+="$path"$'\n'
+    done < <(find "$TMP_ROOT/claude-$(id -u)" -mindepth 2 -maxdepth 2 -type d \
+                ! -name bundled-skills ! -path '*/bundled-skills' 2>/dev/null)
+    items=$(printf '%s' "$items" | sed '/^$/d')
+    [ -n "$items" ] && cleanup_add_group "Agent scratch folders ($(printf '%s\n' "$items" | wc -l) unused for ${CLEANUP_AGE_DAYS}+ days)" n paths "" "$items" "$(kb_of_list "$items")"
+
+    # Temporary virtualenvs (a pyvenv.cfg marks one), wherever they sit in /tmp.
+    items=""
+    while IFS= read -r path; do
+        path=${path%/pyvenv.cfg}
+        recently_used "$path" && continue
+        in_use_by_process "$path" && continue
+        items+="$path"$'\n'
+    done < <(find "$TMP_ROOT" -mindepth 2 -maxdepth 5 -name pyvenv.cfg 2>/dev/null)
+    items=$(printf '%s' "$items" | sed '/^$/d')
+    [ -n "$items" ] && cleanup_add_group "Temporary virtualenvs ($(printf '%s\n' "$items" | wc -l))" n paths "" "$items" "$(kb_of_list "$items")"
+
+    # Clones in ~/src that are clean, stash-free and fully pushed.
+    items=""
+    while IFS= read -r path; do
+        path=${path%/.git}
+        [ -n "$(rescue_repo_reasons "$path")" ] && continue
+        recently_used "$path" && continue
+        in_use_by_process "$path" && continue
+        items+="$path"$'\n'
+    done < <(find "$HOME/src" -mindepth 2 -maxdepth 2 -name .git 2>/dev/null)
+    items=$(printf '%s' "$items" | sed '/^$/d')
+    [ -n "$items" ] && cleanup_add_group "Clean, pushed clones in ~/src ($(printf '%s\n' "$items" | wc -l))" n paths "" "$items" "$(kb_of_list "$items")"
+}
+
+cleanup_preview() {
+    local i mark
+    echo "Cleanup - estimated sizes"
+    echo ""
+    for i in "${!G_LABEL[@]}"; do
+        if [ "${G_DEFAULT[$i]}" = y ]; then mark="[x]"; else mark="[ ]"; fi
+        printf '  %s %-52s %s\n' "$mark" "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")"
+    done
+    [ "${#G_LABEL[@]}" -gt 0 ] || echo "  Nothing disposable found."
+    if [ "$KEPT_COUNT" -gt 0 ]; then
+        echo ""
+        echo "  Kept (contains work): $KEPT_COUNT scratch folder(s), $(kb_phrase "$KEPT_KB") - copy them out with: ai-docker rescue-scan --copy"
+    fi
+    echo ""
+    echo "[x] = suggested. Freeing space inside Linux does not shrink the Windows disk file until it is compacted."
+}
+
+# Re-check a path right before deleting it; prints why it was skipped.
+cleanup_still_safe() {
+    local path="$1" label="$2"
+    [ -e "$path" ] || return 1
+    case "$label" in
+        "Claude Code versions"*|"Playwright browser builds"*) return 0 ;;
+    esac
+    if recently_used "$path" || in_use_by_process "$path" || holds_work "$path"; then
+        echo "  Skipped $path: changed since the preview"
+        return 1
+    fi
+}
+
+cmd_cleanup() {
+    cleanup_collect
+    cleanup_preview
+    if [ "${1:-}" != "--apply" ]; then
+        echo ""
+        echo "Nothing was deleted. To choose what to delete, run: ai-docker cleanup --apply"
+        return 0
+    fi
+
+    local i answer prompt freed_kb=0 path
+    echo ""
+    for i in "${!G_LABEL[@]}"; do
+        if [ "${G_DEFAULT[$i]}" = y ]; then prompt="[Y/n]"; else prompt="[y/N]"; fi
+        printf 'Delete %s (%s)? %s ' "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")" "$prompt"
+        answer=""
+        read -r answer || true
+        echo ""
+        answer=${answer:-${G_DEFAULT[$i]}}
+        case "$answer" in [Yy]*) ;; *) continue ;; esac
+
+        if [ "${G_KIND[$i]}" = cmd ]; then
+            if ${G_CMD[$i]} >/dev/null 2>&1; then
+                freed_kb=$((freed_kb + G_KB[i]))
+            else
+                echo "  Could not clear ${G_LABEL[$i]}"
+            fi
+            continue
+        fi
+        while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            cleanup_still_safe "$path" "${G_LABEL[$i]}" || continue
+            local kb
+            kb=$(kb_of "$path")
+            rm -rf -- "$path" && freed_kb=$((freed_kb + kb))
+        done <<< "${G_ITEMS[$i]}"
+    done
+    echo "Freed about $(kb_phrase "$freed_kb") inside the container (estimated)."
+    echo "To return the space to Windows, the Docker disk file must be compacted (see docs/CLI_TOOLS_GUIDE.md)."
+}
+
 usage() {
     cat <<'EOF'
 Usage: ai-docker <command>
@@ -425,6 +616,8 @@ Commands:
   doctor               Network, DNS, TLS and login diagnostics
   rescue-scan          List work a rebuild/uninstall would delete
   rescue-scan --copy   Copy that work into the workspace (verified)
+  cleanup              Preview disposable data that can be removed
+  cleanup --apply      Choose, group by group, what to delete
   help                 Show this help
 EOF
 }
@@ -438,6 +631,9 @@ case "${1:-help}" in
         ;;
     rescue-scan)
         cmd_rescue_scan "${2:-}"
+        ;;
+    cleanup)
+        cmd_cleanup "${2:-}"
         ;;
     help|--help|-h)
         usage
