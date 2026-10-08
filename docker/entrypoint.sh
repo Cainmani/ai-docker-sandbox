@@ -153,11 +153,13 @@ cleanup_credentials
 
 # Give user ownership of workspace.
 # /workspace is typically a bind mount of a Windows folder (e.g. C:\AI_Work), where every file
-# operation is a Windows<->WSL round trip and ownership is dictated by Docker's mount options,
-# not per-file inodes. A blocking recursive chown over a large workspace stalled here for 15+
-# minutes, and the CLI tools installer (which runs later in this script) never started. So:
-# chown the mount point synchronously, skip the recursion when chown has no effect (Windows-
-# backed mount), and otherwise run it in the background so startup never blocks on it.
+# operation is a Windows<->WSL round trip. A blocking recursive chown over a large workspace
+# stalled here for 15+ minutes, and the CLI tools installer (which runs later in this script)
+# never started. So: chown the mount point synchronously, skip the recursion when chown has no
+# effect (ownership dictated by mount options), and otherwise repair in the background so
+# startup never blocks on it. Docker Desktop mounts drvfs with `metadata`, so chown does stick
+# and the repair runs every start; fix_workspace_ownership only touches mismatched entries
+# (e.g. files created from Windows, which appear as root:root) instead of rewriting them all.
 entrypoint_log "INFO" "Setting ownership of /workspace to $USER_NAME"
 if ! chown "$USER_NAME:$USER_NAME" /workspace 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
     entrypoint_log "WARN" "Could not change ownership of /workspace (may not exist or permission denied)"
@@ -165,10 +167,14 @@ elif [ "$(stat -c %U /workspace 2>/dev/null)" != "$USER_NAME" ]; then
     entrypoint_log "INFO" "/workspace ownership is controlled by the host mount - skipping recursive chown"
 else
     (
-        chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
-        entrypoint_log "INFO" "Background recursive chown of /workspace finished"
+        if type fix_workspace_ownership >/dev/null 2>&1; then
+            fix_workspace_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
+        else
+            chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
+        fi
+        entrypoint_log "INFO" "Background ownership repair of /workspace finished"
     ) &
-    entrypoint_log "INFO" "Recursive chown of /workspace continuing in background"
+    entrypoint_log "INFO" "Ownership repair of /workspace continuing in background"
 fi
 
 # CRITICAL: Ensure user's home directory has correct ownership

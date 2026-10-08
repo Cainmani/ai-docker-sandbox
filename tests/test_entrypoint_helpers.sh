@@ -216,5 +216,35 @@ env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
 sleep 3
 assert_false "startup update can be disabled" test -e "$update_marker"
 
+# fix_workspace_ownership chowns only mismatched entries and skips pruned dirs.
+# A stub chown records its arguments instead of changing anything.
+ws="$TMP_DIR/ws"
+mkdir -p "$ws/repo/src" "$ws/repo/node_modules/pkg" "$ws/app/.venv/lib"
+touch "$ws/repo/src/main.py" "$ws/repo/node_modules/pkg/index.js" "$ws/app/.venv/lib/site.py"
+chown_bin="$TMP_DIR/chown-bin"
+chown_log="$TMP_DIR/chown.log"
+mkdir -p "$chown_bin"
+cat > "$chown_bin/chown" <<SCRIPT
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$chown_log"
+SCRIPT
+chmod +x "$chown_bin/chown"
+me=$(id -un)
+my_group=$(id -gn)
+if [ "$me" = root ]; then other_user=nobody; else other_user=root; fi
+
+: > "$chown_log"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_workspace_ownership '$ws' '$me' '$my_group'"
+assert_false "no chown when everything is already owned" test -s "$chown_log"
+
+: > "$chown_log"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_workspace_ownership '$ws' '$other_user' '$my_group'"
+assert_true "chowns mismatched files" grep -Fxq "$ws/repo/src/main.py" "$chown_log"
+assert_true "chowns mismatched directories" grep -Fxq "$ws/repo" "$chown_log"
+assert_true "passes target owner" grep -Fxq "$other_user:$my_group" "$chown_log"
+assert_false "skips node_modules contents" grep -Fq "node_modules" "$chown_log"
+assert_false "skips virtualenv contents" grep -Fq ".venv" "$chown_log"
+assert_false "does not chown the mount point itself" grep -Fxq "$ws" "$chown_log"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
