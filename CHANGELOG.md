@@ -14,6 +14,7 @@ Container rebuild/recreate required for the updater fixes to take effect.
 - **Pinned npm packages are no longer updated and then rolled back.** The AI routers in `~/.npm-pinned-tools` are now excluded from `npm update -g` instead of being moved to the latest version and restored afterwards. (#87)
 
 ### Added
+- **Missed updates catch up on the next start.** The weekly cron entry only fired if the container was running at 02:00 on Sunday, so machines switched off overnight never updated (one install had gone ~10 weeks without an update). The updater now also runs in the background after every start; its 7-day gate decides whether anything happens, and it never delays startup. Opt out with `AI_DOCKER_STARTUP_UPDATE=0`. (#88)
 - **Durable update status** in `~/.ai-docker/update-status`: last attempt, last successful check, last successful update, and which stages failed — so "checked" is never confused with "updated", and a failed run never erases the last good one. (#87)
 - **Before/after version snapshots and a post-update health check**: if a tool that ran before an update no longer runs afterwards, the update is reported as failed and names the tool. (#87)
 - **Update lock**: only one update runs at a time; a second invocation (cron, startup or manual) backs off cleanly. (#87)

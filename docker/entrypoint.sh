@@ -486,5 +486,12 @@ printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$install_state" > "$READY_TMP"
 mv "$READY_TMP" "$READY_FILE"
 entrypoint_log "INFO" "Entrypoint initialization complete (install status: $install_state)"
 
+# Catch up on missed updates: the weekly cron only fires if the container is
+# running at that minute. Detached and after the readiness marker, so it never
+# delays startup; the updater's own 7-day gate and lock decide whether it runs.
+if type start_background_update >/dev/null 2>&1; then
+  start_background_update "$USER_NAME" "${AI_DOCKER_STARTUP_UPDATE:-1}" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+fi
+
 # Keep container running
 exec sleep infinity

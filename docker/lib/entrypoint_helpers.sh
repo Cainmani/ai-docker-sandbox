@@ -296,6 +296,29 @@ setup_auto_update_cron() {
     return 1
 }
 
+# start_background_update <user> <enabled>
+# The weekly cron entry only fires if the container happens to be running at
+# that minute, which machines switched off overnight never are. So after every
+# start, hand the updater to a detached process: its own 7-day gate decides
+# whether anything runs, and its lock keeps it from overlapping cron or a manual
+# run. Called after the readiness marker so startup time is unaffected.
+# <enabled>=0 (AI_DOCKER_STARTUP_UPDATE=0) turns it off, e.g. for CI smoke runs.
+start_background_update() {
+    local user="$1" enabled="${2:-1}"
+    local updater="${AUTO_UPDATE_BIN:-/usr/local/bin/auto_update.sh}"
+
+    if [ "$enabled" = "0" ]; then
+        eh_log "INFO" "Startup update check disabled (AI_DOCKER_STARTUP_UPDATE=0)"
+        return 0
+    fi
+    if su_preserving_env "$user" "setsid -f '$updater' >/dev/null 2>&1 < /dev/null"; then
+        eh_log "INFO" "Started background update check (runs only if the last check is 7+ days old)"
+    else
+        eh_log "WARN" "Could not start the background update check - run update-container-tools manually"
+    fi
+    return 0
+}
+
 # ensure_cron_daemon_running
 # Starts cron only when needed and verifies that it remains alive. Failure is
 # returned to the caller so entrypoint policy can keep it non-fatal.

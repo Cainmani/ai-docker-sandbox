@@ -33,6 +33,9 @@ services:
       # Set ENABLE_MOBILE_ACCESS=1 AND include docker-compose.mobile.yml to enable
       # remote access from mobile devices (the override file publishes the ports)
       ENABLE_MOBILE_ACCESS: ${ENABLE_MOBILE_ACCESS:-0}
+      # Run the tool updater in the background after each start (it still
+      # only acts when the last check is 7+ days old). 0 disables it.
+      AI_DOCKER_STARTUP_UPDATE: ${AI_DOCKER_STARTUP_UPDATE:-1}
       SSH_PORT: ${SSH_PORT:-2222}
       MOSH_PORT_START: ${MOSH_PORT_START:-60001}
       MOSH_PORT_END: ${MOSH_PORT_END:-60005}

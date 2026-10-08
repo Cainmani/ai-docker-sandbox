@@ -154,7 +154,9 @@ update-container-tools
 
 ### Update Schedule
 
-- Automatic checks: Weekly (Sunday 2 AM)
+- Automatic checks: every container start (in the background, only if the last check is 7+ days old), plus a weekly cron run (Sunday 2 AM) for containers that stay up
+- Missed a week because the PC was off? The next start catches up; it never delays startup. Set `AI_DOCKER_STARTUP_UPDATE=0` in `docker/.env` to turn the startup check off.
+- Results: `~/.ai-docker/update-status` records the last attempt, last successful check and update, and any failed stage
 - Update types:
   - npm packages (Gemini CLI, Codex CLI, Vibe Kanban)
   - Python packages (OpenAI SDK)
