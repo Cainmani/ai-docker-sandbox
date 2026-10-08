@@ -339,5 +339,33 @@ assert_eq "interrupted run is visible" "running" "$(status_get RESULT)"
 assert_contains "interrupted run records its attempt time" "$(status_get LAST_ATTEMPT)" "$(date +%Y-%m-%d)"
 assert_eq "interrupted run keeps the last good check" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
 
+# Second review 6: real npm reports an unreachable registry as exit 1 with no
+# output - the same exit code as "updates available". That is a failed check.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=up_to_date\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=''
+run_updater --force
+assert_eq "npm exit 1 with no output fails the run" 1 "$RUN_RC"
+assert_eq "npm exit 1 with no output is a failed check" "check_failed" "$(status_get RESULT)"
+assert_contains "npm check stage recorded" "$(status_get FAILED_STAGES)" "check-npm"
+assert_eq "failed npm check keeps the last good check time" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
+[ ! -e "$HOME/.last_update_check" ] && pass "failed check does not postpone the next attempt" || fail "failed check does not postpone the next attempt"
+
+# Second review 9: a failed check stage must not advance "last successful check",
+# even when other updates were applied.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=updated\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=2026-01-01T00:00:00+00:00\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_APT_UPDATE_RC=1
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "partial check is a failed run" "failed" "$(status_get RESULT)"
+assert_eq "failed check stage keeps the previous successful check time" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

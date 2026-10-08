@@ -83,6 +83,13 @@ update_log() {
     echo -e "$msg"
 }
 
+# check_succeeded: this run performed an update check and no check stage failed.
+check_succeeded() {
+    [ "${CHECK_RAN:-0}" = 1 ] || return 1
+    case " $FAILED_STAGES " in *" check"*) return 1 ;; esac
+    return 0
+}
+
 record_failure() {
     case " $FAILED_STAGES " in
         *" $1 "*) ;;
@@ -107,9 +114,12 @@ write_update_status() {
     now=$(date -Iseconds)
     last_check_ok=$(status_value LAST_CHECK_OK)
     last_update_ok=$(status_value LAST_UPDATE_OK)
+    # A successful check is one that ran (CHECK_RAN=1) with no check stage
+    # failing; a failed run only advances LAST_CHECK_OK in that case.
     case "$result" in
-        up_to_date|failed) last_check_ok=$now ;;
-        updated) last_check_ok=$now; last_update_ok=$now ;;
+        up_to_date) last_check_ok=$now ;;
+        updated) last_update_ok=$now; check_succeeded && last_check_ok=$now ;;
+        failed) check_succeeded && last_check_ok=$now ;;
     esac
     mkdir -p "$STATE_DIR"
     tmp="${STATUS_FILE}.tmp.$$"
@@ -209,8 +219,10 @@ check_updates() {
             update_log "  - $line"
         done
         updates_available=0
-    elif [ "$npm_check_rc" -gt 1 ]; then
-        update_log "${RED}[ERROR]${NC} npm update check failed (exit code: $npm_check_rc)"
+    elif [ "$npm_check_rc" -ne 0 ]; then
+        # Exit 1 means "outdated packages" only when npm actually lists some:
+        # an unreachable registry is also exit 1, with no output at all.
+        update_log "${RED}[ERROR]${NC} npm update check failed (exit code: $npm_check_rc, no packages listed)"
         check_failed=1
         record_failure check-npm
     fi
@@ -506,6 +518,7 @@ run_auto_update() {
     local run_result=0 status_result
     check_updates
     local check_rc=$?
+    CHECK_RAN=1
     if [ "$check_rc" -eq 0 ]; then
         # A check stage that failed (e.g. apt) is not erased by a successful apply.
         if apply_updates && [ -z "$FAILED_STAGES" ]; then
