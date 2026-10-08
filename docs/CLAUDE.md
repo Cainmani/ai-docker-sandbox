@@ -234,17 +234,19 @@ Scripts are mounted read-only. Only for local development.
 
 ## Git Configuration
 
-### Author Email (IMPORTANT)
+### Author Identity (IMPORTANT)
 
-Commits must use the personal GitHub noreply email so they're attributed to the correct account:
+Commits are authored by the maintainer making the change, never by a former contributor or the org account. Set the identity per clone and check it before committing:
 
 ```
-git config user.email "100510814+CaideSpries@users.noreply.github.com"
+git config user.name "Mike Niszl"
+git config user.email "mniszl@cainmani.com"
+git config user.email   # verify before the first commit in a fresh clone
 ```
 
-A pre-commit hook in `.git/hooks/pre-commit` enforces this — commits will be rejected if the email is wrong. If you clone fresh, the hook needs to be recreated (git hooks aren't tracked).
+Agents must not copy an author identity from older commits or from this file's history. If the configured identity is not the person you are working for, stop and ask.
 
-**Why:** The old email `Cainmani@users.noreply.github.com` attributes commits to the org account, not the personal GitHub profile.
+**Why:** Commits were previously attributed to a contributor who has since left, because an earlier version of this section hard-coded their address.
 
 ---
 
