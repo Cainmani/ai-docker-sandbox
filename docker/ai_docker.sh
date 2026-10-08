@@ -520,9 +520,12 @@ cmd_rescue_scan() {
 
 # --- cleanup --------------------------------------------------------------------
 #
-# Conservative removal of disposable data. Tool caches with reliable recreation
-# are suggested; anything that could hold work is opt-in; anything rescue-scan
-# would flag is never offered. Every item is re-checked right before deletion.
+# Conservative removal of disposable data. Only tool-managed data with reliable
+# recreation can be deleted: download caches and old Claude Code versions are
+# suggested, older Playwright builds are opt-in. Clones, temporary virtualenvs
+# and dependency folders in agent scratch are REPORT ONLY in this release -
+# shown with paths and sizes, never deleted by cleanup - because no check can
+# prove they hold nothing unique. Every deletion is re-checked for active use.
 
 CLEANUP_AGE_DAYS="${AI_DOCKER_CLEANUP_AGE_DAYS:-3}"
 
@@ -533,21 +536,18 @@ recently_used() {
     [ -n "$(find "$1" -name .git -prune -o ! -type d -newermt "-$CLEANUP_AGE_DAYS days" -print -quit 2>/dev/null)" ]
 }
 
-# in_use_by_process <dir>: some process has its working directory inside it.
+# in_use_by_process <path>: a running process uses it - its executable is
+# <path> or inside it, or its working directory is inside it.
 in_use_by_process() {
-    local proc cwd
+    local proc link
     for proc in /proc/[0-9]*; do
-        cwd=$(readlink "$proc/cwd" 2>/dev/null) || continue
-        case "$cwd/" in "$1"/*) return 0 ;; esac
+        for link in exe cwd; do
+            link=$(readlink "$proc/$link" 2>/dev/null) || continue
+            link=${link% (deleted)}
+            case "$link/" in "$1"/*) return 0 ;; esac
+        done
     done
     return 1
-}
-
-# holds_work <dir>: anything rescue-scan would list there (same rules: files
-# in a clean, pushed repo or in a virtualenv do not count).
-holds_work() {
-    rescue_collect_roots "$1"
-    [ "${#RESCUE_PATHS[@]}" -gt 0 ]
 }
 
 kb_of() { du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
@@ -570,16 +570,8 @@ rebuildable_dirs_in() {
     } | sort -u | awk 'NR == 1 || index($0, prev "/") != 1 { print; prev = $0 }'
 }
 
-# scratch_session_of <path>: the agent scratch folder (two levels below
-# claude-<uid>) that contains <path>.
-scratch_session_of() {
-    local base rel
-    base="$TMP_ROOT/claude-$(id -u)"
-    rel=${1#"$base"/}
-    echo "$base/$(printf '%s' "$rel" | cut -d/ -f1-2)"
-}
-
-# Groups: parallel arrays. KIND is "cmd" (run CMD) or "paths" (delete ITEMS).
+# Groups: parallel arrays. KIND is "cmd" (run CMD), "paths" (delete ITEMS after
+# confirmation) or "report" (list ITEMS with sizes; never deleted).
 cleanup_add_group() {
     G_LABEL+=("$1"); G_DEFAULT+=("$2"); G_KIND+=("$3"); G_CMD+=("$4"); G_ITEMS+=("$5"); G_KB+=("$6")
 }
@@ -598,9 +590,12 @@ cleanup_collect() {
     if [ -d "$dir" ]; then
         current=$(readlink -f "$(command -v claude 2>/dev/null)" 2>/dev/null || true)
         current=${current#"$dir"/}; current=${current%%/*}
-        prev=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -vxF -- "$current" | sort -V | tail -n1)
-        items=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -vxF -e "$current" -e "${prev:-/}" | sed "s|^|$dir/|")
-        [ -n "$items" ] && cleanup_add_group "Claude Code versions ($(printf '%s\n' "$items" | wc -l) old)" y paths "" "$items" "$(kb_of_list "$items")"
+        # The native installer keeps each version as one executable file
+        # (older layouts used a folder); accept both.
+        prev=$(find "$dir" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) -printf '%f\n' | grep -vxF -- "$current" | sort -V | tail -n1)
+        items=$(find "$dir" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) -printf '%f\n' | grep -vxF -e "$current" -e "${prev:-/}" | sed "s|^|$dir/|")
+        [ -n "$items" ] && [ -n "$current" ] && \
+            cleanup_add_group "Claude Code versions ($(printf '%s\n' "$items" | wc -l) old; current and fallback kept)" y paths "" "$items" "$(kb_of_list "$items")"
     fi
 
     # Playwright: keep the newest build of each browser; a project may pin an
@@ -629,7 +624,7 @@ cleanup_collect() {
         items+=$(rebuildable_dirs_in "$session")$'\n'
     done < <(find "$TMP_ROOT/claude-$(id -u)" -mindepth 2 -maxdepth 2 -type d ! -name bundled-skills 2>/dev/null)
     items=$(printf '%s' "$items" | sed '/^$/d')
-    [ -n "$items" ] && cleanup_add_group "Rebuildable folders in agent scratch ($(printf '%s\n' "$items" | wc -l), unused ${CLEANUP_AGE_DAYS}+ days)" n paths "" "$items" "$(kb_of_list "$items")"
+    [ -n "$items" ] && cleanup_add_group "Dependency folders in agent scratch ($(printf '%s\n' "$items" | wc -l), unused ${CLEANUP_AGE_DAYS}+ days)" n report "" "$items" "$(kb_of_list "$items")"
 
     # Temporary virtualenvs (a pyvenv.cfg marks one), wherever they sit in /tmp.
     items=""
@@ -640,7 +635,7 @@ cleanup_collect() {
         items+="$path"$'\n'
     done < <(find "$TMP_ROOT" -mindepth 2 -maxdepth 5 -path "$TMP_ROOT/claude-*" -prune -o -name pyvenv.cfg -print 2>/dev/null)
     items=$(printf '%s' "$items" | sed '/^$/d')
-    [ -n "$items" ] && cleanup_add_group "Temporary virtualenvs ($(printf '%s\n' "$items" | wc -l))" n paths "" "$items" "$(kb_of_list "$items")"
+    [ -n "$items" ] && cleanup_add_group "Temporary virtualenvs ($(printf '%s\n' "$items" | wc -l))" n report "" "$items" "$(kb_of_list "$items")"
 
     # Clones in ~/src that are clean, stash-free and fully pushed.
     items=""
@@ -652,44 +647,50 @@ cleanup_collect() {
         items+="$path"$'\n'
     done < <(find "$HOME/src" -mindepth 2 -maxdepth 2 -name .git 2>/dev/null)
     items=$(printf '%s' "$items" | sed '/^$/d')
-    [ -n "$items" ] && cleanup_add_group "Clean, pushed clones in ~/src ($(printf '%s\n' "$items" | wc -l))" n paths "" "$items" "$(kb_of_list "$items")"
+    [ -n "$items" ] && cleanup_add_group "Clones in ~/src with nothing unpushed ($(printf '%s\n' "$items" | wc -l))" n report "" "$items" "$(kb_of_list "$items")"
 }
 
 cleanup_preview() {
-    local i mark
+    local i mark path shown deletable=0 reported=0
     echo "Cleanup - estimated sizes"
     echo ""
     for i in "${!G_LABEL[@]}"; do
+        [ "${G_KIND[$i]}" != report ] || continue
+        deletable=1
         if [ "${G_DEFAULT[$i]}" = y ]; then mark="[x]"; else mark="[ ]"; fi
-        printf '  %s %-52s %s\n' "$mark" "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")"
+        printf '  %s %-58s %s\n' "$mark" "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")"
     done
-    [ "${#G_LABEL[@]}" -gt 0 ] || echo "  Nothing disposable found."
-    echo ""
-    echo "  Note: agent scratch folders themselves are never deleted - only rebuildable folders inside old ones."
+    [ "$deletable" -eq 1 ] || echo "  Nothing that cleanup can delete was found."
+
+    for i in "${!G_LABEL[@]}"; do
+        [ "${G_KIND[$i]}" = report ] || continue
+        if [ "$reported" -eq 0 ]; then
+            echo ""
+            echo "Report only - cleanup never deletes these (check them and remove by hand if you are sure):"
+            reported=1
+        fi
+        printf '  %-62s %s\n' "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")"
+        shown=0
+        while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            shown=$((shown + 1))
+            if [ "$shown" -gt 15 ]; then
+                echo "      ... and $(( $(printf '%s\n' "${G_ITEMS[$i]}" | sed '/^$/d' | wc -l) - 15 )) more"
+                break
+            fi
+            printf '      %-56s %s\n' "$path" "$(kb_phrase "$(kb_of "$path")")"
+        done <<< "${G_ITEMS[$i]}"
+    done
     echo ""
     echo "[x] = suggested. Freeing space inside Linux does not shrink the Windows disk file until it is compacted."
 }
 
 # Re-check a path right before deleting it; prints why it was skipped.
 cleanup_still_safe() {
-    local path="$1" label="$2"
+    local path="$1"
     [ -e "$path" ] || return 1
-    case "$label" in
-        "Claude Code versions"*|"Playwright browser builds"*) return 0 ;;
-        "Rebuildable folders in agent scratch"*)
-            # Rebuildable by definition; what matters is whether the scratch
-            # folder around it has been used since the preview.
-            local session
-            session=$(scratch_session_of "$path")
-            if recently_used "$session" || in_use_by_process "$session"; then
-                echo "  Skipped $path: changed since the preview"
-                return 1
-            fi
-            return 0
-            ;;
-    esac
-    if recently_used "$path" || in_use_by_process "$path" || holds_work "$path"; then
-        echo "  Skipped $path: changed since the preview"
+    if in_use_by_process "$path"; then
+        echo "  Skipped $path: in use by a running process"
         return 1
     fi
 }
@@ -706,6 +707,7 @@ cmd_cleanup() {
     local i answer prompt freed_kb=0 path
     echo ""
     for i in "${!G_LABEL[@]}"; do
+        [ "${G_KIND[$i]}" != report ] || continue
         if [ "${G_DEFAULT[$i]}" = y ]; then prompt="[Y/n]"; else prompt="[y/N]"; fi
         printf 'Delete %s (%s)? %s ' "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")" "$prompt"
         answer=""
@@ -729,7 +731,7 @@ cmd_cleanup() {
         fi
         while IFS= read -r path; do
             [ -n "$path" ] || continue
-            cleanup_still_safe "$path" "${G_LABEL[$i]}" || continue
+            cleanup_still_safe "$path" || continue
             local kb
             kb=$(kb_of "$path")
             rm -rf -- "$path" && freed_kb=$((freed_kb + kb))

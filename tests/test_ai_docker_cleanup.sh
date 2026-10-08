@@ -56,11 +56,14 @@ echo "pip3 $*" >> "$FAKE_LOG"
 exit 0
 SCRIPT
 
-    # Claude Code versions: 2.1.3 is current (claude points at it).
+    # Claude Code versions, native layout: each version is one executable FILE
+    # (review regression: the old fixture used folders, which real installs
+    # never have). 2.1.3 is current (claude points at it).
+    mkdir -p "$HOME/.local/share/claude/versions"
     for v in 2.1.1 2.1.2 2.1.3; do
-        mkdir -p "$HOME/.local/share/claude/versions/$v"; head -c 2048 /dev/zero > "$HOME/.local/share/claude/versions/$v/bin"
+        head -c 2048 /dev/zero > "$HOME/.local/share/claude/versions/$v"; chmod +x "$HOME/.local/share/claude/versions/$v"
     done
-    ln -s "$HOME/.local/share/claude/versions/2.1.3/bin" "$CASE_DIR/bin/claude"
+    ln -s "$HOME/.local/share/claude/versions/2.1.3" "$CASE_DIR/bin/claude"
 
     # Playwright: older build is offered but not pre-selected.
     mkdir -p "$HOME/.cache/ms-playwright/chromium-1208" "$HOME/.cache/ms-playwright/chromium-1234"
@@ -116,19 +119,19 @@ assert_contains "preview lists the npm cache" "$RUN_OUTPUT" "npm download cache"
 assert_contains "caches are pre-selected" "$RUN_OUTPUT" "[x] npm download cache"
 assert_contains "old Claude Code versions are pre-selected" "$RUN_OUTPUT" "[x] Claude Code versions"
 assert_contains "Playwright builds are offered unticked" "$RUN_OUTPUT" "[ ] Playwright browser builds"
-assert_contains "rebuildable folders in scratch are offered unticked" "$RUN_OUTPUT" "[ ] Rebuildable folders in agent scratch"
-assert_contains "temp virtualenvs are offered unticked" "$RUN_OUTPUT" "[ ] Temporary virtualenvs"
-assert_contains "pushed clones are offered unticked" "$RUN_OUTPUT" "[ ] Clean, pushed clones in ~/src"
+assert_contains "report-only section is shown" "$RUN_OUTPUT" "Report only - cleanup never deletes these"
+assert_contains "scratch dependency folders are reported with paths" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
+assert_contains "temp virtualenvs are reported with paths" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/oldvenv"
+assert_contains "pushed clones are reported with paths" "$RUN_OUTPUT" "$HOME/src/clean-old"
 assert_contains "sizes are estimates" "$RUN_OUTPUT" "estimated"
 assert_contains "compaction caveat is stated" "$RUN_OUTPUT" "does not shrink the Windows disk file"
-assert_contains "scratch folders themselves are never offered" "$RUN_OUTPUT" "agent scratch folders themselves are never deleted"
 assert_contains "preview says how to apply" "$RUN_OUTPUT" "ai-docker cleanup --apply"
 assert_exists "preview removes nothing" "$HOME/.npm/_cacache/blob"
 if grep -q 'cache' "$FAKE_LOG"; then fail "preview runs no cache command"; else pass "preview runs no cache command"; fi
 
 # --- apply with all defaults: only pre-selected groups ------------------------
 setup_case
-run_cleanup "\n\n\n\n\n\n\n\n" --apply
+run_cleanup "\n\n\n\n" --apply
 assert_eq "apply with defaults exits 0" 0 "$RUN_RC"
 assert_contains "npm cache cleared through npm" "$(cat "$FAKE_LOG")" "npm cache clean --force"
 assert_exists "npx cache used by MCP servers is kept" "$HOME/.npm/_npx/keep"
@@ -137,45 +140,37 @@ assert_gone "oldest Claude Code version removed" "$HOME/.local/share/claude/vers
 assert_exists "previous Claude Code version kept" "$HOME/.local/share/claude/versions/2.1.2"
 assert_exists "current Claude Code version kept" "$HOME/.local/share/claude/versions/2.1.3"
 assert_exists "unticked Playwright build kept" "$HOME/.cache/ms-playwright/chromium-1208"
-assert_exists "unticked scratch venv kept" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
-assert_exists "unticked venv kept" "$AI_DOCKER_TMP_DIR/oldvenv"
-assert_exists "unticked clone kept" "$HOME/src/clean-old"
 assert_contains "freed space is reported as an estimate" "$RUN_OUTPUT" "Freed about"
 
-# --- opting in to every group ----------------------------------------------------
+# --- answering yes to everything: report-only groups still survive --------
 setup_case
-run_cleanup "y\ny\ny\ny\ny\ny\ny\ny\n" --apply
+run_cleanup "y\ny\ny\ny\ny\ny\ny\ny\ny\ny\n" --apply
 assert_gone "opted-in Playwright build removed" "$HOME/.cache/ms-playwright/chromium-1208"
 assert_exists "newest Playwright build kept" "$HOME/.cache/ms-playwright/chromium-1234"
-assert_gone "opted-in virtualenv inside old scratch removed" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
-assert_gone "opted-in node_modules inside old scratch removed" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/web/node_modules"
-assert_exists "source file in old scratch is never deleted" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/analysis.py"
-assert_exists "recently used scratch is left alone" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/recent-session/scratchpad/.venv"
-assert_exists "scratch holding a document never offered" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-with-work/scratchpad/handoff.pdf"
-assert_gone "opted-in temp venv removed" "$AI_DOCKER_TMP_DIR/oldvenv"
-assert_gone "opted-in pushed clone removed" "$HOME/src/clean-old"
-assert_exists "dirty clone never offered" "$HOME/src/dirty/f"
-assert_exists "clone with an unpushed side branch never offered" "$HOME/src/sidebranch/.git"
+assert_exists "scratch virtualenv survives --apply (report only)" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv/lib/blob"
+assert_exists "scratch node_modules survives --apply (report only)" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/web/node_modules/pkg/index.js"
+assert_exists "temp virtualenv survives --apply (report only)" "$AI_DOCKER_TMP_DIR/oldvenv/pyvenv.cfg"
+assert_exists "pushed clone survives --apply (report only)" "$HOME/src/clean-old/f"
+assert_exists "source file in old scratch survives" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/analysis.py"
+assert_exists "dirty clone survives" "$HOME/src/dirty/f"
+if printf '%s\n' "$RUN_OUTPUT" | grep -Eq 'Delete (Clean, pushed|Temporary virtualenvs|Rebuildable folders)'; then
+    fail "report-only groups are never offered for deletion"
+else
+    pass "report-only groups are never offered for deletion"
+fi
 
-# --- re-check right before deleting ------------------------------------------------
-# Something written into an offered item after the preview makes it "in use".
+# --- active use is checked right before deleting ---------------------------------
+# Review regression: an old Claude Code version that is still running (a long
+# session started before an update) must not be deleted.
 setup_case
-fifo="$CASE_DIR/answers"; mkfifo "$fifo"
-out="$CASE_DIR/out"
-bash "$ROOT_DIR/docker/ai_docker.sh" cleanup --apply < "$fifo" > "$out" 2>&1 &
-cpid=$!
-exec 7<> "$fifo"
-for _ in $(seq 1 50); do grep -q 'Delete Agent scratch folders' "$out" 2>/dev/null && break; sleep 0.2; done
-# Answer the groups before scratch with defaults, then touch the scratch item, then opt in.
-printf '\n\n\n\n' >&7
-sleep 0.5
-: > "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/new-output.md"
-printf 'y\n\n\n\n' >&7
-exec 7>&-
-wait "$cpid"
-assert_exists "item changed after the preview is skipped" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/new-output.md"
-assert_contains "skip is reported" "$(cat "$out")" "changed since the preview"
-assert_exists "item in a scratch folder used after the preview is kept" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
+cp /bin/sleep "$HOME/.local/share/claude/versions/2.1.1"
+"$HOME/.local/share/claude/versions/2.1.1" 30 &
+running=$!
+sleep 0.3
+run_cleanup "\ny\ny\n\n" --apply
+kill "$running" 2>/dev/null || true; wait "$running" 2>/dev/null || true
+assert_exists "running old Claude Code version is not deleted" "$HOME/.local/share/claude/versions/2.1.1"
+assert_contains "in-use skip is reported" "$RUN_OUTPUT" "in use"
 
 # Review regression: closed input must never count as a yes.
 setup_case
