@@ -5,6 +5,19 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Container rebuild/recreate required for the updater fixes to take effect.
+
+### Fixed
+- **Python packages are actually updated.** The updater listed outdated pip packages with `pip3 list --outdated --format=freeze`, a combination pip rejects; the error was discarded and the run reported "All Python packages are up to date", so user pip packages (including `openai`) were never upgraded. It now lists them as JSON, and a listing failure is reported as an error. (#87)
+- **Pinned npm packages are no longer updated and then rolled back.** The AI routers in `~/.npm-pinned-tools` are now excluded from `npm update -g` instead of being moved to the latest version and restored afterwards. (#87)
+
+### Added
+- **Durable update status** in `~/.ai-docker/update-status`: last attempt, last successful check, last successful update, and which stages failed — so "checked" is never confused with "updated", and a failed run never erases the last good one. (#87)
+- **Before/after version snapshots and a post-update health check**: if a tool that ran before an update no longer runs afterwards, the update is reported as failed and names the tool. (#87)
+- **Update lock**: only one update runs at a time; a second invocation (cron, startup or manual) backs off cleanly. (#87)
+
 ## [1.5.5] - 2026-07-29
 
 Container rebuild/recreate required for the updater fix to take effect.

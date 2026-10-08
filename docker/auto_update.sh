@@ -47,6 +47,17 @@ fi
 UPDATE_CHECK_FILE="${HOME}/.last_update_check"
 UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 
+# Durable update status, read by `ai-docker status` and the login banner.
+# Kept separate from UPDATE_CHECK_FILE (which only gates the weekly interval)
+# so "checked", "updated" and "failed" are never conflated.
+STATE_DIR="${HOME}/.ai-docker"
+STATUS_FILE="${STATE_DIR}/update-status"
+LOCK_FILE="${STATE_DIR}/update.lock"
+# Tools whose --version is snapshotted before and verified after an update.
+VERIFY_TOOLS="claude gh codex gemini opencode"
+# Space-separated stages that failed in this run (check npm npm-pins pip apt verify).
+FAILED_STAGES=""
+
 # Function to log with timestamp
 # Uses the shared logging library if available, otherwise falls back to simple logging
 update_log() {
@@ -70,6 +81,87 @@ update_log() {
     fi
     # Always echo with colors to terminal
     echo -e "$msg"
+}
+
+record_failure() {
+    case " $FAILED_STAGES " in
+        *" $1 "*) ;;
+        *) FAILED_STAGES="${FAILED_STAGES:+$FAILED_STAGES }$1" ;;
+    esac
+}
+
+status_value() {
+    sed -n "s/^$1=//p" "$STATUS_FILE" 2>/dev/null | head -n1
+}
+
+# write_update_status <up_to_date|updated|failed|check_failed>
+#
+# LAST_CHECK_OK / LAST_UPDATE_OK carry forward from the previous record unless
+# this run produced a newer success, so a failure never erases the last good one.
+write_update_status() {
+    local result="$1" now last_check_ok last_update_ok tmp
+    now=$(date -Iseconds)
+    last_check_ok=$(status_value LAST_CHECK_OK)
+    last_update_ok=$(status_value LAST_UPDATE_OK)
+    case "$result" in
+        up_to_date|failed) last_check_ok=$now ;;
+        updated) last_check_ok=$now; last_update_ok=$now ;;
+    esac
+    mkdir -p "$STATE_DIR"
+    tmp="${STATUS_FILE}.tmp.$$"
+    {
+        echo "RESULT=$result"
+        echo "LAST_ATTEMPT=$now"
+        echo "LAST_CHECK_OK=$last_check_ok"
+        echo "LAST_UPDATE_OK=$last_update_ok"
+        echo "FAILED_STAGES=$FAILED_STAGES"
+    } > "$tmp" && mv "$tmp" "$STATUS_FILE"
+}
+
+# Only one updater at a time (startup trigger, cron and manual runs can overlap).
+# A second invocation backs off cleanly rather than racing npm/apt.
+acquire_update_lock() {
+    command -v flock >/dev/null 2>&1 || return 0
+    mkdir -p "$STATE_DIR"
+    exec 9> "$LOCK_FILE"
+    if ! flock -n 9; then
+        update_log "${YELLOW}[INFO]${NC} Another update is already running - skipping this one"
+        exit 0
+    fi
+}
+
+# snapshot_versions <file>: one "tool<TAB>version" line per VERIFY_TOOLS entry,
+# "-" when the tool is missing or fails to run.
+snapshot_versions() {
+    local out="$1" tool version
+    mkdir -p "$STATE_DIR"
+    : > "$out"
+    for tool in $VERIFY_TOOLS; do
+        if command -v "$tool" >/dev/null 2>&1 \
+            && version=$(timeout 30 "$tool" --version 2>/dev/null | head -n1) \
+            && [ -n "$version" ]; then
+            printf '%s\t%s\n' "$tool" "$version" >> "$out"
+        else
+            printf '%s\t-\n' "$tool" >> "$out"
+        fi
+    done
+}
+
+# Compare the before/after snapshots. Returns 1 if a tool that ran before the
+# update no longer runs after it.
+verify_tools() {
+    local tool before after broken=0
+    while IFS=$'\t' read -r tool before; do
+        [ -n "$tool" ] || continue
+        after=$(awk -F'\t' -v t="$tool" '$1 == t { print $2 }' "$STATE_DIR/versions-after")
+        if [ "$before" != "-" ] && [ "$after" = "-" ]; then
+            update_log "${RED}[ERROR]${NC} $tool no longer runs after the update (was: $before)"
+            broken=1
+        elif [ "$before" != "$after" ]; then
+            update_log "  $tool: $before -> $after"
+        fi
+    done < "$STATE_DIR/versions-before"
+    return $broken
 }
 
 # Function to check if update is needed
@@ -202,6 +294,8 @@ apply_updates() {
     update_log "      https://github.com/Cainmani/ai-docker-sandbox/releases/latest"
     update_log ""
 
+    snapshot_versions "$STATE_DIR/versions-before"
+
     # Note: Claude Code uses native installer and auto-updates in the background
     # No manual update needed - just log current version for visibility
     if command -v claude >/dev/null 2>&1; then
@@ -226,17 +320,39 @@ apply_updates() {
     # The sed keeps scoped names intact (e.g. @google/gemini-cli).
     npm_packages_before=$(npm ls -g --depth=0 --parseable 2>/dev/null | tail -n +2 | sed 's|^.*/node_modules/||' || true)
 
-    npm_output=$(npm update -g 2>&1)
-    npm_exit_code=$?
-    if [ $npm_exit_code -eq 0 ]; then
-        echo "$npm_output" | grep -E "added|updated|changed" | while read line; do update_log "  $line"; done
-        if ! echo "$npm_output" | grep -qE "added|updated|changed"; then
-            update_log "  No npm updates applied"
+    # Packages pinned in the manifest (the credential-holding AI routers) change
+    # version only via a release, so they are excluded from the update rather
+    # than updated and then restored. The restore loop below stays as a guard.
+    # Manifest format: one name@version per line (scoped names keep their @scope/).
+    pinned_tools_file="${PINNED_TOOLS_FILE:-$HOME/.npm-pinned-tools}"
+    pinned_names=""
+    if [ -f "$pinned_tools_file" ]; then
+        pinned_names=$(grep -vE '^[[:space:]]*(#|$)' "$pinned_tools_file" | sed 's/@[^@]*$//' || true)
+    fi
+    npm_update_targets=()
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] || continue
+        if ! printf '%s\n' "$pinned_names" | grep -qxF -- "$pkg"; then
+            npm_update_targets+=("$pkg")
         fi
+    done <<< "$npm_packages_before"
+
+    if [ "${#npm_update_targets[@]}" -eq 0 ]; then
+        update_log "  No unpinned global npm packages to update"
     else
-        update_log "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
-        echo "$npm_output" | while read line; do update_log "  $line"; done
-        update_errors=1
+        npm_output=$(npm update -g "${npm_update_targets[@]}" 2>&1)
+        npm_exit_code=$?
+        if [ $npm_exit_code -eq 0 ]; then
+            echo "$npm_output" | grep -E "added|updated|changed" | while read line; do update_log "  $line"; done
+            if ! echo "$npm_output" | grep -qE "added|updated|changed"; then
+                update_log "  No npm updates applied"
+            fi
+        else
+            update_log "${RED}[ERROR]${NC} npm update failed (exit code: $npm_exit_code)"
+            echo "$npm_output" | while read line; do update_log "  $line"; done
+            update_errors=1
+            record_failure npm
+        fi
     fi
 
     # Reinstall any global package that the update removed instead of updating
@@ -262,16 +378,15 @@ apply_updates() {
                 update_log "${RED}[ERROR]${NC} Could not reinstall $pkg - install manually with: npm install -g $pkg"
                 echo "$reinstall_output" | tail -n 20 | while read line; do update_log "  $line"; done
                 update_errors=1
+                record_failure npm
             fi
         fi
     done <<< "$npm_packages_before"
 
-    # Restore pinned tools that the blanket update moved. The AI routers
-    # (9router / OmniRoute) store linked provider credentials, so they change
-    # versions only deliberately via a release that bumps the pins in
-    # install_cli_tools.sh - which writes this manifest (one name@version per
-    # line). Tools not listed there keep updating normally.
-    pinned_tools_file="${PINNED_TOOLS_FILE:-$HOME/.npm-pinned-tools}"
+    # Restore any pinned tool that still moved (e.g. pulled in by another
+    # package). The AI routers (9router / OmniRoute) store linked provider
+    # credentials, so they change versions only deliberately via a release that
+    # bumps the pins - written to this manifest by ai_router_install.
     if [ -f "$pinned_tools_file" ]; then
         while IFS= read -r pin; do
             case "$pin" in ''|'#'*) continue ;; esac
@@ -287,6 +402,7 @@ apply_updates() {
                     update_log "${RED}[ERROR]${NC} Could not restore $pin - install manually with: npm install -g $pin"
                     echo "$pin_output" | tail -n 5 | while read -r line; do update_log "  $line"; done
                     update_errors=1
+                    record_failure npm-pins
                 fi
             fi
         done < "$pinned_tools_file"
@@ -294,8 +410,22 @@ apply_updates() {
 
     # Update ALL user pip packages (dynamic)
     update_log "Updating Python packages..."
-    outdated_packages=$(pip3 list --user --outdated --format=freeze 2>/dev/null | cut -d= -f1 || true)
-    if [ -n "$outdated_packages" ]; then
+    # pip rejects `--outdated` together with `--format=freeze`, so list as JSON.
+    # A listing failure is an error, never "all up to date".
+    outdated_packages=""
+    pip_list_ok=1
+    if pip_json=$(pip3 list --user --outdated --format=json 2>/dev/null) \
+        && outdated_packages=$(printf '%s' "$pip_json" | python3 -c 'import json, sys; print("\n".join(p["name"] for p in json.load(sys.stdin)))' 2>/dev/null); then
+        :
+    else
+        pip_list_ok=0
+        update_log "${RED}[ERROR]${NC} Could not list outdated Python packages - pip packages were not updated"
+        update_errors=1
+        record_failure pip
+    fi
+    if [ "$pip_list_ok" -eq 0 ]; then
+        :
+    elif [ -n "$outdated_packages" ]; then
         pip_output=$(echo "$outdated_packages" | xargs -r pip3 install --user --upgrade 2>&1)
         pip_exit_code=$?
         if [ $pip_exit_code -eq 0 ]; then
@@ -306,6 +436,7 @@ apply_updates() {
             echo "$pip_output" | grep -E "Successfully installed" | while read line; do update_log "  ${GREEN}$line${NC}"; done
             echo "$pip_output" | grep -iE "error|failed|could not" | while read line; do update_log "  ${RED}$line${NC}"; done
             update_errors=1
+            record_failure pip
         fi
     else
         update_log "  All Python packages are up to date"
@@ -321,6 +452,14 @@ apply_updates() {
         update_log "${RED}[ERROR]${NC} apt upgrade failed (exit code: $apt_exit_code)"
         echo "$apt_output" | while read line; do update_log "  $line"; done
         update_errors=1
+        record_failure apt
+    fi
+
+    # Every tool that ran before the update must still run after it.
+    snapshot_versions "$STATE_DIR/versions-after"
+    if ! verify_tools; then
+        update_errors=1
+        record_failure verify
     fi
 
     # Honest summary: no success banner after a partial failure.
@@ -353,17 +492,26 @@ run_auto_update() {
     fi
 
     # Check for updates (0 = available, 1 = up to date, 2 = check failed)
-    local run_result=0
+    local run_result=0 status_result
     check_updates
     local check_rc=$?
     if [ "$check_rc" -eq 0 ]; then
-        apply_updates || run_result=1
+        if apply_updates; then
+            status_result=updated
+        else
+            status_result=failed
+            run_result=1
+        fi
     elif [ "$check_rc" -eq 2 ]; then
         update_log "${RED}[ERROR]${NC} Update check failed - cannot determine whether updates exist. Try again later."
+        record_failure check
+        status_result=check_failed
         run_result=1
     else
         update_log "${GREEN}[INFO]${NC} All tools are up to date"
+        status_result=up_to_date
     fi
+    write_update_status "$status_result"
 
     # Update the check timestamp only on a successful run so a failed check
     # is retried on the next start instead of being snoozed for a week.
@@ -397,6 +545,10 @@ setup_cron() {
 
 # Parse command line arguments
 case "${1:-}" in
+    --check|-c|--apply|-a|--force|-f|'') acquire_update_lock ;;
+esac
+
+case "${1:-}" in
     --check|-c)
         check_updates
         case $? in
@@ -406,7 +558,12 @@ case "${1:-}" in
         esac
         ;;
     --apply|-a)
-        apply_updates
+        if apply_updates; then
+            write_update_status updated
+        else
+            write_update_status failed
+            exit 1
+        fi
         ;;
     --force|-f)
         run_auto_update --force
