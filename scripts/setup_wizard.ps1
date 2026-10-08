@@ -126,6 +126,52 @@ function Show-Info([string]$msg) {
     [System.Windows.Forms.MessageBox]::Show($msg, 'Setup', 'OK', 'Information') | Out-Null
 }
 
+# Before the container is removed or (re)created, make sure nothing outside the
+# folders a rebuild keeps is lost. -Removing skips the recreate prediction (the
+# caller is about to delete the container outright). Returns $true to proceed,
+# $false to stop.
+function Invoke-RebuildRescueGate([string]$dockerFilesPath, [bool]$mobileEnabled, [switch]$Removing) {
+    if (-not $Removing) {
+        $composeFiles = @((Join-Path $dockerFilesPath 'docker-compose.yml'))
+        if ($mobileEnabled) { $composeFiles += (Join-Path $dockerFilesPath 'docker-compose.mobile.yml') }
+        $risk = Test-ContainerRecreateLikely -DockerPath $script:dockerExe -ComposeFiles $composeFiles -ProjectDirectory $dockerFilesPath
+        if (-not $risk.ContainerExists -or -not $risk.Likely) { return $true }
+        Write-Host "[INFO] The container will be recreated ($($risk.Reason)) - checking for work that would be lost" -ForegroundColor Cyan
+    }
+    $scan = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe
+    $decision = Get-RescueDecision -State $scan.State
+    if ($decision -eq 'Proceed') { return $true }
+
+    if ($decision -eq 'Stop') {
+        # Failed, incomplete or unknown: continuing is the user's deliberate override.
+        $answer = [System.Windows.Forms.MessageBox]::Show(
+            "Could not confirm that the rebuild deletes no work (state: $($scan.State)):`n$($scan.Error)`n`nContinue anyway and accept that work in the container may be lost?",
+            'Setup', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+        return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
+    }
+
+    $lines = @($scan.Output -split "`r?`n" | Where-Object { $_ -and $_ -notmatch 'rescue-scan --copy' })
+    if ($lines.Count -gt 25) { $lines = @($lines[0..23]) + "  ... and $($lines.Count - 24) more" }
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        ($lines -join "`n") + "`n`nCopy these into your AI_Work folder (_rescued) before continuing?`n`nYes = copy first (recommended)`nNo = continue and let them be deleted`nCancel = stop setup",
+        'Work outside the preserved folders', [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($answer -eq [System.Windows.Forms.DialogResult]::Cancel) { return $false }
+    if ($answer -eq [System.Windows.Forms.DialogResult]::No) {
+        Write-AppLog "User chose to recreate the container without rescuing work found by the scan" "WARN"
+        return $true
+    }
+
+    $copy = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe -Copy
+    if ($copy.State -ne 'Copied') {
+        Show-Error ("Copying your work into AI_Work failed, so setup stopped before recreating the container. Nothing was deleted.`n`n" + $copy.Output + $copy.Error)
+        return $false
+    }
+    Show-Info ("Copied and verified:`n" + (($copy.Output -split "`r?`n" | Where-Object { $_ -like 'Copied and verified*' }) -join "`n"))
+    return $true
+}
+
 $script:runningProcess = $null
 $script:operationInProgress = $false   # True while a DoEvents-pumped operation runs (blocks re-entrant button clicks)
 $script:cancelRequested = $false       # Set by the Cancel button; polled by the DoEvents runner loops
@@ -141,6 +187,7 @@ function Test-ControlUsable($control) {
 # WSL CONFIGURATION FUNCTIONS (loaded from wsl_config.ps1)
 # ============================================================
 . "$PSScriptRoot\wsl_config.ps1"
+. "$PSScriptRoot\resource_settings.ps1"
 
 function Run-Process-UI([string]$file, [string]$arguments, $progressBar, $statusLabel, [string]$workingDirectory = '') {
     try {
@@ -515,6 +562,7 @@ $state = [ordered]@{
     SystemCores = 0          # Detected cores
     RecommendedProfile = ''  # Recommended profile based on system resources
     ExistingWSLConfig = $null   # Parsed existing config (if any)
+    ContainerResourcesReady = $false
     WSLComparisonMode = $false  # True when showing comparison view
 }
 
@@ -997,11 +1045,14 @@ $p5.Controls.Add((New-Label -text '=============================================
 $script:lblBuildStatus = New-Label 'Preparing to build...' 20 75 880 24 10 $true $true
 $p5.Controls.Add($script:lblBuildStatus)
 
+$script:lblResources = New-Label 'Container limits will be shown here.' 20 100 880 24 9 $false $false
+$p5.Controls.Add($script:lblResources)
+
 # Force rebuild checkbox (unchecked = use cache if image exists)
 $script:chkForceRebuild = New-Object System.Windows.Forms.CheckBox
 $script:chkForceRebuild.Text = "Force rebuild (ignore cached image)"
 $script:chkForceRebuild.Left = 20
-$script:chkForceRebuild.Top = 100
+$script:chkForceRebuild.Top = 130
 $script:chkForceRebuild.Width = 300
 $script:chkForceRebuild.Height = 24
 $script:chkForceRebuild.ForeColor = $script:MatrixGreen
@@ -1013,9 +1064,9 @@ $p5.Controls.Add($script:chkForceRebuild)
 # Terminal display for build output (like Page 5)
 $script:buildTerminalBox = New-Object System.Windows.Forms.RichTextBox
 $script:buildTerminalBox.Left = 20
-$script:buildTerminalBox.Top = 130
+$script:buildTerminalBox.Top = 160
 $script:buildTerminalBox.Width = 880
-$script:buildTerminalBox.Height = 350
+$script:buildTerminalBox.Height = 320
 $script:buildTerminalBox.BackColor = [System.Drawing.Color]::Black
 $script:buildTerminalBox.ForeColor = $script:MatrixGreen
 $script:buildTerminalBox.Font = New-Object System.Drawing.Font('Consolas', 9)
@@ -1140,6 +1191,25 @@ function Show-Page([int]$i) {
 
     $progress.Visible = $true
     $status.Visible = $true
+
+    if ($i -eq 5) {
+        try {
+            $plan = Get-ContainerResourcePlan -Profile $state.WSLProfile -SystemRAMGB $state.SystemRAMGB `
+                -SystemCores $state.SystemCores -WSLConfigPath "$env:USERPROFILE\.wslconfig" -EnvPath $script:envPath
+            if (-not $script:IsDevMode) {
+                Save-ContainerResourceSettings -EnvPath $script:envPath -MemoryBytes $plan.MemoryBytes `
+                    -CpuCount $plan.CpuCount -Custom $plan.Custom
+            }
+            $script:lblResources.Text = "Container limits: $($plan.MemoryGB) GB RAM, $($plan.CpuCount) CPUs ($($plan.Source))."
+            $state.ContainerResourcesReady = $true
+            $btnNext.Enabled = $true
+        } catch {
+            $script:lblResources.Text = 'Resource settings could not be saved. Go Back or retry setup.'
+            $state.ContainerResourcesReady = $false
+            $btnNext.Enabled = $false
+            Show-Error $_.Exception.Message
+        }
+    }
 
     # Page 4 (WSL Config): Toggle between normal mode and comparison mode
     if ($i -eq 4) {
@@ -1447,7 +1517,8 @@ $btnNext.Add_Click({
                 if ($existingConfig.IsOurs) {
                     # Our marker found - skip entirely
                     Write-Host "[INFO] .wslconfig created by this wizard - skipping" -ForegroundColor Cyan
-                    $state.WSLProfile = 'skip'
+                    $state.WSLProfile = 'keep'
+                    $state.ExistingWSLConfig = $existingConfig
                     $state.WSLComparisonMode = $false
                     $script:current += 2  # Skip to Build page (page 5)
                     Show-Page $script:current
@@ -1515,7 +1586,8 @@ $btnNext.Add_Click({
                             $status.Text = "WSL configuration saved. Changes apply after Docker restart."
                             Write-Host "[SUCCESS] .wslconfig updated with $($recommendedProfile.ToUpper()) profile at $wslconfigPath" -ForegroundColor Green
                         } else {
-                            Write-Host "[WARNING] Failed to create .wslconfig, continuing anyway" -ForegroundColor Yellow
+                            Show-Error 'Could not save WSL settings. No new resource limits were applied. Please retry.'
+                            return
                         }
                     } else {
                         Write-Host "[DEV MODE] Skipping .wslconfig creation" -ForegroundColor Magenta
@@ -1554,30 +1626,12 @@ $btnNext.Add_Click({
                             $status.Text = "WSL configuration saved. Changes apply after Docker restart."
                             Write-Host "[SUCCESS] .wslconfig created at $wslconfigPath" -ForegroundColor Green
                         } else {
-                            Write-Host "[WARNING] Failed to create .wslconfig, continuing anyway" -ForegroundColor Yellow
+                            Show-Error 'Could not save WSL settings. No new resource limits were applied. Please retry.'
+                            return
                         }
                     } else {
                         Write-Host "[DEV MODE] Skipping .wslconfig creation" -ForegroundColor Magenta
                     }
-                }
-            }
-
-            # Size the container CPU limit to the WSL2 VM the chosen profile
-            # produces. docker-compose.yml defaults AI_DOCKER_CPU_LIMIT to a safe
-            # 2-core floor; without this the container would be capped at 2 even
-            # on a Standard/Heavy VM. Never grant the container more CPU than the
-            # VM has. Skipped in DEV MODE, which does not touch .env.
-            if (-not $script:IsDevMode) {
-                $existingProcs = 0
-                if ($state.ExistingWSLConfig -and $state.ExistingWSLConfig.Processors) {
-                    $existingProcs = [int]$state.ExistingWSLConfig.Processors
-                }
-                $cpuLimit = Resolve-ContainerCpuLimit -Profile $state.WSLProfile `
-                    -SystemCores $state.SystemCores -ExistingProcessors $existingProcs
-                if (Set-EnvKey -Path $script:envPath -Key 'AI_DOCKER_CPU_LIMIT' -Value $cpuLimit) {
-                    Write-Host "[INFO] Set AI_DOCKER_CPU_LIMIT=$cpuLimit in .env (profile: $($state.WSLProfile))" -ForegroundColor Cyan
-                } else {
-                    Write-Host "[WARNING] Could not write AI_DOCKER_CPU_LIMIT to .env - container will use the compose default (2)" -ForegroundColor Yellow
                 }
             }
 
@@ -1798,6 +1852,13 @@ $btnNext.Add_Click({
                 return
             }
 
+            # 'up -d' may recreate the container (new image, changed ports),
+            # which deletes its writable layer: rescue work there first.
+            if (-not (Invoke-RebuildRescueGate -dockerFilesPath $dockerPath -mobileEnabled $mobileEnabled)) {
+                $status.Text = 'Stopped before recreating the container - nothing was deleted.'
+                return
+            }
+
             $status.Text = if ($mobileEnabled) { 'Starting container with mobile access ports...' } else { 'Starting container...' }
             Write-Host "[INFO] Starting container with mobile access set to $mobileValue" -ForegroundColor Cyan
             $startResult = Run-Process-UI -file $script:dockerExe -arguments "$composeArgs up -d" -progressBar $progress -statusLabel $status -workingDirectory $dockerPath
@@ -1846,8 +1907,9 @@ $btnNext.Add_Click({
                 [System.Windows.Forms.Application]::DoEvents()
             }
 
-            # Track last log position for incremental updates
-            $script:lastLogLines = 0
+            # Timestamp of the newest log line shown (see Select-NewLogLines)
+            $script:logCursor = ''
+            $script:logSeenAtCursor = 0
 
             # Helper function to strip ANSI escape sequences
             # Uses comprehensive pattern to handle all ANSI control sequences including:
@@ -1862,11 +1924,12 @@ $btnNext.Add_Click({
             # Helper function to update terminal display with new docker logs
             function Update-TerminalDisplay {
                 try {
-                    # Get recent docker logs (last 100 lines)
-                    $logResult = & $script:dockerExe logs ai-cli --tail 100 2>&1
+                    # Only lines newer than the last one shown, however long the log grows
+                    $logArgs = Get-ContainerLogArgs -Cursor $script:logCursor
+                    $logResult = & $script:dockerExe @logArgs 2>&1
                     if ($logResult) {
-                        $logLines = $logResult -split "`n"
-                        $newLines = $logLines | Select-Object -Skip $script:lastLogLines
+                        $selection = Select-NewLogLines -Lines ([string[]]($logResult -split "`n")) -Cursor $script:logCursor -SeenAtCursor $script:logSeenAtCursor
+                        $newLines = $selection.Lines
 
                         if ($newLines -and $newLines.Count -gt 0) {
                             foreach ($line in $newLines) {
@@ -1876,7 +1939,8 @@ $btnNext.Add_Click({
                                     $script:terminalBox.AppendText("$cleanLine`r`n")
                                 }
                             }
-                            $script:lastLogLines = $logLines.Count
+                            $script:logCursor = $selection.Cursor
+                            $script:logSeenAtCursor = $selection.SeenAtCursor
                             # Auto-scroll to bottom
                             $script:terminalBox.SelectionStart = $script:terminalBox.TextLength
                             $script:terminalBox.ScrollToCaret()
@@ -2059,7 +2123,7 @@ $btnNext.Add_Click({
     }
     } finally {
         $script:operationInProgress = $false
-        if (Test-ControlUsable $btnNext) { $btnNext.Enabled = $true }
+        if (Test-ControlUsable $btnNext) { $btnNext.Enabled = -not ($script:current -eq 5 -and -not $state.ContainerResourcesReady) }
         if (Test-ControlUsable $btnBack) { $btnBack.Enabled = ($script:current -gt 0) }
     }
 })
@@ -2134,6 +2198,18 @@ if ($existingContainer -eq "ai-cli") {
 
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
             Write-Host "[USER CHOICE] User chose to delete existing container" -ForegroundColor Red
+            # Deleting the container deletes /tmp and the home folder outside
+            # the named volumes: offer to rescue work there first.
+            if (-not (Invoke-RebuildRescueGate -dockerFilesPath $dockerPath -mobileEnabled $false -Removing)) {
+                Write-Host "[INFO] Container kept - rescue was cancelled or failed" -ForegroundColor Cyan
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Setup stopped before deleting the container. Nothing was deleted.",
+                    "Setup Cancelled",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                ) | Out-Null
+                exit 2
+            }
             Write-Host "[WARNING] Deleting existing container..." -ForegroundColor Red
             & $script:dockerExe stop ai-cli 2>$null | Out-Null
             & $script:dockerExe rm ai-cli 2>$null | Out-Null

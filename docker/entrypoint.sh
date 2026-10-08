@@ -153,11 +153,13 @@ cleanup_credentials
 
 # Give user ownership of workspace.
 # /workspace is typically a bind mount of a Windows folder (e.g. C:\AI_Work), where every file
-# operation is a Windows<->WSL round trip and ownership is dictated by Docker's mount options,
-# not per-file inodes. A blocking recursive chown over a large workspace stalled here for 15+
-# minutes, and the CLI tools installer (which runs later in this script) never started. So:
-# chown the mount point synchronously, skip the recursion when chown has no effect (Windows-
-# backed mount), and otherwise run it in the background so startup never blocks on it.
+# operation is a Windows<->WSL round trip. A blocking recursive chown over a large workspace
+# stalled here for 15+ minutes, and the CLI tools installer (which runs later in this script)
+# never started. So: chown the mount point synchronously, skip the recursion when chown has no
+# effect (ownership dictated by mount options), and otherwise repair in the background so
+# startup never blocks on it. Docker Desktop mounts drvfs with `metadata`, so chown does stick
+# and the repair runs every start; fix_ownership only touches mismatched entries
+# (e.g. files created from Windows, which appear as root:root) instead of rewriting them all.
 entrypoint_log "INFO" "Setting ownership of /workspace to $USER_NAME"
 if ! chown "$USER_NAME:$USER_NAME" /workspace 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
     entrypoint_log "WARN" "Could not change ownership of /workspace (may not exist or permission denied)"
@@ -165,23 +167,33 @@ elif [ "$(stat -c %U /workspace 2>/dev/null)" != "$USER_NAME" ]; then
     entrypoint_log "INFO" "/workspace ownership is controlled by the host mount - skipping recursive chown"
 else
     (
-        chown -R "$USER_NAME:$USER_NAME" /workspace 2>/dev/null || true
-        entrypoint_log "INFO" "Background recursive chown of /workspace finished"
+        fix_ownership /workspace "$USER_NAME" "$USER_NAME" 2>/dev/null || true
+        entrypoint_log "INFO" "Background ownership repair of /workspace finished"
     ) &
-    entrypoint_log "INFO" "Recursive chown of /workspace continuing in background"
+    entrypoint_log "INFO" "Ownership repair of /workspace continuing in background"
 fi
 
 # CRITICAL: Ensure user's home directory has correct ownership
-# This includes the .claude directory which is a Docker volume
+# This includes the .claude directory which is a Docker volume (created root-owned).
+# Only mismatched entries are changed: a blanket chown -R rewrote every inode in
+# the home folder (150k+ files) on every start, before the container was ready.
 entrypoint_log "INFO" "Setting ownership of /home/$USER_NAME to $USER_NAME"
-if ! chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+if ! chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
     entrypoint_log "WARN" "Could not change ownership of /home/$USER_NAME"
+elif ! fix_ownership "/home/$USER_NAME" "$USER_NAME" "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}"; then
+    entrypoint_log "WARN" "Could not repair ownership under /home/$USER_NAME"
 fi
+
+# own_tree <dir>: the user owns <dir> and everything in it; only entries with
+# the wrong owner are changed (a recursive chown rewrites every inode).
+own_tree() {
+    chown "$USER_NAME:$USER_NAME" "$1" && fix_ownership "$1" "$USER_NAME" "$USER_NAME"
+}
 
 # Ensure .claude directory exists with correct permissions
 entrypoint_log "INFO" "Ensuring .claude directory exists with correct permissions"
 mkdir -p "/home/$USER_NAME/.claude"
-chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.claude"
+own_tree "/home/$USER_NAME/.claude"
 chmod 755 "/home/$USER_NAME/.claude"
 
 # Persist ~/.claude.json across container rebuilds via symlink into claude-config volume
@@ -250,8 +262,9 @@ if migrate_codex_wire_api "$codex_config_toml"; then
     entrypoint_log "INFO" "Codex config.toml migrated to wire_api = \"responses\""
 fi
 
-chown -R "$USER_NAME:$USER_NAME" "$TOOL_AUTH_DIR"
-chown -R "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.config"
+# Migrations above run as root, so repair ownership - only mismatched entries.
+own_tree "$TOOL_AUTH_DIR"
+own_tree "/home/$USER_NAME/.config"
 chown -h "$USER_NAME:$USER_NAME" "$CODEX_CONFIG" 2>/dev/null || true
 chown -h "$USER_NAME:$USER_NAME" "$OPENCODE_DATA" 2>/dev/null || true
 chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.local" "/home/$USER_NAME/.local/share" 2>/dev/null || true
@@ -263,7 +276,12 @@ entrypoint_log "INFO" "Tool-auth persistence setup complete"
 entrypoint_log "INFO" "Setting up AI router data persistence"
 ROUTER_DATA_DIR="/home/$USER_NAME/.router-data"
 mkdir -p "$ROUTER_DATA_DIR/9router" "$ROUTER_DATA_DIR/omniroute"
-chown -R "$USER_NAME:$USER_NAME" "$ROUTER_DATA_DIR"
+own_tree "$ROUTER_DATA_DIR"
+
+# Update status records (ai-docker-state volume). Docker creates the mount point
+# root-owned; the updater runs as the user and must be able to write here.
+mkdir -p "/home/$USER_NAME/.ai-docker"
+own_tree "/home/$USER_NAME/.ai-docker"
 
 # Configure npm to use user-local directory for global packages.
 # su_preserving_env keeps proxy/CA vars alive across the login-shell reset; if the
@@ -471,20 +489,27 @@ fi
 # Readiness is written last and atomically. The Compose healthcheck uses this
 # marker plus the structured install status instead of merely checking that the
 # keepalive process exists.
+# A partial install (some tools failed) keeps the container running in a
+# degraded state: exiting would turn the restart policy into a repair loop and
+# take the working tools away. The healthcheck stays strict (unhealthy), the
+# login banner names the failed tools, and the next start retries --repair.
 READY_FILE="/run/ai-docker-ready"
-READY_TMP="${READY_FILE}.tmp.$$"
 install_state=$(install_status_state "/home/$USER_NAME/.cli_tools_installed")
-case "$install_state" in
-  ok|legacy) ;;
-  *)
-    entrypoint_log "ERROR" "Entrypoint initialization is not ready (install status: $install_state)"
-    rm -f "$READY_TMP" "$READY_FILE"
-    exit 1
-    ;;
-esac
-printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$install_state" > "$READY_TMP"
-mv "$READY_TMP" "$READY_FILE"
+if ! write_ready_marker "$install_state" "$READY_FILE"; then
+  entrypoint_log "ERROR" "Entrypoint initialization is not ready (install status: $install_state)"
+  exit 1
+fi
+if [ "$install_state" = "partial" ]; then
+  entrypoint_log "WARN" "Container running DEGRADED - some CLI tools failed to install: $(install_status_get "/home/$USER_NAME/.cli_tools_installed" "FAILED_TOOLS")"
+fi
 entrypoint_log "INFO" "Entrypoint initialization complete (install status: $install_state)"
+
+# Catch up on missed updates: the weekly cron only fires if the container is
+# running at that minute. Detached and after the readiness marker, so it never
+# delays startup; the updater's own 7-day gate and lock decide whether it runs.
+if type start_background_update >/dev/null 2>&1; then
+  start_background_update "$USER_NAME" "${AI_DOCKER_STARTUP_UPDATE:-1}" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+fi
 
 # Keep container running
 exec sleep infinity

@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
-**Last Updated:** July 11, 2026
-**Project Version:** 1.5.3
+**Last Updated:** October 8, 2026
+**Project Version:** 1.6.0
 
 ---
 
@@ -113,7 +113,11 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 ### npm version pins are literals, and the updater must not defeat them
 
 - CI's `check-pinned-versions` job **greps for literal `name@version` strings**: auto-installed tools in `install_cli_tools.sh`, and the routers in `docker/lib/router_utils.sh` (`AI_ROUTER_PIN_9ROUTER`/`AI_ROUTER_PIN_OMNIROUTE`). Keep the pins as literals even when refactoring into variables.
-- The weekly `auto_update.sh` runs a blanket `npm update -g`. Packages whose version must only change via a release (the credential-holding routers) are listed in the pin manifest `~/.npm-pinned-tools`, written by `ai_router_install` when a router is installed and re-applied by `auto_update.sh` after every update run.
+- `auto_update.sh` updates every global npm package **except** those in the pin manifest `~/.npm-pinned-tools` (the credential-holding routers, whose version must only change via a release). `ai_router_install` writes the manifest when a router is installed; the updater excludes those names from `npm update -g` and still re-applies the pins afterwards as a guard.
+
+### The update status record is the single source of truth for update health
+
+`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times, and every mutating mode takes `~/.ai-docker/update.lock` so startup, cron and manual runs cannot overlap.
 
 ### Release asset names are an API (self-update depends on them)
 
@@ -230,17 +234,19 @@ Scripts are mounted read-only. Only for local development.
 
 ## Git Configuration
 
-### Author Email (IMPORTANT)
+### Author Identity (IMPORTANT)
 
-Commits must use the personal GitHub noreply email so they're attributed to the correct account:
+Commits are authored by the maintainer making the change, never by a former contributor or the org account. Set the identity per clone and check it before committing:
 
 ```
-git config user.email "100510814+CaideSpries@users.noreply.github.com"
+git config user.name "Mike Niszl"
+git config user.email "mniszl@cainmani.com"
+git config user.email   # verify before the first commit in a fresh clone
 ```
 
-A pre-commit hook in `.git/hooks/pre-commit` enforces this — commits will be rejected if the email is wrong. If you clone fresh, the hook needs to be recreated (git hooks aren't tracked).
+Agents must not copy an author identity from older commits or from this file's history. If the configured identity is not the person you are working for, stop and ask.
 
-**Why:** The old email `Cainmani@users.noreply.github.com` attributes commits to the org account, not the personal GitHub profile.
+**Why:** Commits were previously attributed to a contributor who has since left, because an earlier version of this section hard-coded their address.
 
 ---
 

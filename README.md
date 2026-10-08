@@ -5,12 +5,12 @@
 <h1 align="center">AI Docker CLI Manager</h1>
 
 <p align="center">
-  <strong>Run AI tools securely in an isolated Docker container</strong>
+  <strong>Run AI tools in a contained Docker workspace</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/Cainmani/ai-docker-sandbox/releases/latest">
-    <img src="https://img.shields.io/badge/Download-v1.5.3-brightgreen?style=for-the-badge&logo=windows" alt="Download Latest Release">
+    <img src="https://img.shields.io/github/v/release/Cainmani/ai-docker-sandbox?label=Download&style=for-the-badge&logo=windows" alt="Download Latest Release">
   </a>
   &nbsp;
   <a href="LICENSE">
@@ -71,9 +71,9 @@
 | 🤖 **Multiple AI Tools** | Claude, GitHub CLI, OpenAI/GPT, Gemini, Codex, and more |
 | 🎯 **Vibe Kanban** | Orchestrate multiple AI agents in parallel via web UI |
 | 📱 **Mobile Access** | Access Claude from your phone via SSH + Mosh (optional) |
-| 🔒 **Secure Isolation** | AI runs in Docker container - can't access your system files |
+| 🔒 **Contained Workspace** | AI runs in a Docker container that only sees your AI_Work folder (see [Security](#%EF%B8%8F-security)) |
 | 🚀 **One-Click Setup** | Interactive wizard handles everything automatically |
-| 🔄 **Auto-Updates** | CLI tools update automatically every week |
+| 🔄 **Auto-Updates** | CLI tools update in the background on start once a week has passed; `ai-docker status` shows the result |
 | 📁 **Easy File Access** | Your AI_Work folder is accessible from Windows |
 | 🎨 **Modern UI** | Matrix-themed interface with live progress feedback |
 
@@ -160,12 +160,13 @@ Your Claude conversation history will be preserved. See the **[Migration Guide](
 
 ## 🛡️ Security
 
-AI Docker CLI Manager keeps your system safe:
+What the container protects, and what it does not:
 
-- **Isolated Environment** - AI only sees files in your AI_Work folder
-- **Container Sandboxing** - Runs in a separate Linux environment
-- **User Permissions** - AI runs as a non-root user
-- **No Internet Backdoors** - Only accesses AI APIs you configure
+- **Windows files outside AI_Work are out of reach.** The only host folder mounted into the container is your AI_Work workspace; the rest of your drives, your Windows profile and the Docker socket are not available inside it.
+- **Everything in AI_Work is readable and writable** by the AI tools. Keep only work you are happy for them to change there, and use git or backups for anything important.
+- **Inside the container the AI is effectively an administrator.** It runs as your container user, but that user has passwordless `sudo`, and Docker's seccomp filter is turned off so Codex's own Linux sandbox (bubblewrap) can work. Treat the container as a separate workstation, not a locked-down sandbox.
+- **Network access is unrestricted.** There is no outbound filtering: the tools can reach any site, not only the AI APIs you configure. Corporate proxies and custom CA certificates are supported, not enforced.
+- **Logins persist in Docker volumes** (Claude, GitHub, Codex and other tool credentials) so they survive rebuilds; uninstalling with `-RemoveVolumes` deletes them.
 
 ---
 

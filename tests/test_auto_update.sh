@@ -35,6 +35,8 @@ setup_case() {
     export FAKE_NPM_OUTDATED_OUTPUT=''
     export FAKE_PIP_CHECK_RC=0
     export FAKE_PIP_OUTDATED_OUTPUT=$'Package Version Latest Type\n------- ------- ------ ----'
+    export FAKE_PIP_OUTDATED_JSON='[]'
+    export FAKE_PIP_INSTALL_RC=0
     export FAKE_APT_UPDATE_RC=0
     export FAKE_APT_LIST_OUTPUT=''
     export FAKE_NPM_UPDATE_RC=0
@@ -61,19 +63,41 @@ case " $* " in
         if [ "$count" -eq 1 ]; then printf '%s\n' "$FAKE_NPM_BEFORE"; else printf '%s\n' "$FAKE_NPM_AFTER"; fi
         exit 0
         ;;
-    *' update -g '*) printf 'simulated npm update\n'; exit "$FAKE_NPM_UPDATE_RC" ;;
+    *' update -g '*)
+        [ -n "${FAKE_NPM_UPDATE_SLEEP:-}" ] && sleep "$FAKE_NPM_UPDATE_SLEEP"
+        # Optionally simulate the update changing (or breaking) a tool.
+        [ -n "${FAKE_CODEX_AFTER_VERSION:-}" ] && printf '%s' "$FAKE_CODEX_AFTER_VERSION" > "$FAKE_STATE.codex-version"
+        [ -n "${FAKE_CODEX_AFTER_RC:-}" ] && printf '%s' "$FAKE_CODEX_AFTER_RC" > "$FAKE_STATE.codex-rc"
+        printf 'simulated npm update\n'; exit "$FAKE_NPM_UPDATE_RC" ;;
     *' install -g '*) exit "$FAKE_NPM_INSTALL_RC" ;;
     *' cache clean --force '*) exit 0 ;;
     *) exit 0 ;;
 esac
 SCRIPT
 
+    # Faithful to real pip: `--outdated` cannot be combined with `--format=freeze`.
     cat > "$CASE_DIR/bin/pip3" <<'SCRIPT'
 #!/usr/bin/env bash
 printf 'pip3 %s\n' "$*" >> "$FAKE_LOG"
 if [ "${1:-}" = list ]; then
+    case " $* " in
+        *' --outdated '*'--format=freeze '*|*' --format=freeze '*'--outdated '*)
+            echo "ERROR: List format 'freeze' cannot be used with the --outdated option." >&2
+            exit 1 ;;
+        *' --format=json '*)
+            [ "$FAKE_PIP_CHECK_RC" -eq 0 ] || exit "$FAKE_PIP_CHECK_RC"
+            printf '%s\n' "$FAKE_PIP_OUTDATED_JSON"; exit 0 ;;
+    esac
     printf '%s\n' "$FAKE_PIP_OUTDATED_OUTPUT"
     exit "$FAKE_PIP_CHECK_RC"
+fi
+if [ "${1:-}" = install ]; then
+    # Ubuntu 24.04 (PEP 668) refuses user installs without this flag.
+    case " $* " in
+        *' --break-system-packages '*) ;;
+        *) echo "error: externally-managed-environment" >&2; exit 1 ;;
+    esac
+    exit "$FAKE_PIP_INSTALL_RC"
 fi
 exit 0
 SCRIPT
@@ -166,6 +190,182 @@ if [ -e "$FAKE_NPM_ROOT/vibe-kanban" ]; then pass "real package kept"; else fail
 if [ -e "$FAKE_NPM_ROOT/.bin" ]; then pass ".bin kept"; else fail ".bin kept"; fi
 if [ -e "$FAKE_NPM_ROOT/.package-lock.json" ]; then pass ".package-lock.json kept"; else fail ".package-lock.json kept"; fi
 assert_contains "cleanup is reported" "$RUN_OUTPUT" "staging directories from interrupted installs"
+
+# --- #87: honest status --------------------------------------------------------
+
+status_get() { sed -n "s/^$1=//p" "$HOME/.ai-docker/update-status" 2>/dev/null | head -n1; }
+
+# A fake codex whose version and health come from state files, so a test can
+# make the npm update change or break it.
+add_fake_codex() {
+    printf '%s' "${1:-codex-cli 1.0.0}" > "$FAKE_STATE.codex-version"
+    printf '0' > "$FAKE_STATE.codex-rc"
+    cat > "$CASE_DIR/bin/codex" <<'SCRIPT'
+#!/usr/bin/env bash
+rc=$(cat "$FAKE_STATE.codex-rc"); [ "$rc" -eq 0 ] || exit "$rc"
+cat "$FAKE_STATE.codex-version"; echo
+SCRIPT
+    chmod +x "$CASE_DIR/bin/codex"
+}
+
+# Outdated pip packages found by the check are actually upgraded on apply
+# (previously `--outdated --format=freeze` errored silently -> "up to date").
+setup_case
+export FAKE_PIP_OUTDATED_JSON='[{"name": "openai", "version": "2.44.0", "latest_version": "2.50.0"}]'
+run_updater --apply
+assert_log_contains "outdated pip package is upgraded" "openai"
+assert_eq "pip upgrade succeeds on a PEP 668 system" 0 "$RUN_RC"
+assert_log_not_contains "pip is never asked for the unsupported freeze+outdated combination" "--format=freeze"
+
+# A failing pip listing during apply is an error, not "all up to date".
+setup_case
+export FAKE_PIP_CHECK_RC=1
+run_updater --apply
+assert_eq "pip listing failure fails the apply" 1 "$RUN_RC"
+if printf '%s\n' "$RUN_OUTPUT" | grep -Fq 'All Python packages are up to date'; then
+    fail "pip listing failure is not reported as up to date"
+else
+    pass "pip listing failure is not reported as up to date"
+fi
+assert_contains "failed stage recorded for pip" "$(status_get FAILED_STAGES)" "pip"
+
+# The status record distinguishes a check that found nothing from an applied update.
+setup_case
+run_updater --force
+assert_eq "up-to-date run succeeds" 0 "$RUN_RC"
+assert_eq "up-to-date run recorded as such" "up_to_date" "$(status_get RESULT)"
+[ -n "$(status_get LAST_ATTEMPT)" ] && pass "attempt time recorded" || fail "attempt time recorded"
+[ -n "$(status_get LAST_CHECK_OK)" ] && pass "successful check time recorded" || fail "successful check time recorded"
+assert_eq "no update recorded when nothing was applied" "" "$(status_get LAST_UPDATE_OK)"
+
+setup_case
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "applied update recorded" "updated" "$(status_get RESULT)"
+[ -n "$(status_get LAST_UPDATE_OK)" ] && pass "update time recorded" || fail "update time recorded"
+
+setup_case
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_UPDATE_RC=1
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "failed update recorded" "failed" "$(status_get RESULT)"
+assert_contains "failed stage recorded for npm" "$(status_get FAILED_STAGES)" "npm"
+
+setup_case
+export FAKE_NPM_OUTDATED_RC=2
+run_updater --force
+assert_eq "failed check recorded" "check_failed" "$(status_get RESULT)"
+assert_eq "failed check keeps no successful check time" "" "$(status_get LAST_CHECK_OK)"
+
+# Only one updater runs at a time; a second invocation backs off cleanly.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+( flock 9; sleep 3 ) 9> "$HOME/.ai-docker/update.lock" &
+holder=$!
+sleep 0.5
+run_updater --force
+wait "$holder"
+assert_eq "concurrent run exits cleanly" 0 "$RUN_RC"
+assert_contains "concurrent run says it is already running" "$RUN_OUTPUT" "already running"
+assert_log_not_contains "concurrent run does not touch npm" "npm outdated -g"
+
+# Versions are snapshotted before/after, and a tool broken by the update is caught.
+setup_case
+add_fake_codex "codex-cli 1.0.0"
+export FAKE_CODEX_AFTER_VERSION="codex-cli 1.1.0"
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/@openai/codex'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/@openai/codex'
+run_updater --apply
+assert_eq "healthy tool update succeeds" 0 "$RUN_RC"
+assert_contains "version before is recorded" "$(cat "$HOME/.ai-docker/versions-before" 2>/dev/null)" "codex	codex-cli 1.0.0"
+assert_contains "version after is recorded" "$(cat "$HOME/.ai-docker/versions-after" 2>/dev/null)" "codex	codex-cli 1.1.0"
+
+setup_case
+add_fake_codex "codex-cli 1.0.0"
+export FAKE_CODEX_AFTER_RC=127
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/@openai/codex'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/@openai/codex'
+run_updater --apply
+assert_eq "tool broken by update fails the apply" 1 "$RUN_RC"
+assert_contains "verify stage recorded" "$(status_get FAILED_STAGES)" "verify"
+assert_contains "broken tool is named" "$RUN_OUTPUT" "codex no longer runs"
+
+# Pinned packages are excluded from the npm update instead of updated then restored.
+setup_case
+printf '9router@0.5.40\n' > "$HOME/.npm-pinned-tools"
+export PINNED_TOOLS_FILE="$HOME/.npm-pinned-tools"
+export FAKE_NPM_BEFORE=$'/fake/lib/node_modules/9router\n/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER="$FAKE_NPM_BEFORE"
+run_updater --apply
+assert_log_contains "unpinned package is updated" "npm update -g vibe-kanban"
+if grep -E '^npm update -g' "$FAKE_LOG" | grep -Fq '9router'; then
+    fail "pinned package is excluded from npm update"
+else
+    pass "pinned package is excluded from npm update"
+fi
+unset PINNED_TOOLS_FILE
+
+# Review regression: a failed check stage is not erased by a later success.
+setup_case
+export FAKE_APT_UPDATE_RC=1
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "check failure + successful apply is not 'updated'" "failed" "$(status_get RESULT)"
+assert_contains "failed check stage is recorded" "$(status_get FAILED_STAGES)" "check-apt"
+assert_eq "partial run exits non-zero" 1 "$RUN_RC"
+
+# Review regression: an interrupted run leaves a trace instead of the old record.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=updated\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=2026-01-01T00:00:00+00:00\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_UPDATE_SLEEP=5
+bash "$ROOT_DIR/docker/auto_update.sh" --apply > /dev/null 2>&1 &
+updater=$!
+sleep 1.5
+pkill -9 -P "$updater" 2>/dev/null || true; kill -9 "$updater" 2>/dev/null || true; wait "$updater" 2>/dev/null || true
+unset FAKE_NPM_UPDATE_SLEEP
+assert_eq "interrupted run is visible" "running" "$(status_get RESULT)"
+assert_contains "interrupted run records its attempt time" "$(status_get LAST_ATTEMPT)" "$(date +%Y-%m-%d)"
+assert_eq "interrupted run keeps the last good check" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
+
+# Second review 6: real npm reports an unreachable registry as exit 1 with no
+# output - the same exit code as "updates available". That is a failed check.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=up_to_date\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=''
+run_updater --force
+assert_eq "npm exit 1 with no output fails the run" 1 "$RUN_RC"
+assert_eq "npm exit 1 with no output is a failed check" "check_failed" "$(status_get RESULT)"
+assert_contains "npm check stage recorded" "$(status_get FAILED_STAGES)" "check-npm"
+assert_eq "failed npm check keeps the last good check time" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
+[ ! -e "$HOME/.last_update_check" ] && pass "failed check does not postpone the next attempt" || fail "failed check does not postpone the next attempt"
+
+# Second review 9: a failed check stage must not advance "last successful check",
+# even when other updates were applied.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=updated\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=2026-01-01T00:00:00+00:00\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_APT_UPDATE_RC=1
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "partial check is a failed run" "failed" "$(status_get RESULT)"
+assert_eq "failed check stage keeps the previous successful check time" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -123,6 +123,23 @@ Describe 'Get-ProfileDisplayName' {
 }
 
 Describe 'New-WSLConfig' {
+    It 'Lets WSL return unused memory to Windows' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'standard' -Path $path -SystemCores 8 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content | Should -Match '(?m)^\[experimental\]\s*$'
+        $content | Should -Match '(?m)^autoMemoryReclaim=gradual\s*$'
+        $content | Should -Not -Match '(?mi)^pageReporting\s*=\s*false'
+    }
+
+    It 'Writes the experimental section after the wsl2 settings' {
+        $path = Join-Path $TestDrive '.wslconfig'
+        New-WSLConfig -Profile 'light' -Path $path -SystemCores 8 | Should -Be $true
+        $content = Get-Content $path -Raw
+        $content.IndexOf('[experimental]') | Should -BeGreaterThan $content.IndexOf('memory=3GB')
+        ([regex]::Matches($content, '(?m)^\[experimental\]')).Count | Should -Be 1
+    }
+
     It 'Creates correct light profile' {
         $path = Join-Path $TestDrive '.wslconfig'
         New-WSLConfig -Profile 'light' -Path $path -SystemCores 8 | Should -Be $true

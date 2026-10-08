@@ -225,3 +225,73 @@ Describe 'Test-PasswordStrength' {
         (Test-PasswordStrength -Password 'P@ssw0rd!123').Valid | Should -BeTrue
     }
 }
+
+Describe 'Select-NewLogLines' {
+    BeforeAll {
+        function New-LogLine([int]$n) { '2026-10-08T10:00:{0:D2}.{1:D9}Z line {2}' -f [int]($n / 1000), $n, $n }
+    }
+
+    It 'Returns every message on the first call, without timestamps' {
+        $r = Select-NewLogLines -Lines @((New-LogLine 1), (New-LogLine 2)) -Cursor ''
+        $r.Lines | Should -Be @('line 1', 'line 2')
+        $r.Cursor | Should -Be ((New-LogLine 2) -split ' ', 2)[0]
+    }
+
+    It 'Returns only lines newer than the cursor' {
+        $first = Select-NewLogLines -Lines @((New-LogLine 1), (New-LogLine 2)) -Cursor ''
+        $r = Select-NewLogLines -Lines @((New-LogLine 2), (New-LogLine 3)) -Cursor $first.Cursor -SeenAtCursor $first.SeenAtCursor
+        $r.Lines | Should -Be @('line 3')
+    }
+
+    It 'Never drops output once more than 100 lines have been written' {
+        # Regression: the old reader skipped a line count inside a sliding
+        # --tail 100 window, so output after line 100 was silently lost.
+        $seen = @()
+        $cursor = ''
+        $seenAt = 0
+        $all = 1..250 | ForEach-Object { New-LogLine $_ }
+        foreach ($upTo in @(80, 150, 250)) {
+            $window = $all[0..($upTo - 1)]
+            if ($cursor) { $window = $window | Where-Object { (($_ -split ' ', 2)[0]) -ge $cursor } }
+            $r = Select-NewLogLines -Lines $window -Cursor $cursor -SeenAtCursor $seenAt
+            $seen += $r.Lines
+            $cursor = $r.Cursor
+            $seenAt = $r.SeenAtCursor
+        }
+        $seen.Count | Should -Be 250
+        $seen[-1] | Should -Be 'line 250'
+        ($seen | Select-Object -Unique).Count | Should -Be 250
+    }
+
+    It 'Never drops a new message that shares the cursor timestamp' {
+        # Second review: a later batch with another line at the same
+        # timestamp lost it. docker logs --since is inclusive, so the
+        # already-shown line comes back too and must be skipped exactly once.
+        $t = '2026-10-08T10:00:00.000000001Z'
+        $first = Select-NewLogLines -Lines @("$t a") -Cursor ''
+        $second = Select-NewLogLines -Lines @("$t a", "$t b", '2026-10-08T10:00:00.000000002Z c') -Cursor $first.Cursor -SeenAtCursor $first.SeenAtCursor
+        $second.Lines | Should -Be @('b', 'c')
+        $third = Select-NewLogLines -Lines @('2026-10-08T10:00:00.000000002Z c') -Cursor $second.Cursor -SeenAtCursor $second.SeenAtCursor
+        $third.Lines.Count | Should -Be 0
+    }
+
+    It 'Counts lines at the newest timestamp across batches' {
+        $t = '2026-10-08T10:00:00.000000005Z'
+        $a = Select-NewLogLines -Lines @("$t x", "$t y") -Cursor ''
+        $a.SeenAtCursor | Should -Be 2
+        $b = Select-NewLogLines -Lines @("$t x", "$t y", "$t z") -Cursor $a.Cursor -SeenAtCursor $a.SeenAtCursor
+        $b.Lines | Should -Be @('z')
+        $b.SeenAtCursor | Should -Be 3
+    }
+
+    It 'Ignores lines without a timestamp and keeps the cursor' {
+        $r = Select-NewLogLines -Lines @('Error response from daemon: oops') -Cursor '2026-10-08T10:00:00.000000001Z'
+        $r.Lines.Count | Should -Be 0
+        $r.Cursor | Should -Be '2026-10-08T10:00:00.000000001Z'
+    }
+
+    It 'Builds docker logs arguments from the cursor' {
+        Get-ContainerLogArgs -Cursor '' | Should -Be @('logs', '--timestamps', '--tail', '200', 'ai-cli')
+        Get-ContainerLogArgs -Cursor 'T' | Should -Be @('logs', '--timestamps', '--since', 'T', 'ai-cli')
+    }
+}

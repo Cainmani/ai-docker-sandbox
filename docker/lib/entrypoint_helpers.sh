@@ -128,6 +128,39 @@ safe_migrate_file() {
 }
 
 # ============================================================================
+# Workspace ownership repair (Windows-backed bind mount)
+# ============================================================================
+
+# Directory names whose contents are skipped by fix_ownership. They
+# hold most of a workspace's file count, are created inside the container (so
+# already user-owned), and a Windows-created copy is still mode 777 there.
+WORKSPACE_CHOWN_PRUNE="node_modules .venv venv"
+
+# fix_ownership <dir> <user> <group>
+#
+# Chowns only the entries under <dir> not already owned by <user>:<group>.
+# Used for the Windows-backed /workspace and for the home folder, where a
+# blanket chown -R rewrote every inode (150k+) on every start.
+# On a drvfs mount with `metadata`, files created from Windows show up as
+# root:root, so a repair walk is still needed - but a blanket chown -R writes
+# an NTFS extended attribute for every file on every start, each one a
+# Windows<->WSL round trip that Defender then rescans. find only stats the
+# tree and touches the handful of mismatched entries.
+fix_ownership() {
+    local dir="$1" user="$2" group="$3" name
+    local -a prune=()
+
+    for name in $WORKSPACE_CHOWN_PRUNE; do
+        prune+=(-name "$name" -o)
+    done
+    unset 'prune[${#prune[@]}-1]'
+
+    find "$dir" -mindepth 1 \( -type d \( "${prune[@]}" \) \) -prune \
+        -o \( ! -user "$user" -o ! -group "$group" \) \
+        -exec chown -h "$user:$group" {} +
+}
+
+# ============================================================================
 # Codex config migration (deprecated wire_api = "chat" -> "responses")
 # ============================================================================
 
@@ -168,7 +201,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=4
+MANAGED_BLOCK_VERSION=5
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -236,6 +269,11 @@ if [ -f /usr/local/lib/router_utils.sh ]; then
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
 fi
+# One-line health summary when an interactive shell starts (details:
+# `ai-docker status`). Reads small status files only; never runs the tools.
+case $- in
+    *i*) command -v ai-docker >/dev/null 2>&1 && ai-docker status --brief ;;
+esac
 EOF
     cat >> "$bashrc" << EOF
 ${MANAGED_BLOCK_END}
@@ -252,6 +290,22 @@ install_status_get() {
     local marker="$1" key="$2"
     [ -f "$marker" ] || return 1
     sed -n "s/^${key}=//p" "$marker" | head -n1
+}
+
+# write_ready_marker <install_state> <marker_file>
+# Writes the readiness marker atomically. ok/legacy are fully ready; partial
+# (some tools failed to install) is still ready but degraded - the working
+# tools stay usable, the healthcheck reports unhealthy and the status banner
+# names the failed tools. Anything else (no install at all) is fatal:
+# returns 1 and writes nothing.
+write_ready_marker() {
+    local state="$1" marker="$2" tmp
+    case "$state" in
+        ok|legacy|partial) ;;
+        *) rm -f "$marker"; return 1 ;;
+    esac
+    tmp="${marker}.tmp.$$"
+    printf 'ENTRYPOINT=ok\nINSTALL_STATUS=%s\n' "$state" > "$tmp" && mv "$tmp" "$marker"
 }
 
 # install_status_state <marker_file>
@@ -294,6 +348,29 @@ setup_auto_update_cron() {
 
     eh_log "WARN" "Failed to setup auto-update cron job"
     return 1
+}
+
+# start_background_update <user> <enabled>
+# The weekly cron entry only fires if the container happens to be running at
+# that minute, which machines switched off overnight never are. So after every
+# start, hand the updater to a detached process: its own 7-day gate decides
+# whether anything runs, and its lock keeps it from overlapping cron or a manual
+# run. Called after the readiness marker so startup time is unaffected.
+# <enabled>=0 (AI_DOCKER_STARTUP_UPDATE=0) turns it off, e.g. for CI smoke runs.
+start_background_update() {
+    local user="$1" enabled="${2:-1}"
+    local updater="${AUTO_UPDATE_BIN:-/usr/local/bin/auto_update.sh}"
+
+    if [ "$enabled" = "0" ]; then
+        eh_log "INFO" "Startup update check disabled (AI_DOCKER_STARTUP_UPDATE=0)"
+        return 0
+    fi
+    if su_preserving_env "$user" "setsid -f '$updater' >/dev/null 2>&1 < /dev/null"; then
+        eh_log "INFO" "Started background update check (runs only if the last check is 7+ days old)"
+    else
+        eh_log "WARN" "Could not start the background update check - run update-container-tools manually"
+    fi
+    return 0
 }
 
 # ensure_cron_daemon_running

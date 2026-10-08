@@ -138,6 +138,54 @@ HOST=0.0.0.0 PORT=3000 vibe-kanban
 - Gemini CLI (gemini)
 - GitHub CLI (gh)
 
+## Health, Rescue and Cleanup
+
+### `ai-docker status`
+
+A one-line summary appears every time a terminal opens, for example:
+
+```
+AI Docker 1.6.0 - tools OK - updates checked 2 days ago - Docker disk 22 GB used
+AI Docker 1.6.0: ATTENTION - last update failed (pip) 1 day ago - run: ai-docker status
+```
+
+`ai-docker status` shows the details: each tool's version, the last update's result and failed stages, disk use, and the container's current RAM usage alongside its limit, and CPU limits, with the command that fixes each problem. `ai-docker doctor` checks network, DNS and logins.
+
+Container RAM and CPU limits follow your chosen resource profile or existing WSL settings. Setup displays them before deployment. Use **Resources...** in the Windows launcher to edit the running container's limits and save them for future recreates; no image rebuild, container recreation or restart is needed. Limits cannot exceed the currently available WSL/Docker budget. Raising that budget in `.wslconfig` requires restarting WSL/Docker after saving work.
+
+Task Manager's **VmmemWSL** includes the whole WSL VM, Docker, other WSL processes and Linux file cache. It is not this container's RAM usage; `docker stats --no-stream` in Windows PowerShell shows that. `home ~/src` means a separate folder inside the container. Your Windows AI_Work folder is `/workspace`. Missing optional folders say `not present`; `partial` means some paths could not be read.
+
+### Before a rebuild: `ai-docker rescue-scan`
+
+A rebuild, recreate or uninstall replaces the container's own disk: `/tmp`, `~/src` and the rest of the home folder. Your AI_Work folder and the named volumes (logins, Claude memory, SSH keys, router data) are kept.
+
+`ai-docker rescue-scan` lists what would be lost: git repos with uncommitted, stashed, ignored or unpushed work (any branch or tag) or no remote, and any other file outside dependency folders and known tool state (including unknown hidden folders and links to files a rebuild deletes). A repo or folder that cannot be checked makes the scan incomplete. `ai-docker rescue-scan --copy` copies it into `AI_Work\_rescued\<date>_container_rescue_vX_XX`, verifies every file, and makes rescued repos independent of the originals. The setup wizard and uninstall run this check automatically before they remove or recreate the container; if the check fails or cannot read something, they stop rather than delete.
+
+Unknown loose dotfiles also count as work; only known shell and tool state is skipped. A link explicitly pointing to a file in a normally skipped folder protects that file too. Directory links exclude nested named volumes when copied. If scan bookkeeping cannot be created, or a recursive directory link cannot be safely copied, the operation stops.
+
+Tracked links that need a new target are adjusted in the rescued working tree so they resolve from the copy. Git keeps their original staged content and history; the adjustment appears as an unstaged change. The original and rescued targets are recorded in `.ai-docker-rescue-metadata/link-relocations.txt` inside the rescue folder. Keep the whole rescue folder together, since a link can point to another rescued item. Initialized submodules and copied Git working-tree settings are handled before the repositories are verified.
+
+### `ai-docker cleanup`
+
+`ai-docker cleanup` shows what can be removed and how much space it would free (estimates). `ai-docker cleanup --apply` asks group by group:
+
+| Group | Default |
+|---|---|
+| npm and pip download caches | suggested |
+| Old Claude Code versions (current and newest other kept) | suggested |
+| Older Playwright browser builds | opt-in (a project may need one) |
+| Clones in `~/src`, temporary virtualenvs, dependency folders in agent scratch | **report only** - listed, never deleted by cleanup |
+
+### Returning the space to Windows
+
+Deleting files inside the container does not shrink Docker's disk file on Windows. To reclaim the space (PowerShell on Windows):
+
+1. With Docker running: `docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -- fstrim -av`
+2. Quit Docker Desktop, run `wsl --shutdown`, and check `wsl -l -v` shows everything Stopped. Back up the `.vhdx` first if you have the space - it holds your volumes.
+3. In an Administrator PowerShell: `diskpart`, then `select vdisk file="%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx"`, `attach vdisk readonly`, `compact vdisk`, `detach vdisk`, `exit`.
+
+Never use Docker Desktop's "Clean / Purge data" or `docker system prune --volumes` to free space: they delete your volumes.
+
 ## Auto-Update System
 
 The system automatically checks for updates weekly. You can also manually trigger updates:
@@ -154,7 +202,9 @@ update-container-tools
 
 ### Update Schedule
 
-- Automatic checks: Weekly (Sunday 2 AM)
+- Automatic checks: every container start (in the background, only if the last check is 7+ days old), plus a weekly cron run (Sunday 2 AM) for containers that stay up
+- Missed a week because the PC was off? The next start catches up; it never delays startup. Set `AI_DOCKER_STARTUP_UPDATE=0` in `docker/.env` to turn the startup check off.
+- Results: `~/.ai-docker/update-status` records the last attempt, last successful check and update, and any failed stage
 - Update types:
   - npm packages (Gemini CLI, Codex CLI, Vibe Kanban)
   - Python packages (OpenAI SDK)

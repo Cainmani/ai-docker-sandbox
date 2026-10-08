@@ -66,6 +66,27 @@ assert_true "managed block reinstall is idempotent" install_managed_block "$bash
 block_count=$(grep -c '^# >>> ai-docker managed: router-wrappers' "$bashrc")
 assert_true "managed block appears once" test "$block_count" -eq 1
 
+# The managed block shows the one-line health banner in interactive shells only.
+banner_bin="$TMP_DIR/banner-bin"
+banner_marker="$TMP_DIR/banner-shown"
+mkdir -p "$banner_bin"
+cat > "$banner_bin/ai-docker" <<SCRIPT
+#!/usr/bin/env bash
+[ "\$*" = "status --brief" ] && touch "$banner_marker"
+SCRIPT
+chmod +x "$banner_bin/ai-docker"
+env PATH="$banner_bin:$PATH" bash --norc -i -c ". '$bashrc'" >/dev/null 2>&1
+assert_true "interactive shell shows the health banner" test -e "$banner_marker"
+rm -f "$banner_marker"
+env PATH="$banner_bin:$PATH" bash --norc -c ". '$bashrc'" >/dev/null 2>&1
+assert_false "non-interactive shell skips the health banner" test -e "$banner_marker"
+
+# An older installed block is replaced by the current version.
+old_bashrc="$TMP_DIR/bashrc-v4"
+printf '# user\n# >>> ai-docker managed: router-wrappers v4 >>>\nold\n# <<< ai-docker managed: router-wrappers <<<\n' > "$old_bashrc"
+install_managed_block "$old_bashrc"
+assert_true "older managed block is upgraded" grep -Fq 'ai-docker status --brief' "$old_bashrc"
+
 # Exercise production cron helpers with fake crontab/cron/pgrep commands.
 cron_bin="$TMP_DIR/cron-bin"
 cron_state="$TMP_DIR/crontab"
@@ -189,6 +210,84 @@ chmod +x "$su_bin/su"
 result=$(env PATH="$su_bin:$PATH" HTTPS_PROXY="http://proxy.example:3128" \
     bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; su_preserving_env testuser 'echo \$HTTPS_PROXY'")
 assert_true "su_preserving_env preserves proxy across login shell" test "$result" = "http://proxy.example:3128"
+
+# start_background_update hands the updater to a detached process: it returns
+# immediately (readiness is never delayed) and the updater still runs.
+# Reuses the stub su from the su_preserving_env test above.
+fake_updater="$TMP_DIR/fake-auto-update.sh"
+update_marker="$TMP_DIR/update-ran"
+cat > "$fake_updater" <<SCRIPT
+#!/usr/bin/env bash
+sleep 2
+touch "$update_marker"
+SCRIPT
+chmod +x "$fake_updater"
+start_ts=$(date +%s)
+env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
+    bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; start_background_update testuser 1"
+elapsed=$(( $(date +%s) - start_ts ))
+assert_true "background update does not block startup" test "$elapsed" -lt 2
+assert_false "background update has not finished when the helper returns" test -e "$update_marker"
+for _ in 1 2 3 4 5 6; do [ -e "$update_marker" ] && break; sleep 1; done
+assert_true "background update runs after the helper returns" test -e "$update_marker"
+
+rm -f "$update_marker"
+env PATH="$su_bin:$PATH" AUTO_UPDATE_BIN="$fake_updater" \
+    bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; start_background_update testuser 0"
+sleep 3
+assert_false "startup update can be disabled" test -e "$update_marker"
+
+# fix_ownership chowns only mismatched entries and skips pruned dirs.
+# A stub chown records its arguments instead of changing anything.
+ws="$TMP_DIR/ws"
+mkdir -p "$ws/repo/src" "$ws/repo/node_modules/pkg" "$ws/app/.venv/lib"
+touch "$ws/repo/src/main.py" "$ws/repo/node_modules/pkg/index.js" "$ws/app/.venv/lib/site.py"
+chown_bin="$TMP_DIR/chown-bin"
+chown_log="$TMP_DIR/chown.log"
+mkdir -p "$chown_bin"
+cat > "$chown_bin/chown" <<SCRIPT
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$chown_log"
+SCRIPT
+chmod +x "$chown_bin/chown"
+me=$(id -un)
+my_group=$(id -gn)
+if [ "$me" = root ]; then other_user=nobody; else other_user=root; fi
+
+: > "$chown_log"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_ownership '$ws' '$me' '$my_group'"
+assert_false "no chown when everything is already owned" test -s "$chown_log"
+
+: > "$chown_log"
+env PATH="$chown_bin:$PATH" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; fix_ownership '$ws' '$other_user' '$my_group'"
+assert_true "chowns mismatched files" grep -Fxq "$ws/repo/src/main.py" "$chown_log"
+assert_true "chowns mismatched directories" grep -Fxq "$ws/repo" "$chown_log"
+assert_true "passes target owner" grep -Fxq "$other_user:$my_group" "$chown_log"
+assert_false "skips node_modules contents" grep -Fq "node_modules" "$chown_log"
+assert_false "skips virtualenv contents" grep -Fq ".venv" "$chown_log"
+assert_false "does not chown the mount point itself" grep -Fxq "$ws" "$chown_log"
+
+# The entrypoint repairs home ownership with the targeted helper, never a
+# blanket recursive chown that rewrites every inode on every start.
+entrypoint="$ROOT_DIR/docker/entrypoint.sh"
+assert_false "no blanket recursive chown of the home folder" grep -Eq 'chown -R "\$USER_NAME:\$USER_NAME" "/home/\$USER_NAME"' "$entrypoint"
+assert_true "home ownership uses the targeted helper" grep -Fq 'fix_ownership "/home/$USER_NAME"' "$entrypoint"
+assert_false "no recursive chown anywhere in the entrypoint (volumes included)" \
+    bash -c "grep -v '^[[:space:]]*#' '$entrypoint' | grep -q 'chown -R'"
+
+# Readiness: a partial tool install keeps the container up in a degraded
+# state (working tools stay usable); only a missing install is fatal.
+ready="$TMP_DIR/ai-docker-ready"
+for state in ok legacy partial; do
+    rm -f "$ready"
+    assert_true "install state '$state' is ready" write_ready_marker "$state" "$ready"
+    assert_true "marker records install state '$state'" grep -Fxq "INSTALL_STATUS=$state" "$ready"
+    assert_true "marker records entrypoint ok for '$state'" grep -Fxq "ENTRYPOINT=ok" "$ready"
+done
+rm -f "$ready"
+assert_false "missing install is fatal" write_ready_marker missing "$ready"
+assert_false "no marker written for a fatal state" test -e "$ready"
+assert_false "unknown state is fatal" write_ready_marker bogus "$ready"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

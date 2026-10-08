@@ -12,11 +12,13 @@
 #   powershell ... -File uninstall.ps1 -RemoveVolumes                      # also delete auth/data volumes
 #   powershell ... -File uninstall.ps1 -RemoveVolumes -RemoveAppData       # full uninstall
 #   powershell ... -File uninstall.ps1 -Force                              # skip confirmation prompts
+#   powershell ... -File uninstall.ps1 -SkipRescueCheck                    # don't stop if work can't be checked
 
 param(
     [switch]$RemoveVolumes,   # Also remove named volumes (Claude auth, tool auth, etc.)
     [switch]$RemoveAppData,   # Also remove %LOCALAPPDATA%\AI-Docker-CLI (logs, extracted files, .env)
-    [switch]$Force            # Skip confirmation prompts (for scripted use)
+    [switch]$Force,           # Skip confirmation prompts (for scripted use)
+    [switch]$SkipRescueCheck  # Remove the container even if work in it cannot be checked
 )
 
 $ErrorActionPreference = 'Continue'
@@ -62,7 +64,7 @@ if (-not $dockerCmd) {
         Write-Host "  - Docker container 'ai-cli'" -ForegroundColor Yellow
         Write-Host "  - Docker image 'ai-docker-cli' (and legacy-named images)" -ForegroundColor Yellow
         if ($RemoveVolumes) {
-            Write-Host "  - Named volumes (Claude auth, tool auth, router data, Vibe Kanban data, SSH keys)" -ForegroundColor Red
+            Write-Host "  - Named volumes (Claude auth, tool auth, router data, Vibe Kanban data, SSH keys, update records)" -ForegroundColor Red
         } else {
             Write-Host "  (Named volumes with your Claude auth and tool data are KEPT)" -ForegroundColor Green
         }
@@ -73,6 +75,56 @@ if (-not $dockerCmd) {
             Write-Host "[INFO] Uninstall cancelled." -ForegroundColor Cyan
             Write-AppLog "Uninstall cancelled by user" "INFO"
             exit 2
+        }
+    }
+
+    # ---------- rescue work outside the preserved folders ----------
+    # Removing the container deletes /tmp and the home folder outside the named
+    # volumes. Offer to copy anything found there into AI_Work first.
+    $scannerDir = $PSScriptRoot
+    if (-not (Test-Path (Join-Path $scannerDir 'ai_docker.sh'))) {
+        $scannerDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'docker'
+    }
+    if (-not (Get-Command Get-RescueDecision -ErrorAction SilentlyContinue)) {
+        if ($SkipRescueCheck) {
+            Write-Host "[WARN] Rescue check unavailable - continuing because -SkipRescueCheck was given." -ForegroundColor Yellow
+        } else {
+            Write-Host "[ERROR] The rescue check is unavailable (docker_helpers.ps1 not found), so unsaved work in the container cannot be checked. Uninstall stopped; nothing was removed. Re-run with -SkipRescueCheck to remove it anyway." -ForegroundColor Red
+            Write-AppLog "Uninstall aborted: rescue check unavailable" "ERROR"
+            exit 1
+        }
+    } else {
+        $scan = Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath $dockerCmd
+        $decision = Get-RescueDecision -State $scan.State -SkipRescueCheck:$SkipRescueCheck
+        if ($decision -eq 'OfferCopy') {
+            Write-Host $scan.Output -ForegroundColor Yellow
+            $copyIt = $true
+            if (-not $Force) {
+                $copyAnswer = Read-Host "Copy these into your AI_Work folder before uninstalling? (Y/n)"
+                $copyIt = ($copyAnswer -notmatch '^[Nn]')
+            }
+            if ($copyIt) {
+                $copy = Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath $dockerCmd -Copy
+                if ($copy.State -ne 'Copied') {
+                    Write-Host $copy.Output -ForegroundColor Red
+                    Write-Host "[ERROR] Copy failed - uninstall stopped. Nothing was removed." -ForegroundColor Red
+                    Write-AppLog "Uninstall aborted: rescue copy failed ($($copy.State))" "ERROR"
+                    exit 1
+                }
+                Write-Host $copy.Output -ForegroundColor Green
+            } else {
+                Write-AppLog "User chose to uninstall without rescuing work found by the scan" "WARN"
+            }
+        } elseif ($decision -eq 'Stop') {
+            # Never delete what we could not check - not even with -Force.
+            Write-Host "[ERROR] Could not confirm the container is safe to remove (state: $($scan.State)). $($scan.Error)" -ForegroundColor Red
+            if ($scan.Output) { Write-Host $scan.Output -ForegroundColor Red }
+            Write-Host "[INFO] Uninstall stopped. Nothing was removed. Fix the problem, or re-run with -SkipRescueCheck to remove the container anyway." -ForegroundColor Cyan
+            Write-AppLog "Uninstall aborted: rescue check state $($scan.State)" "ERROR"
+            exit 1
+        } elseif ($scan.State -ne 'Clean' -and $scan.State -ne 'NoContainer') {
+            Write-Host "[WARN] -SkipRescueCheck given - removing without a successful check (state: $($scan.State))." -ForegroundColor Yellow
+            Write-AppLog "Uninstall continuing without a successful rescue check (-SkipRescueCheck, state $($scan.State))" "WARN"
         }
     }
 
@@ -105,7 +157,7 @@ if (-not $dockerCmd) {
         Write-Host "[STEP] Removing named volumes..." -ForegroundColor Cyan
         # Volumes are prefixed with the compose project name. Cover the fixed
         # project name ('ai-docker') plus legacy folder-derived prefixes.
-        $volumeSuffixes = @('claude-config', 'vibe-kanban-data', 'ssh-keys', 'tool-auth', 'router-data')
+        $volumeSuffixes = @('claude-config', 'vibe-kanban-data', 'ssh-keys', 'tool-auth', 'router-data', 'ai-docker-state')
         $projectPrefixes = @('ai-docker', 'docker-files', 'docker')
         $allVolumes = & $dockerCmd volume ls --format "{{.Name}}" 2>$null
         foreach ($vol in $allVolumes) {

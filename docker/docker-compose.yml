@@ -18,6 +18,10 @@ services:
     # Fixed image name - referenced by the setup wizard and launchers
     image: ai-docker-cli:latest
     container_name: ai-cli
+    # Come back after a reboot or Docker Desktop restart without opening the
+    # launcher (needs Docker Desktop's "Start when you sign in" setting).
+    # A container stopped on purpose stays stopped.
+    restart: unless-stopped
     # Codex runs bubblewrap inside this development container. Docker's default
     # seccomp profile blocks the unprivileged namespace creation bwrap needs;
     # capabilities remain restricted and bwrap applies the inner sandbox.
@@ -33,6 +37,9 @@ services:
       # Set ENABLE_MOBILE_ACCESS=1 AND include docker-compose.mobile.yml to enable
       # remote access from mobile devices (the override file publishes the ports)
       ENABLE_MOBILE_ACCESS: ${ENABLE_MOBILE_ACCESS:-0}
+      # Run the tool updater in the background after each start (it still
+      # only acts when the last check is 7+ days old). 0 disables it.
+      AI_DOCKER_STARTUP_UPDATE: ${AI_DOCKER_STARTUP_UPDATE:-1}
       SSH_PORT: ${SSH_PORT:-2222}
       MOSH_PORT_START: ${MOSH_PORT_START:-60001}
       MOSH_PORT_END: ${MOSH_PORT_END:-60005}
@@ -78,6 +85,8 @@ services:
       - tool-auth:/home/${USER_NAME}/.tool-auth
       # AI router data persistence (9router / OmniRoute SQLite DB + linked provider credentials)
       - router-data:/home/${USER_NAME}/.router-data
+      # Update status records and version snapshots (survive container recreates)
+      - ai-docker-state:/home/${USER_NAME}/.ai-docker
     tty: true
     stdin_open: true
     healthcheck:
@@ -89,7 +98,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          # The wizard saves the chosen WSL memory budget; 4G is the manual-run fallback.
+          memory: '${AI_DOCKER_MEMORY_LIMIT:-4G}'
           # 2.0 is a safe floor for 2-core hosts and CI runners. The setup wizard
           # writes AI_DOCKER_CPU_LIMIT into docker/.env sized to the chosen WSL
           # profile (Light=2, Standard=4, Heavy=6, capped by real cores), so real
@@ -113,4 +123,6 @@ volumes:
   tool-auth:
     driver: local
   router-data:
+    driver: local
+  ai-docker-state:
     driver: local

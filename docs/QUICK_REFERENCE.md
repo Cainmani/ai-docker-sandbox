@@ -36,6 +36,10 @@
 | Command | Description |
 |---------|-------------|
 | `claude` | Start Claude CLI |
+| `ai-docker status` | Health check: tools, last update, disk use, container limits |
+| `ai-docker doctor` | Network, DNS and login diagnostics |
+| `ai-docker cleanup` | Preview disposable data; `--apply` asks before deleting caches and old tool versions (clones, virtualenvs and scratch folders are only listed) |
+| `ai-docker rescue-scan` | List work a rebuild would delete (`--copy` saves it to AI_Work) |
 | `pwd` | Show current directory |
 | `ls` | List files |
 | `cd /workspace` | Go to workspace root |
@@ -79,6 +83,7 @@ Files sync automatically both ways! Edit from Windows or from Claude - changes a
 | Problem | Solution |
 |---------|----------|
 | "Docker is not running" | Start Docker Desktop, wait for green icon, retry |
+| Banner says `ATTENTION` | Run `ai-docker status` - it lists what is wrong and what to run |
 | "container does not exist" | Run First Time Setup first |
 | "claude: command not found" | Re-run First Time Setup |
 | "Permission denied" | Use `sudo` command (your password from setup) |

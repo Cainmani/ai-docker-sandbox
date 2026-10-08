@@ -62,7 +62,7 @@ function Fix-LineEndings {
 
     # Docker files location - detect if running from embedded exe or project directory
     $dockerPath = Resolve-DockerFilesPath -ScriptPath $scriptPath
-    $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
+    $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
     $fixed = $false
 
     foreach ($file in $files) {
@@ -260,4 +260,52 @@ function New-SecurePasswordFile {
 
     Write-Host "[SECURITY] Password file created at: $passwordFile" -ForegroundColor Green
     return $passwordFile
+}
+
+# Incremental container-log reading for the setup wizard's live output.
+# `docker logs --timestamps` prefixes each line with a fixed-width RFC3339Nano
+# timestamp, so a cursor of the last timestamp shown never skips or repeats
+# output, however long the log grows (a line count inside a sliding
+# `--tail 100` window did both).
+function Get-ContainerLogArgs {
+    param([string]$Cursor = '', [string]$ContainerName = 'ai-cli')
+    if ($Cursor) {
+        return @('logs', '--timestamps', '--since', $Cursor, $ContainerName)
+    }
+    return @('logs', '--timestamps', '--tail', '200', $ContainerName)
+}
+
+# Returns @{ Lines = new message lines (timestamps removed); Cursor = newest
+# timestamp; SeenAtCursor = how many lines carrying that timestamp have been
+# shown }. `docker logs --since` is inclusive and several lines can share one
+# timestamp, so the count is what lets a later batch skip exactly the lines
+# already shown at the cursor and keep any new ones.
+function Select-NewLogLines {
+    param([string[]]$Lines = @(), [string]$Cursor = '', [int]$SeenAtCursor = 0)
+    $newLines = New-Object System.Collections.Generic.List[string]
+    $newest = $Cursor
+    $seenAtNewest = $SeenAtCursor
+    $atCursor = 0
+    foreach ($line in $Lines) {
+        if ($line -notmatch '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)\s?(.*)$') { continue }
+        $stamp = $Matches[1]
+        $message = $Matches[3].TrimEnd("`r")
+        if ($Cursor) {
+            $order = [string]::CompareOrdinal($stamp, $Cursor)
+            if ($order -lt 0) { continue }
+            if ($order -eq 0) {
+                $atCursor++
+                if ($atCursor -le $SeenAtCursor) { continue }
+            }
+        }
+        $newLines.Add($message)
+        $cmp = [string]::CompareOrdinal($stamp, $newest)
+        if (-not $newest -or $cmp -gt 0) {
+            $newest = $stamp
+            $seenAtNewest = 1
+        } elseif ($cmp -eq 0) {
+            $seenAtNewest++
+        }
+    }
+    return @{ Lines = $newLines.ToArray(); Cursor = $newest; SeenAtCursor = $seenAtNewest }
 }

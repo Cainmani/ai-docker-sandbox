@@ -66,7 +66,7 @@ $containerStatus = & $dockerPath ps --filter "name=ai-cli" --format "{{.Names}}"
 if ($containerStatus -ne "ai-cli") {
     Write-AppLog "Container is not running - starting..." "INFO"
     Start-Process -FilePath $dockerPath -ArgumentList "start","ai-cli" -WindowStyle Hidden -Wait | Out-Null
-    if (-not (Wait-ContainerReady -DockerPath $dockerPath -TimeoutSeconds 60)) {
+    if (-not (Wait-ContainerReady -DockerPath $dockerPath -TimeoutSeconds 60 -AllowDegraded)) {
         Write-AppLog "ERROR: Container did not become ready" "ERROR"
         ShowMsg "The ai-cli container did not become ready in time.`n`nCheck Docker Desktop and try again." 'Error'
         exit 1

@@ -93,7 +93,7 @@ The wizard will guide you through 7 pages:
 - Click **Next**
 
 #### Page 6: Installing Claude CLI
-- The wizard installs Claude Code CLI via npm
+- The wizard installs Claude Code with Anthropic's native installer (it then keeps itself up to date)
 - **This takes 1-2 minutes**
 - Wait for "Installation complete" message
 - Click **Next**
