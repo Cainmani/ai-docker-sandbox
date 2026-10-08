@@ -268,6 +268,18 @@ rescue_find() {
         -o \( -type f \( "${docs[@]}" \) -printf 'doc:%p\0' \) 2>/dev/null
 }
 
+# rescue_repo_docs <repo>: document files in the working tree (relative paths),
+# skipping .git and dependency/cache folders.
+rescue_repo_docs() {
+    local repo="$1" name ext
+    local -a prune=(-name .git -o) docs=()
+    for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
+    unset 'prune[${#prune[@]}-1]'
+    for ext in $RESCUE_DOC_EXTS; do docs+=(-iname "*.$ext" -o); done
+    unset 'docs[${#docs[@]}-1]'
+    ( cd "$repo" && find . -mindepth 1 \( \( "${prune[@]}" \) -prune \) -o \( -type f \( "${docs[@]}" \) -print \) 2>/dev/null | sed 's|^\./||' )
+}
+
 # rescue_repo_reasons <repo>: comma-separated reasons the repo holds work only
 # here; empty if it is clean, stash-free and fully pushed.
 rescue_repo_reasons() {
@@ -279,9 +291,15 @@ rescue_repo_reasons() {
     if [ -z "$(git -C "$repo" remote 2>/dev/null)" ]; then
         reasons+=("no remote")
     else
-        n=$(git -C "$repo" rev-list --count HEAD --not --remotes 2>/dev/null || echo 0)
+        # Every local branch, not just the checked-out one.
+        n=$(git -C "$repo" rev-list --count HEAD --branches --not --remotes 2>/dev/null || echo 0)
         [ "$n" -gt 0 ] && reasons+=("$n unpushed commit(s)")
     fi
+    # Deliverables hidden by .gitignore (build output, exports) are not in the
+    # remote either. Ask git about document files only: listing every ignored
+    # file would walk node_modules and friends.
+    n=$(rescue_repo_docs "$repo" | git -C "$repo" check-ignore --stdin 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] && reasons+=("$n ignored document(s)")
     local IFS=','
     echo "${reasons[*]}"
 }
@@ -386,7 +404,47 @@ rescue_copy() {
             | xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
         ( cd "$dest" && sha256sum --quiet -c "$dest/.verify.$$" ) >/dev/null 2>&1 || { rm -f "$dest/.verify.$$"; return 1; }
         rm -f "$dest/.verify.$$"
+        if [ -e "$path/.git" ]; then
+            rescue_make_standalone "$path" "$dest$path" || return 1
+            rescue_verify_repo "$path" "$dest$path" || return 1
+        fi
     done
+}
+
+# rescue_make_standalone <source repo> <copy>: a worktree's .git is a file that
+# points at the original repository, which a rebuild may delete. Rebuild the
+# copy as an independent repository from a bundle of every ref.
+rescue_make_standalone() {
+    local src="$1" copy="$2" bundle head remote
+    [ -f "$copy/.git" ] || return 0
+    bundle=$(mktemp) || return 1
+    git -C "$src" bundle create "$bundle" --all >/dev/null 2>&1 || { rm -f "$bundle"; return 1; }
+    rm -f "$copy/.git"
+    git -C "$copy" init -q >/dev/null 2>&1 \
+        && git -C "$copy" fetch -q --update-head-ok "$bundle" 'refs/*:refs/*' >/dev/null 2>&1 \
+        || { rm -f "$bundle"; return 1; }
+    rm -f "$bundle"
+    for remote in $(git -C "$src" remote 2>/dev/null); do
+        git -C "$copy" remote add "$remote" "$(git -C "$src" remote get-url "$remote")" 2>/dev/null || true
+    done
+    if head=$(git -C "$src" symbolic-ref -q HEAD); then
+        git -C "$copy" symbolic-ref HEAD "$head"
+    else
+        git -C "$copy" update-ref --no-deref HEAD "$(git -C "$src" rev-parse HEAD)"
+    fi
+    # Rebuild the index from HEAD; the working tree files are already in place.
+    git -C "$copy" reset -q >/dev/null 2>&1
+}
+
+# rescue_verify_repo <source repo> <copy>: the copy must work on its own and
+# match the original's HEAD and tracked changes - checksums alone cannot tell.
+# (Untracked files are covered by the checksum step; dependency folders are
+# deliberately not copied, so they are left out of this comparison.)
+rescue_verify_repo() {
+    local src="$1" copy="$2"
+    [ "$(git -C "$copy" rev-parse HEAD 2>/dev/null)" = "$(git -C "$src" rev-parse HEAD 2>/dev/null)" ] || return 1
+    [ "$(git -C "$copy" status --porcelain --untracked-files=no 2>/dev/null | sort)" \
+        = "$(git -C "$src" status --porcelain --untracked-files=no 2>/dev/null | sort)" ] || return 1
 }
 
 cmd_rescue_scan() {
@@ -424,9 +482,10 @@ cmd_rescue_scan() {
 CLEANUP_AGE_DAYS="${AI_DOCKER_CLEANUP_AGE_DAYS:-3}"
 
 # recently_used <dir>: any file in it modified within CLEANUP_AGE_DAYS.
-# .git internals are ignored: merely checking a repo (git status) rewrites its index.
+# Directory timestamps are ignored (deleting a sub-folder bumps them; a new
+# file is still caught), and so are .git internals (git status rewrites the index).
 recently_used() {
-    [ -n "$(find "$1" -name .git -prune -o -newermt "-$CLEANUP_AGE_DAYS days" -print -quit 2>/dev/null)" ]
+    [ -n "$(find "$1" -name .git -prune -o ! -type d -newermt "-$CLEANUP_AGE_DAYS days" -print -quit 2>/dev/null)" ]
 }
 
 # in_use_by_process <dir>: some process has its working directory inside it.
@@ -458,6 +517,28 @@ kb_of_list() {
 }
 kb_phrase() { human_bytes $(( $1 * 1024 )); }
 
+# rebuildable_dirs_in <dir>: outermost dependency/cache folders and virtualenvs
+# (a pyvenv.cfg marks one, whatever its name) below <dir>, one per line.
+rebuildable_dirs_in() {
+    local name
+    local -a names=()
+    for name in $RESCUE_SKIP_DIRS; do names+=(-name "$name" -o); done
+    unset 'names[${#names[@]}-1]'
+    {
+        find "$1" -mindepth 1 -type d \( "${names[@]}" \) -prune -print 2>/dev/null
+        find "$1" -mindepth 2 -name pyvenv.cfg -printf '%h\n' 2>/dev/null
+    } | sort -u | awk 'NR == 1 || index($0, prev "/") != 1 { print; prev = $0 }'
+}
+
+# scratch_session_of <path>: the agent scratch folder (two levels below
+# claude-<uid>) that contains <path>.
+scratch_session_of() {
+    local base rel
+    base="$TMP_ROOT/claude-$(id -u)"
+    rel=${1#"$base"/}
+    echo "$base/$(printf '%s' "$rel" | cut -d/ -f1-2)"
+}
+
 # Groups: parallel arrays. KIND is "cmd" (run CMD) or "paths" (delete ITEMS).
 cleanup_add_group() {
     G_LABEL+=("$1"); G_DEFAULT+=("$2"); G_KIND+=("$3"); G_CMD+=("$4"); G_ITEMS+=("$5"); G_KB+=("$6")
@@ -465,7 +546,6 @@ cleanup_add_group() {
 
 cleanup_collect() {
     G_LABEL=(); G_DEFAULT=(); G_KIND=(); G_CMD=(); G_ITEMS=(); G_KB=()
-    KEPT_COUNT=0; KEPT_KB=0
     local items dir name current prev builds keep path
 
     [ -d "$HOME/.npm/_cacache" ] && \
@@ -497,20 +577,19 @@ cleanup_collect() {
         [ -n "$items" ] && cleanup_add_group "Playwright browser builds ($(printf '%s\n' "$items" | wc -l) older)" n paths "" "$items" "$(kb_of_list "$items")"
     fi
 
-    # Agent scratch folders unused for CLEANUP_AGE_DAYS; never ones holding work.
+    # Rebuildable folders (virtualenvs, node_modules, caches) inside agent
+    # scratch folders unused for CLEANUP_AGE_DAYS. The scratch folders
+    # themselves, and every other file in them, are never deleted: age alone
+    # does not make hand-made work rebuildable.
     items=""
-    while IFS= read -r path; do
-        [ -n "$path" ] || continue
-        recently_used "$path" && continue
-        in_use_by_process "$path" && continue
-        if holds_work "$path"; then
-            KEPT_COUNT=$((KEPT_COUNT + 1)); KEPT_KB=$((KEPT_KB + $(kb_of "$path"))); continue
-        fi
-        items+="$path"$'\n'
-    done < <(find "$TMP_ROOT/claude-$(id -u)" -mindepth 2 -maxdepth 2 -type d \
-                ! -name bundled-skills ! -path '*/bundled-skills' 2>/dev/null)
+    while IFS= read -r session; do
+        [ -n "$session" ] || continue
+        recently_used "$session" && continue
+        in_use_by_process "$session" && continue
+        items+=$(rebuildable_dirs_in "$session")$'\n'
+    done < <(find "$TMP_ROOT/claude-$(id -u)" -mindepth 2 -maxdepth 2 -type d ! -name bundled-skills 2>/dev/null)
     items=$(printf '%s' "$items" | sed '/^$/d')
-    [ -n "$items" ] && cleanup_add_group "Agent scratch folders ($(printf '%s\n' "$items" | wc -l) unused for ${CLEANUP_AGE_DAYS}+ days)" n paths "" "$items" "$(kb_of_list "$items")"
+    [ -n "$items" ] && cleanup_add_group "Rebuildable folders in agent scratch ($(printf '%s\n' "$items" | wc -l), unused ${CLEANUP_AGE_DAYS}+ days)" n paths "" "$items" "$(kb_of_list "$items")"
 
     # Temporary virtualenvs (a pyvenv.cfg marks one), wherever they sit in /tmp.
     items=""
@@ -519,7 +598,7 @@ cleanup_collect() {
         recently_used "$path" && continue
         in_use_by_process "$path" && continue
         items+="$path"$'\n'
-    done < <(find "$TMP_ROOT" -mindepth 2 -maxdepth 5 -name pyvenv.cfg 2>/dev/null)
+    done < <(find "$TMP_ROOT" -mindepth 2 -maxdepth 5 -path "$TMP_ROOT/claude-*" -prune -o -name pyvenv.cfg -print 2>/dev/null)
     items=$(printf '%s' "$items" | sed '/^$/d')
     [ -n "$items" ] && cleanup_add_group "Temporary virtualenvs ($(printf '%s\n' "$items" | wc -l))" n paths "" "$items" "$(kb_of_list "$items")"
 
@@ -545,10 +624,8 @@ cleanup_preview() {
         printf '  %s %-52s %s\n' "$mark" "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")"
     done
     [ "${#G_LABEL[@]}" -gt 0 ] || echo "  Nothing disposable found."
-    if [ "$KEPT_COUNT" -gt 0 ]; then
-        echo ""
-        echo "  Kept (contains work): $KEPT_COUNT scratch folder(s), $(kb_phrase "$KEPT_KB") - copy them out with: ai-docker rescue-scan --copy"
-    fi
+    echo ""
+    echo "  Note: agent scratch folders themselves are never deleted - only rebuildable folders inside old ones."
     echo ""
     echo "[x] = suggested. Freeing space inside Linux does not shrink the Windows disk file until it is compacted."
 }
@@ -559,6 +636,17 @@ cleanup_still_safe() {
     [ -e "$path" ] || return 1
     case "$label" in
         "Claude Code versions"*|"Playwright browser builds"*) return 0 ;;
+        "Rebuildable folders in agent scratch"*)
+            # Rebuildable by definition; what matters is whether the scratch
+            # folder around it has been used since the preview.
+            local session
+            session=$(scratch_session_of "$path")
+            if recently_used "$session" || in_use_by_process "$session"; then
+                echo "  Skipped $path: changed since the preview"
+                return 1
+            fi
+            return 0
+            ;;
     esac
     if recently_used "$path" || in_use_by_process "$path" || holds_work "$path"; then
         echo "  Skipped $path: changed since the preview"
@@ -581,7 +669,12 @@ cmd_cleanup() {
         if [ "${G_DEFAULT[$i]}" = y ]; then prompt="[Y/n]"; else prompt="[y/N]"; fi
         printf 'Delete %s (%s)? %s ' "${G_LABEL[$i]}" "$(kb_phrase "${G_KB[$i]}")" "$prompt"
         answer=""
-        read -r answer || true
+        if ! read -r answer; then
+            # Closed or interrupted input is never a "yes".
+            echo ""
+            echo "Input ended - stopping; nothing more will be deleted."
+            break
+        fi
         echo ""
         answer=${answer:-${G_DEFAULT[$i]}}
         case "$answer" in [Yy]*) ;; *) continue ;; esac

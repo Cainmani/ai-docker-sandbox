@@ -134,6 +134,43 @@ run_scan --copy
 dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
 [ -e "$dest$AI_DOCKER_TMP_DIR/note2.md" ] && pass "summarised loose files are still copied" || fail "summarised loose files are still copied"
 
+# Review regression: work that a HEAD-only, ignore-blind check missed.
+setup_case
+clone_to "$HOME/src/ignoredpdf"
+printf 'out/\nnode_modules/\n' > "$HOME/src/ignoredpdf/.gitignore"
+git -C "$HOME/src/ignoredpdf" add .gitignore && git -C "$HOME/src/ignoredpdf" commit -qm ignore && git -C "$HOME/src/ignoredpdf" push -q origin HEAD 2>/dev/null
+mkdir -p "$HOME/src/ignoredpdf/out"; head -c 600 /dev/urandom > "$HOME/src/ignoredpdf/out/deliverable.pdf"
+mkdir -p "$HOME/src/ignoredpdf/node_modules/x"; : > "$HOME/src/ignoredpdf/node_modules/x/readme.pdf"
+run_scan
+assert_eq "ignored deliverable in a pushed repo is found" 3 "$RUN_RC"
+assert_contains "ignored deliverable reason" "$RUN_OUTPUT" "ignored document"
+
+setup_case
+clone_to "$HOME/src/sidebranch"
+git -C "$HOME/src/sidebranch" checkout -qb experiment
+echo idea >> "$HOME/src/sidebranch/README"; git -C "$HOME/src/sidebranch" commit -qam idea
+git -C "$HOME/src/sidebranch" checkout -q -
+run_scan
+assert_eq "unpushed commit on another branch is found" 3 "$RUN_RC"
+assert_contains "other-branch commits are counted" "$RUN_OUTPUT" "src/sidebranch"
+
+# Review regression: a rescued worktree must work without the original repo.
+setup_case
+git clone -q "$CASE_DIR/remote.git" "$CASE_DIR/elsewhere/main" 2>/dev/null
+git -C "$CASE_DIR/elsewhere/main" worktree add -q -b wtbranch "$HOME/src/wt" 2>/dev/null
+echo wip >> "$HOME/src/wt/README"; git -C "$HOME/src/wt" commit -qam "worktree-only commit"
+echo uncommitted >> "$HOME/src/wt/README"
+src_head=$(git -C "$HOME/src/wt" rev-parse HEAD)
+run_scan --copy
+assert_eq "worktree rescue succeeds" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+rm -rf "$CASE_DIR/elsewhere"
+assert_eq "rescued worktree keeps its HEAD without the original repo" "$src_head" "$(git -C "$dest$HOME/src/wt" rev-parse HEAD 2>/dev/null)"
+assert_contains "rescued worktree keeps its unpushed commit" "$(git -C "$dest$HOME/src/wt" log --format=%s 2>/dev/null)" "worktree-only commit"
+assert_eq "rescued worktree is on its branch" "wtbranch" "$(git -C "$dest$HOME/src/wt" symbolic-ref --short HEAD 2>/dev/null)"
+assert_contains "rescued worktree keeps its uncommitted change" "$(git -C "$dest$HOME/src/wt" status --porcelain 2>/dev/null)" "README"
+[ -d "$dest$HOME/src/wt/.git" ] && pass "rescued worktree is a standalone repository" || fail "rescued worktree is a standalone repository"
+
 # Documents inside a repo are judged by the repo, not listed on their own.
 setup_case
 clone_to "$HOME/src/withdocs"

@@ -68,8 +68,12 @@ SCRIPT
 
     # Agent scratch sessions.
     sdir="$AI_DOCKER_TMP_DIR/claude-$uid/-workspace"
-    mkdir -p "$sdir/old-session/scratchpad" "$sdir/recent-session/scratchpad" "$sdir/old-with-work/scratchpad"
-    head -c 2048 /dev/zero > "$sdir/old-session/scratchpad/venv.tar"
+    mkdir -p "$sdir/old-session/scratchpad/.venv/lib" "$sdir/old-session/scratchpad/web/node_modules/pkg" \
+        "$sdir/recent-session/scratchpad/.venv" "$sdir/old-with-work/scratchpad"
+    head -c 2048 /dev/zero > "$sdir/old-session/scratchpad/.venv/lib/blob"
+    head -c 2048 /dev/zero > "$sdir/old-session/scratchpad/web/node_modules/pkg/index.js"
+    # Review regression: source files with no "document" extension are work too.
+    echo 'print(1)' > "$sdir/old-session/scratchpad/analysis.py"
     : > "$sdir/recent-session/scratchpad/x"
     : > "$sdir/old-with-work/scratchpad/handoff.pdf"
     age "$sdir/old-session" 10; age "$sdir/old-with-work" 10
@@ -84,7 +88,12 @@ SCRIPT
     git -C "$HOME/src/clean-old" push -q origin HEAD 2>/dev/null
     git clone -q "$CASE_DIR/remote.git" "$HOME/src/dirty" 2>/dev/null
     echo change > "$HOME/src/dirty/f"
-    age "$HOME/src/clean-old" 10; age "$HOME/src/dirty" 10
+    # Review regression: unpushed work on a non-checked-out branch.
+    git clone -q "$CASE_DIR/remote.git" "$HOME/src/sidebranch" 2>/dev/null
+    git -C "$HOME/src/sidebranch" checkout -qb experiment
+    echo idea > "$HOME/src/sidebranch/g"; git -C "$HOME/src/sidebranch" add g; git -C "$HOME/src/sidebranch" commit -qm idea
+    git -C "$HOME/src/sidebranch" checkout -q -
+    age "$HOME/src/clean-old" 10; age "$HOME/src/dirty" 10; age "$HOME/src/sidebranch" 10
 
     chmod +x "$CASE_DIR/bin/"*
     export PATH="$CASE_DIR/bin:/usr/bin:/bin"
@@ -107,12 +116,12 @@ assert_contains "preview lists the npm cache" "$RUN_OUTPUT" "npm download cache"
 assert_contains "caches are pre-selected" "$RUN_OUTPUT" "[x] npm download cache"
 assert_contains "old Claude Code versions are pre-selected" "$RUN_OUTPUT" "[x] Claude Code versions"
 assert_contains "Playwright builds are offered unticked" "$RUN_OUTPUT" "[ ] Playwright browser builds"
-assert_contains "scratch dirs are offered unticked" "$RUN_OUTPUT" "[ ] Agent scratch folders"
+assert_contains "rebuildable folders in scratch are offered unticked" "$RUN_OUTPUT" "[ ] Rebuildable folders in agent scratch"
 assert_contains "temp virtualenvs are offered unticked" "$RUN_OUTPUT" "[ ] Temporary virtualenvs"
 assert_contains "pushed clones are offered unticked" "$RUN_OUTPUT" "[ ] Clean, pushed clones in ~/src"
 assert_contains "sizes are estimates" "$RUN_OUTPUT" "estimated"
 assert_contains "compaction caveat is stated" "$RUN_OUTPUT" "does not shrink the Windows disk file"
-assert_contains "kept items holding work are explained" "$RUN_OUTPUT" "Kept (contains work)"
+assert_contains "scratch folders themselves are never offered" "$RUN_OUTPUT" "agent scratch folders themselves are never deleted"
 assert_contains "preview says how to apply" "$RUN_OUTPUT" "ai-docker cleanup --apply"
 assert_exists "preview removes nothing" "$HOME/.npm/_cacache/blob"
 if grep -q 'cache' "$FAKE_LOG"; then fail "preview runs no cache command"; else pass "preview runs no cache command"; fi
@@ -128,7 +137,7 @@ assert_gone "oldest Claude Code version removed" "$HOME/.local/share/claude/vers
 assert_exists "previous Claude Code version kept" "$HOME/.local/share/claude/versions/2.1.2"
 assert_exists "current Claude Code version kept" "$HOME/.local/share/claude/versions/2.1.3"
 assert_exists "unticked Playwright build kept" "$HOME/.cache/ms-playwright/chromium-1208"
-assert_exists "unticked scratch kept" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session"
+assert_exists "unticked scratch venv kept" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
 assert_exists "unticked venv kept" "$AI_DOCKER_TMP_DIR/oldvenv"
 assert_exists "unticked clone kept" "$HOME/src/clean-old"
 assert_contains "freed space is reported as an estimate" "$RUN_OUTPUT" "Freed about"
@@ -138,12 +147,15 @@ setup_case
 run_cleanup "y\ny\ny\ny\ny\ny\ny\ny\n" --apply
 assert_gone "opted-in Playwright build removed" "$HOME/.cache/ms-playwright/chromium-1208"
 assert_exists "newest Playwright build kept" "$HOME/.cache/ms-playwright/chromium-1234"
-assert_gone "opted-in old scratch removed" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session"
-assert_exists "recently used scratch never offered" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/recent-session"
+assert_gone "opted-in virtualenv inside old scratch removed" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
+assert_gone "opted-in node_modules inside old scratch removed" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/web/node_modules"
+assert_exists "source file in old scratch is never deleted" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/analysis.py"
+assert_exists "recently used scratch is left alone" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/recent-session/scratchpad/.venv"
 assert_exists "scratch holding a document never offered" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-with-work/scratchpad/handoff.pdf"
 assert_gone "opted-in temp venv removed" "$AI_DOCKER_TMP_DIR/oldvenv"
 assert_gone "opted-in pushed clone removed" "$HOME/src/clean-old"
 assert_exists "dirty clone never offered" "$HOME/src/dirty/f"
+assert_exists "clone with an unpushed side branch never offered" "$HOME/src/sidebranch/.git"
 
 # --- re-check right before deleting ------------------------------------------------
 # Something written into an offered item after the preview makes it "in use".
@@ -163,6 +175,14 @@ exec 7>&-
 wait "$cpid"
 assert_exists "item changed after the preview is skipped" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/new-output.md"
 assert_contains "skip is reported" "$(cat "$out")" "changed since the preview"
+assert_exists "item in a scratch folder used after the preview is kept" "$AI_DOCKER_TMP_DIR/claude-$uid/-workspace/old-session/scratchpad/.venv"
+
+# Review regression: closed input must never count as a yes.
+setup_case
+set +e; RUN_OUTPUT=$(bash "$ROOT_DIR/docker/ai_docker.sh" cleanup --apply < /dev/null 2>&1); set -u
+assert_exists "no input deletes nothing (even suggested groups)" "$HOME/.local/share/claude/versions/2.1.1"
+if grep -q 'cache' "$FAKE_LOG"; then fail "no input runs no cache command"; else pass "no input runs no cache command"; fi
+assert_contains "closed input is reported" "$RUN_OUTPUT" "Input ended"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
