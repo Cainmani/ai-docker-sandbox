@@ -138,6 +138,46 @@ HOST=0.0.0.0 PORT=3000 vibe-kanban
 - Gemini CLI (gemini)
 - GitHub CLI (gh)
 
+## Health, Rescue and Cleanup
+
+### `ai-docker status`
+
+A one-line summary appears every time a terminal opens, for example:
+
+```
+AI Docker 1.6.0 - tools OK - updates checked 2 days ago - Docker disk 22 GB used
+AI Docker 1.6.0: ATTENTION - last update failed (pip) 1 day ago - run: ai-docker status
+```
+
+`ai-docker status` shows the details: each tool's version, the last update's result and failed stages, disk use, and the container's memory and CPU limits, with the command that fixes each problem. `ai-docker doctor` checks network, DNS and logins.
+
+### Before a rebuild: `ai-docker rescue-scan`
+
+A rebuild, recreate or uninstall replaces the container's own disk: `/tmp`, `~/src` and the rest of the home folder. Your AI_Work folder and the named volumes (logins, Claude memory, SSH keys, router data) are kept.
+
+`ai-docker rescue-scan` lists what would be lost: git repos with uncommitted, stashed, ignored or unpushed work (any branch or tag) or no remote, and any other file outside dependency folders. `ai-docker rescue-scan --copy` copies it into `AI_Work\_rescued\<date>_container_rescue_vX_XX`, verifies every file, and makes rescued repos independent of the originals. The setup wizard and uninstall run this check automatically before they remove or recreate the container; if the check fails or cannot read something, they stop rather than delete.
+
+### `ai-docker cleanup`
+
+`ai-docker cleanup` shows what can be removed and how much space it would free (estimates). `ai-docker cleanup --apply` asks group by group:
+
+| Group | Default |
+|---|---|
+| npm and pip download caches | suggested |
+| Old Claude Code versions (current and newest other kept) | suggested |
+| Older Playwright browser builds | opt-in (a project may need one) |
+| Clones in `~/src`, temporary virtualenvs, dependency folders in agent scratch | **report only** - listed, never deleted by cleanup |
+
+### Returning the space to Windows
+
+Deleting files inside the container does not shrink Docker's disk file on Windows. To reclaim the space (PowerShell on Windows):
+
+1. With Docker running: `docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -- fstrim -av`
+2. Quit Docker Desktop, run `wsl --shutdown`, and check `wsl -l -v` shows everything Stopped. Back up the `.vhdx` first if you have the space - it holds your volumes.
+3. In an Administrator PowerShell: `diskpart`, then `select vdisk file="%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx"`, `attach vdisk readonly`, `compact vdisk`, `detach vdisk`, `exit`.
+
+Never use Docker Desktop's "Clean / Purge data" or `docker system prune --volumes` to free space: they delete your volumes.
+
 ## Auto-Update System
 
 The system automatically checks for updates weekly. You can also manually trigger updates:
