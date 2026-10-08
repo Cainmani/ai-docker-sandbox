@@ -31,6 +31,13 @@ status_value() {
     sed -n "s/^$1=//p" "$STATUS_FILE" 2>/dev/null | head -n1
 }
 
+# update_lock_held: an updater currently holds the update lock.
+update_lock_held() {
+    command -v flock >/dev/null 2>&1 || return 1
+    [ -e "$STATE_DIR/update.lock" ] || return 1
+    ! flock -n "$STATE_DIR/update.lock" true 2>/dev/null
+}
+
 # days_since <iso-timestamp>: whole days elapsed, or nothing if unparseable.
 days_since() {
     local since
@@ -83,6 +90,14 @@ collect_issues() {
         attempt_days=$(days_since "$(status_value LAST_ATTEMPT)" || true)
         check_days=$(days_since "$(status_value LAST_CHECK_OK)" || true)
         case "$result" in
+            running)
+                if update_lock_held; then
+                    : # in progress; shown in the summary, not a problem
+                else
+                    ISSUES+=("last update was interrupted $(age_phrase "${attempt_days:-0}")")
+                    HINTS+=("Run it again: update-container-tools --force")
+                fi
+                ;;
             failed)
                 ISSUES+=("last update failed ($(status_value FAILED_STAGES)) $(age_phrase "${attempt_days:-0}")")
                 HINTS+=("Retry and review the errors: update-container-tools --force")
@@ -110,6 +125,10 @@ collect_issues() {
 update_summary() {
     local check_days
     [ -f "$STATUS_FILE" ] || { echo "update check pending"; return; }
+    if [ "$(status_value RESULT)" = running ] && update_lock_held; then
+        echo "update running"
+        return
+    fi
     check_days=$(days_since "$(status_value LAST_CHECK_OK)" || true)
     if [ -n "$check_days" ]; then
         echo "updates checked $(age_phrase "$check_days")"
@@ -183,8 +202,13 @@ cmd_status() {
         if command -v "$tool" >/dev/null 2>&1 \
             && version=$(timeout 15 "$tool" --version 2>/dev/null | head -n1) && [ -n "$version" ]; then
             printf '            %-9s %s\n' "$tool" "$version"
+        elif [ "$(install_status_get "$INSTALL_MARKER" "TOOL_$tool" 2>/dev/null)" = ok ]; then
+            # The installer recorded it as working; it no longer runs.
+            printf '            %-9s %s\n' "$tool" "NOT WORKING"
+            ISSUES+=("$tool is installed but not working")
+            HINTS+=("Repair it: install_cli_tools.sh --repair")
         else
-            printf '            %-9s %s\n' "$tool" "not working"
+            printf '            %-9s %s\n' "$tool" "not installed"
         fi
     done
     echo ""

@@ -64,6 +64,7 @@ case " $* " in
         exit 0
         ;;
     *' update -g '*)
+        [ -n "${FAKE_NPM_UPDATE_SLEEP:-}" ] && sleep "$FAKE_NPM_UPDATE_SLEEP"
         # Optionally simulate the update changing (or breaking) a tool.
         [ -n "${FAKE_CODEX_AFTER_VERSION:-}" ] && printf '%s' "$FAKE_CODEX_AFTER_VERSION" > "$FAKE_STATE.codex-version"
         [ -n "${FAKE_CODEX_AFTER_RC:-}" ] && printf '%s' "$FAKE_CODEX_AFTER_RC" > "$FAKE_STATE.codex-rc"
@@ -309,6 +310,34 @@ else
     pass "pinned package is excluded from npm update"
 fi
 unset PINNED_TOOLS_FILE
+
+# Review regression: a failed check stage is not erased by a later success.
+setup_case
+export FAKE_APT_UPDATE_RC=1
+export FAKE_NPM_OUTDATED_RC=1
+export FAKE_NPM_OUTDATED_OUTPUT=$'Package Current Wanted Latest Location\nvibe-kanban 1.0.0 1.1.0 1.1.0 global'
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+run_updater --force
+assert_eq "check failure + successful apply is not 'updated'" "failed" "$(status_get RESULT)"
+assert_contains "failed check stage is recorded" "$(status_get FAILED_STAGES)" "check-apt"
+assert_eq "partial run exits non-zero" 1 "$RUN_RC"
+
+# Review regression: an interrupted run leaves a trace instead of the old record.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=updated\nLAST_ATTEMPT=2026-01-01T00:00:00+00:00\nLAST_CHECK_OK=2026-01-01T00:00:00+00:00\nLAST_UPDATE_OK=2026-01-01T00:00:00+00:00\nFAILED_STAGES=\n' > "$HOME/.ai-docker/update-status"
+export FAKE_NPM_BEFORE='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_AFTER='/fake/lib/node_modules/vibe-kanban'
+export FAKE_NPM_UPDATE_SLEEP=5
+bash "$ROOT_DIR/docker/auto_update.sh" --apply > /dev/null 2>&1 &
+updater=$!
+sleep 1.5
+pkill -9 -P "$updater" 2>/dev/null || true; kill -9 "$updater" 2>/dev/null || true; wait "$updater" 2>/dev/null || true
+unset FAKE_NPM_UPDATE_SLEEP
+assert_eq "interrupted run is visible" "running" "$(status_get RESULT)"
+assert_contains "interrupted run records its attempt time" "$(status_get LAST_ATTEMPT)" "$(date +%Y-%m-%d)"
+assert_eq "interrupted run keeps the last good check" "2026-01-01T00:00:00+00:00" "$(status_get LAST_CHECK_OK)"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

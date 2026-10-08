@@ -165,5 +165,28 @@ assert_contains "help lists status" "$RUN_OUTPUT" "status"
 run_cli bogus
 assert_eq "unknown command exits 2" 2 "$RUN_RC"
 
+# Review regression: an interrupted update is flagged; a running one is not.
+setup_case
+write_status running "$(days_ago 1)" "$(days_ago 1)" ""
+run_cli status --brief
+assert_eq "interrupted update needs attention" 1 "$RUN_RC"
+assert_contains "interrupted update is named" "$RUN_OUTPUT" "last update was interrupted"
+( flock 9; sleep 3 ) 9> "$HOME/.ai-docker/update.lock" &
+holder=$!; sleep 0.5
+run_cli status --brief
+wait "$holder"
+assert_eq "update in progress is not an error" 0 "$RUN_RC"
+assert_contains "update in progress is shown" "$RUN_OUTPUT" "update running"
+
+# Review regression: a broken installed tool makes full status unhealthy.
+setup_case
+write_status updated "$(days_ago 1)" "$(days_ago 1)" ""
+printf 'STATUS=ok\nFAILED_TOOLS=\nTOOL_codex=ok\n' > "$HOME/.cli_tools_installed"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$CASE_DIR/bin/codex"
+run_cli status
+assert_eq "broken installed tool fails full status" 1 "$RUN_RC"
+assert_contains "broken tool is named" "$RUN_OUTPUT" "codex is installed but not working"
+assert_not_contains "no healthy verdict with a broken tool" "$RUN_OUTPUT" "Everything looks healthy"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

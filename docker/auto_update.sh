@@ -94,7 +94,11 @@ status_value() {
     sed -n "s/^$1=//p" "$STATUS_FILE" 2>/dev/null | head -n1
 }
 
-# write_update_status <up_to_date|updated|failed|check_failed>
+# write_update_status <running|up_to_date|updated|failed|check_failed>
+#
+# "running" is written before any package changes; if the run is killed it
+# stays behind, so an interrupted update is visible rather than leaving the
+# previous success record untouched.
 #
 # LAST_CHECK_OK / LAST_UPDATE_OK carry forward from the previous record unless
 # this run produced a newer success, so a failure never erases the last good one.
@@ -208,6 +212,7 @@ check_updates() {
     elif [ "$npm_check_rc" -gt 1 ]; then
         update_log "${RED}[ERROR]${NC} npm update check failed (exit code: $npm_check_rc)"
         check_failed=1
+        record_failure check-npm
     fi
 
     # Check ALL user pip packages for updates (dynamic, not hardcoded).
@@ -225,12 +230,14 @@ check_updates() {
     else
         update_log "${RED}[ERROR]${NC} pip update check failed"
         check_failed=1
+        record_failure check-pip
     fi
 
     # Check apt updates for installed CLI tools (only gh is installed via apt)
     if ! sudo apt-get update -qq; then
         update_log "${RED}[ERROR]${NC} apt update check failed"
         check_failed=1
+        record_failure check-apt
     fi
     apt_updates=$(apt list --upgradable 2>/dev/null | grep -E "^gh/" || true)
     if [ -n "$apt_updates" ]; then
@@ -493,12 +500,15 @@ run_auto_update() {
         return 0
     fi
 
+    write_update_status running
+
     # Check for updates (0 = available, 1 = up to date, 2 = check failed)
     local run_result=0 status_result
     check_updates
     local check_rc=$?
     if [ "$check_rc" -eq 0 ]; then
-        if apply_updates; then
+        # A check stage that failed (e.g. apt) is not erased by a successful apply.
+        if apply_updates && [ -z "$FAILED_STAGES" ]; then
             status_result=updated
         else
             status_result=failed
@@ -560,6 +570,7 @@ case "${1:-}" in
         esac
         ;;
     --apply|-a)
+        write_update_status running
         if apply_updates; then
             write_update_status updated
         else
