@@ -267,93 +267,149 @@ RESCUE_SKIP_DIRS="node_modules site-packages __pycache__ .cache .npm .npm-global
 # Inside a virtualenv (found by its pyvenv.cfg) only these parts are rebuildable;
 # anything else placed in it is work.
 RESCUE_VENV_PARTS="bin lib lib64 include share Lib Scripts"
+RESCUE_VENV_FILES="pyvenv.cfg .gitignore CACHEDIR.TAG"
+# Hidden folders at the top of a scan root that hold application state (tool
+# config, credentials, caches, sockets) rather than work. Any other hidden
+# folder is scanned like a visible one.
+RESCUE_APP_STATE_DIRS=".ai-docker .ai-docker-cli .cache .config .local .npm .npm-global .claude .codex .gemini .opencode
+    .copilot .router-data .tool-auth .vibe-kanban .mcp-auth .ssh .gnupg .pki .docker .kube .aws .azure
+    .gcloud .android .gradle .m2 .cargo .rustup .nvm .bun .deno .dotnet .nuget .vscode-server
+    .cursor-server .ipython .jupyter .conda .dbus .X11-unix .ICE-unix .XIM-unix .font-unix .Test-unix"
 
 # Mount targets inside the scan roots (named volumes) survive a rebuild.
 rescue_mounts() {
     awk '{ print $2 }' "$MOUNTS_FILE" 2>/dev/null | sed 's/\\040/ /g'
 }
 
-# rescue_find <root>: candidate git repos and document files, NUL-separated,
-# prefixed "repo:" or "doc:". Never descends into skip dirs, mounts or repos.
+# rescue_rebuildable <path>: the path lies in a dependency or cache folder.
+rescue_rebuildable() {
+    local name
+    for name in $RESCUE_SKIP_DIRS; do
+        case "/$1/" in */"$name"/*) return 0 ;; esac
+    done
+    return 1
+}
+
+# rescue_find <root>: candidate git repos, virtualenvs, files and symlinks,
+# NUL-separated, prefixed "repo:", "venv:", "doc:<size>:" or "link:".
+# Never descends into skip dirs, mounts or app-state folders.
 rescue_find() {
     local root="$1" name
     local -a prune=()
     [ -d "$root" ] || return 0
     for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
+    for name in $RESCUE_APP_STATE_DIRS; do prune+=(-path "$root/$name" -o); done
     while IFS= read -r name; do
         [ -n "$name" ] && [ "$name" != "/" ] && prune+=(-path "$name" -o)
     done < <(rescue_mounts)
-    # Provably rebuildable or not user work: hidden top-level folders are
-    # application state (certificate stores, tool configs, sockets) - except a
-    # .git, which marks the root itself as a repo; Claude Code's bundled skills
-    # and pytest temp are recreated; ai-docker-rescue is this scanner's own copy.
-    prune+=(\( -path "$root/.*" ! -name .git \) -o -path "$root/claude-*/bundled-skills" -o
-            -path "$root/pytest-of-*" -o -path "$root/ai-docker-rescue" -o)
-    unset 'prune[${#prune[@]}-1]'
+    # Provably rebuildable or not user work: Claude Code's bundled skills and
+    # pytest temp are recreated; ai-docker-rescue is this scanner's own copy.
+    prune+=(-path "$root/claude-*/bundled-skills" -o -path "$root/pytest-of-*" -o -path "$root/ai-docker-rescue")
 
     # Any regular file a person or agent left is work unless it is provably
     # rebuildable - file types are no guide (scripts, notebooks, images...).
     # Dotfiles directly in the root (shell rc, install markers, tool config)
-    # are app state. Each entry carries its size so callers need no stat.
-    # pyvenv.cfg marks a virtualenv, whatever the folder is called.
+    # are app state, and so is this scan's own error file (TMPDIR may be the
+    # scanned /tmp). Each file carries its size so callers need no stat.
+    # pyvenv.cfg marks a virtualenv, whatever the folder is called. Symlinks
+    # are reported for the caller to judge by their target.
     # Errors (unreadable folders) go to RESCUE_ERRFILE: a scan that could not
     # see everything must never report "nothing found".
+    local -a mine=(! \( -path "$root/.*" ! -path "$root/.*/*" \) ! -path "${RESCUE_ERRFILE:-}")
     find "$root" -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
         -o \( -name .git -printf 'repo:%h\0' -prune \) \
         -o \( -name pyvenv.cfg -printf 'venv:%h\0' \) \
-        -o \( -type f ! -path "$root/.*" -printf 'doc:%s:%p\0' \) 2>>"${RESCUE_ERRFILE:-/dev/null}"
+        -o \( -type f "${mine[@]}" -printf 'doc:%s:%p\0' \) \
+        -o \( -type l "${mine[@]}" -printf 'link:%p\0' \) 2>>"${RESCUE_ERRFILE:-/dev/null}"
 }
 
-# rescue_repo_files <repo>: every file in the working tree (relative paths),
-# skipping .git, dependency/cache folders and virtualenv folders.
+# rescue_repo_files <repo>: every file and symlink in the working tree that
+# could be work (relative paths, NUL-separated) - skipping .git, dependency and
+# cache folders, the rebuildable parts of virtualenvs, and nested repositories
+# (judged on their own). Fails if any folder could not be read.
 rescue_repo_files() {
     local repo="$1" name
-    local -a prune=(-name .git -o -name .venv -o -name venv -o)
+    local -a prune=()
     for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
     unset 'prune[${#prune[@]}-1]'
-    ( cd "$repo" && find . -mindepth 1 \( \( "${prune[@]}" \) -prune \) -o \( -type f -print \) 2>/dev/null | sed 's|^\./||' )
+    ( cd "$repo" && find . -mindepth 1 \( -name .git -printf 'n\t%h\0' -prune \) \
+        -o \( \( "${prune[@]}" \) -prune \) -o \( -name pyvenv.cfg -printf 'v\t%h\0' \) \
+        -o \( ! -type d -printf 'f\t%P\0' \) 2>/dev/null ) \
+    | awk -v RS='\0' -v ORS='\0' -v parts="$RESCUE_VENV_PARTS" -v vfiles="$RESCUE_VENV_FILES" '
+        function dir(d) { sub(/^\.\/?/, "", d); return d == "" ? "" : d "/" }
+        BEGIN { np = split(parts, P, " "); nv = split(vfiles, VF, " ") }
+        /^n\t/ { d = dir(substr($0, 3)); if (d != "") N[++nn] = d; next }
+        /^v\t/ { V[++nvenv] = dir(substr($0, 3)); next }
+        { F[++nf] = substr($0, 3) }
+        END {
+            for (i = 1; i <= nf; i++) {
+                f = F[i]; drop = 0
+                for (j = 1; j <= nn && !drop; j++) if (index(f, N[j]) == 1) drop = 1
+                for (j = 1; j <= nvenv && !drop; j++) {
+                    if (index(f, V[j]) != 1) continue
+                    rest = substr(f, length(V[j]) + 1)
+                    for (k = 1; k <= np; k++) if (index(rest, P[k] "/") == 1) drop = 1
+                    for (k = 1; k <= nv; k++) if (rest == VF[k]) drop = 1
+                }
+                if (!drop) print f
+            }
+        }'
 }
 
 # rescue_repo_reasons <repo>: comma-separated reasons the repo holds work only
-# here; empty if it is clean, stash-free and fully pushed.
+# here; empty if it is clean, stash-free and fully pushed. Fails (status 1) if
+# git could not inspect it - an unreadable repo is never "clean".
 rescue_repo_reasons() {
-    local repo="$1" reasons=() n
-    n=$(git -C "$repo" status --porcelain 2>/dev/null | wc -l)
+    local repo="$1" reasons=() n out
+    local -a tips=(--branches --tags)
+    n=$(git -C "$repo" status --porcelain 2>/dev/null | wc -l) || return 1
     [ "$n" -gt 0 ] && reasons+=("$n uncommitted change(s)")
-    n=$(git -C "$repo" stash list 2>/dev/null | wc -l)
+    n=$(git -C "$repo" stash list 2>/dev/null | wc -l) || return 1
     [ "$n" -gt 0 ] && reasons+=("$n stash(es)")
-    if [ -z "$(git -C "$repo" remote 2>/dev/null)" ]; then
+    out=$(git -C "$repo" remote 2>/dev/null) || return 1
+    if [ -z "$out" ]; then
         reasons+=("no remote")
     else
-        # Every local branch, not just the checked-out one.
-        # Every local branch and tag, not just the checked-out one.
-        n=$(git -C "$repo" rev-list --count HEAD --branches --tags --not --remotes 2>/dev/null || echo 0)
+        # Every local branch and tag, not just the checked-out one; HEAD too
+        # when it exists (a detached HEAD belongs to no branch).
+        git -C "$repo" rev-parse -q --verify HEAD >/dev/null 2>&1 && tips=(HEAD "${tips[@]}")
+        n=$(git -C "$repo" rev-list --count "${tips[@]}" --not --remotes 2>/dev/null) || return 1
         [ "$n" -gt 0 ] && reasons+=("$n unpushed commit(s)")
     fi
     # Files hidden by .gitignore (exports, data, build output) are not in the
-    # remote either. Dependency and virtualenv folders are skipped.
-    n=$(rescue_repo_files "$repo" | git -C "$repo" check-ignore --stdin 2>/dev/null | wc -l)
+    # remote either. check-ignore exits 1 when nothing is ignored.
+    n=$(rescue_repo_files "$repo" | { git -C "$repo" check-ignore -z --stdin 2>/dev/null; [ $? -le 1 ]; } \
+        | tr -cd '\0' | wc -c) || return 1
     [ "$n" -gt 0 ] && reasons+=("$n ignored file(s)")
     # Edits git has been told not to report (assume-unchanged, skip-worktree).
-    n=$(git -C "$repo" ls-files -v 2>/dev/null | grep -c '^[a-zS]' || true)
+    out=$(git -C "$repo" ls-files -v 2>/dev/null) || return 1
+    n=$(printf '%s\n' "$out" | grep -c '^[a-zS]' || true)
     [ "$n" -gt 0 ] && reasons+=("$n file(s) hidden from git status")
     local IFS=','
     echo "${reasons[*]}"
 }
 
-# rescue_collect: fills RESCUE_PATHS and RESCUE_LINES for $HOME and /tmp.
+# rescue_collect: fills the RESCUE_* results for $HOME and /tmp.
 rescue_collect() {
     rescue_collect_roots "$HOME" "$TMP_ROOT"
 }
 
-# rescue_collect_roots <root...>: fills RESCUE_PATHS and RESCUE_LINES.
+# rescue_collect_roots <root...>: fills
+#   RESCUE_PATHS, RESCUE_LINES  findings (repos, folders, loose files) and their report lines
+#   RESCUE_REPOS                repositories holding work
+#   RESCUE_GROUPS               folders and loose files holding work
+#   RESCUE_FILES                exactly the files and symlinks to copy from those groups
+#   RESCUE_UNREADABLE           locations that could not be checked
 rescue_collect_roots() {
     RESCUE_PATHS=()
     RESCUE_LINES=()
     RESCUE_UNREADABLE=()
+    RESCUE_REPOS=()
+    RESCUE_GROUPS=()
+    RESCUE_FILES=()
     RESCUE_ERRFILE=$(mktemp)
-    local root entry path reasons repo inside group rel venv part
-    local -a repos=() docs=() groups=() venvs=()
+    local root entry path reasons repo inside group rel venv part target
+    local -a repos=() docs=() groups=() venvs=() extras=()
     local -A doc_root=() doc_size=() group_count=() group_bytes=()
     # find only learns a folder is a repo (or virtualenv) when it reaches its
     # .git (or pyvenv.cfg), so gather everything first, then judge files inside
@@ -368,6 +424,10 @@ rescue_collect_roots() {
                     path=${entry#*:}
                     docs+=("$path"); doc_root[$path]=$root; doc_size[$path]=${entry%%:*}
                     ;;
+                link:*)
+                    path=${entry#link:}
+                    docs+=("$path"); doc_root[$path]=$root
+                    ;;
             esac
         done < <(rescue_find "$root")
     done
@@ -379,9 +439,13 @@ rescue_collect_roots() {
     rm -f "$RESCUE_ERRFILE"
 
     for repo in "${repos[@]}"; do
-        reasons=$(rescue_repo_reasons "$repo")
+        if ! reasons=$(rescue_repo_reasons "$repo"); then
+            RESCUE_UNREADABLE+=("$repo (git could not inspect it)")
+            continue
+        fi
         [ -n "$reasons" ] || continue
         RESCUE_PATHS+=("$repo")
+        RESCUE_REPOS+=("$repo")
         RESCUE_LINES+=("git repo  $repo  (${reasons//,/, })")
     done
     for path in "${docs[@]}"; do
@@ -393,15 +457,31 @@ rescue_collect_roots() {
             for part in $RESCUE_VENV_PARTS; do
                 case "$path" in "$venv/$part"/*) inside=1; break 2 ;; esac
             done
+            for part in $RESCUE_VENV_FILES; do
+                [ "$path" = "$venv/$part" ] && { inside=1; break 2; }
+            done
         done
         [ "$inside" -eq 0 ] || continue
         # Group by top-level folder under the scan root, so one batch of
-        # files is one line (and one copied folder); loose files stand alone.
+        # files is one line; loose files stand alone.
         rel=${path#"${doc_root[$path]}"/}
         case "$rel" in
             */*) group="${doc_root[$path]}/${rel%%/*}" ;;
             *) group=$path ;;
         esac
+        if [ -L "$path" ]; then
+            # A symlink is work only when the rebuild deletes what it points
+            # to (dependencies aside); any other link is copied only along
+            # with work in the same folder.
+            if target=$(readlink -f -- "$path") && [ -e "$target" ] \
+                && in_discard_zone "$target" && ! rescue_rebuildable "$target"; then
+                doc_size[$path]=$(du -sb -- "$target" 2>/dev/null | cut -f1)
+            else
+                extras+=("$path")
+                continue
+            fi
+        fi
+        RESCUE_FILES+=("$path")
         if [ -z "${group_count[$group]:-}" ]; then
             groups+=("$group")
             group_count[$group]=0
@@ -410,6 +490,12 @@ rescue_collect_roots() {
         group_count[$group]=$(( ${group_count[$group]} + 1 ))
         group_bytes[$group]=$(( ${group_bytes[$group]} + ${doc_size[$path]:-0} ))
     done
+    for path in "${extras[@]}"; do
+        rel=${path#"${doc_root[$path]}"/}
+        case "$rel" in */*) group="${doc_root[$path]}/${rel%%/*}" ;; *) continue ;; esac
+        [ -n "${group_count[$group]:-}" ] && RESCUE_FILES+=("$path")
+    done
+    RESCUE_GROUPS=("${groups[@]}")
     local -A loose_count=() loose_bytes=()
     for group in "${groups[@]}"; do
         RESCUE_PATHS+=("$group")
@@ -447,29 +533,63 @@ rescue_destination() {
     done
 }
 
-# rescue_copy <dest>: copy each finding to <dest><absolute path>, skipping
-# dependency folders, then verify every copied file by checksum.
+# rescue_check_sums <dest>: check the checksum list <dest>/.verify.$$ against
+# the copy, then remove the list. An empty list (only symlinks) checks nothing.
+rescue_check_sums() {
+    local dest="$1" rc=0
+    if [ -s "$dest/.verify.$$" ]; then
+        ( cd "$dest" && sha256sum --quiet -c "$dest/.verify.$$" ) >/dev/null 2>&1 || rc=1
+    fi
+    rm -f "$dest/.verify.$$"
+    return "$rc"
+}
+
+# rescue_copy <dest>: copy each finding to <dest><absolute path> and verify
+# every copied file by checksum. The plan never overlaps: folders contribute
+# exactly the files the scan found (never a repository, a named volume or
+# dependency data inside them), and a repository nested in another travels
+# with the outer copy. Repositories are converted and checked only once
+# every copy is in place.
 rescue_copy() {
-    local dest="$1" path name
-    local -a excludes=() prune=()
-    # One skip list drives both the copy and its verification.
-    for name in $RESCUE_SKIP_DIRS; do
-        excludes+=(--exclude="$name")
-        prune+=(-name "$name" -o)
-    done
-    unset 'prune[${#prune[@]}-1]'
+    local dest="$1" path name mount repo outer item
+    local -a excludes=() prune=() items=()
     mkdir -p "$dest" || return 1
-    for path in "${RESCUE_PATHS[@]}"; do
-        tar -C / "${excludes[@]}" -cf - "${path#/}" 2>/dev/null | tar -C "$dest" -xf - 2>/dev/null || return 1
-        ( cd / && find "${path#/}" \( -type d \( "${prune[@]}" \) -prune \) -o -type f -print0 \
+    if [ "${#RESCUE_FILES[@]}" -gt 0 ]; then
+        printf '%s\0' "${RESCUE_FILES[@]#/}" | tar -C / --null --no-recursion -T - -cf - 2>/dev/null \
+            | tar -C "$dest" -xf - 2>/dev/null || return 1
+        for path in "${RESCUE_FILES[@]}"; do
+            [ -L "$path" ] || printf '%s\0' "${path#/}"
+        done | ( cd / && xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
+        rescue_check_sums "$dest" || return 1
+    fi
+    for repo in "${RESCUE_REPOS[@]}"; do
+        for outer in "${RESCUE_REPOS[@]}"; do
+            case "$repo" in "$outer"/*) continue 2 ;; esac
+        done
+        items+=("$repo")
+        # One exclusion list drives both the copy and its verification: named
+        # volumes inside the repository (anchored), dependency folders (by name).
+        excludes=(--anchored); prune=()
+        while IFS= read -r mount; do
+            case "$mount" in "$repo"/*) excludes+=(--exclude="${mount#/}"); prune+=(-path "${mount#/}" -o) ;; esac
+        done < <(rescue_mounts)
+        excludes+=(--no-anchored)
+        for name in $RESCUE_SKIP_DIRS; do
+            excludes+=(--exclude="$name")
+            prune+=(-name "$name" -o)
+        done
+        unset 'prune[${#prune[@]}-1]'
+        tar -C / "${excludes[@]}" -cf - "${repo#/}" 2>/dev/null | tar -C "$dest" -xf - 2>/dev/null || return 1
+        ( cd / && find "${repo#/}" \( -type d \( "${prune[@]}" \) -prune \) -o -type f -print0 \
             | xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
-        ( cd "$dest" && sha256sum --quiet -c "$dest/.verify.$$" ) >/dev/null 2>&1 || { rm -f "$dest/.verify.$$"; return 1; }
-        rm -f "$dest/.verify.$$"
-        rescue_materialize_links "$path" "$dest" || return 1
-        if [ -e "$path/.git" ]; then
-            rescue_make_standalone "$path" "$dest$path" || return 1
-            rescue_verify_repo "$path" "$dest$path" || return 1
-        fi
+        rescue_check_sums "$dest" || return 1
+    done
+    for item in "${RESCUE_GROUPS[@]}" "${items[@]}"; do
+        rescue_fix_links "$item" "$dest" || return 1
+    done
+    for repo in "${RESCUE_REPOS[@]}"; do
+        rescue_make_standalone "$repo" "$dest$repo" || return 1
+        rescue_verify_repo "$repo" "$dest$repo" || return 1
     done
 }
 
@@ -488,27 +608,53 @@ in_discard_zone() {
     return 0
 }
 
-# rescue_materialize_links <source item> <dest root>: a copied symlink whose
-# target lies in storage the rebuild deletes - and outside the copied item, or
-# given as an absolute path - would dangle after the rebuild. Replace it with a
-# verified copy of what it points to. Relative links within the item stay.
-rescue_materialize_links() {
-    local item="$1" dest="$2" link src raw target
+# rescue_copy_verified <source> <copy>: copy what <source> points to (unless
+# <copy> already exists) and check the copy matches.
+rescue_copy_verified() {
+    local src="$1" copy="$2"
+    [ -e "$copy" ] && return 0
+    mkdir -p -- "$(dirname -- "$copy")" && cp -a -L -- "$src" "$copy" || return 1
+    if [ -d "$src" ]; then
+        diff -r -- "$src" "$copy" >/dev/null 2>&1
+    else
+        cmp -s -- "$src" "$copy"
+    fi
+}
+
+# rescue_fix_links <source item> <dest root>: make every symlink copied with
+# the item work after the rebuild, judged by its final destination.
+# - The target survives (named volume, workspace): a relative link now sits
+#   elsewhere, so it is made absolute - then it must resolve.
+# - The rebuild deletes the target and the copy does not carry it (outside
+#   the item, or an absolute path): the link is replaced by a verified copy of
+#   the target. If git tracks the link, the link stays (the repository's state
+#   must not change) and the target is copied to its own path in the rescue.
+# - Relative links within the item travel with it; links to dependency data
+#   are left alone.
+rescue_fix_links() {
+    local item="$1" dest="$2" link src raw target inside tracked
     while IFS= read -r -d '' link; do
         src=${link#"$dest"}
         raw=$(readlink -- "$src") || continue
         target=$(readlink -f -- "$src") || continue
         [ -e "$target" ] || continue
-        case "$raw" in
-            /*) ;;
-            *) case "$target/" in "$item"/*) continue ;; esac ;;
-        esac
-        in_discard_zone "$target" || continue
-        rm -f -- "$link" && cp -a -L -- "$target" "$link" || return 1
-        if [ -d "$target" ]; then
-            diff -r -- "$target" "$link" >/dev/null 2>&1 || return 1
-        else
-            cmp -s -- "$target" "$link" || return 1
+        inside=0
+        case "$target/" in "$item"/*) inside=1 ;; esac
+        tracked=0
+        git -C "$(dirname -- "$src")" ls-files --error-unmatch -- ":(literal)$(basename -- "$src")" >/dev/null 2>&1 && tracked=1
+        if ! in_discard_zone "$target"; then
+            if [ "$tracked" -eq 0 ]; then
+                case "$raw" in /*) ;; *) ln -sfn -- "$target" "$link" || return 1 ;; esac
+                [ -e "$link" ] || return 1
+            fi
+        elif rescue_rebuildable "$target"; then
+            continue
+        elif [ "$inside" -eq 0 ] || [ "${raw#/}" != "$raw" ]; then
+            if [ "$tracked" -eq 1 ]; then
+                rescue_copy_verified "$target" "$dest$target" || return 1
+            else
+                rm -f -- "$link" && rescue_copy_verified "$target" "$link" || return 1
+            fi
         fi
     done < <(find "$dest$item" -type l -print0 2>/dev/null)
 }
@@ -667,6 +813,22 @@ rebuildable_dirs_in() {
     } | sort -u | awk 'NR == 1 || index($0, prev "/") != 1 { print; prev = $0 }'
 }
 
+CLAUDE_VERSIONS_DIR="$HOME/.local/share/claude/versions"
+
+# claude_versions_kept: two lines - the Claude Code version the launcher runs
+# now, and the newest other one (the fallback). Asked again right before each
+# deletion: an update can switch versions while cleanup waits for an answer.
+claude_versions_kept() {
+    local current prev
+    current=$(readlink -f "$(command -v claude 2>/dev/null)" 2>/dev/null || true)
+    current=${current#"$CLAUDE_VERSIONS_DIR"/}; current=${current%%/*}
+    # The native installer keeps each version as one executable file
+    # (older layouts used a folder); accept both.
+    prev=$(find "$CLAUDE_VERSIONS_DIR" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) -printf '%f\n' 2>/dev/null \
+        | grep -vxF -- "$current" | sort -V | tail -n1)
+    printf '%s\n%s\n' "$current" "$prev"
+}
+
 # Groups: parallel arrays. KIND is "cmd" (run CMD), "paths" (delete ITEMS after
 # confirmation) or "report" (list ITEMS with sizes; never deleted).
 cleanup_add_group() {
@@ -675,7 +837,7 @@ cleanup_add_group() {
 
 cleanup_collect() {
     G_LABEL=(); G_DEFAULT=(); G_KIND=(); G_CMD=(); G_ITEMS=(); G_KB=()
-    local items dir name current prev builds keep path
+    local items dir name current prev builds keep path reasons
 
     [ -d "$HOME/.npm/_cacache" ] && \
         cleanup_add_group "npm download cache" y cmd "npm cache clean --force" "" "$(kb_of "$HOME/.npm/_cacache")"
@@ -683,13 +845,9 @@ cleanup_collect() {
         cleanup_add_group "pip download cache" y cmd "pip3 cache purge" "" "$(kb_of "$HOME/.cache/pip")"
 
     # Claude Code: keep the running version and the newest other one.
-    dir="$HOME/.local/share/claude/versions"
+    dir="$CLAUDE_VERSIONS_DIR"
     if [ -d "$dir" ]; then
-        current=$(readlink -f "$(command -v claude 2>/dev/null)" 2>/dev/null || true)
-        current=${current#"$dir"/}; current=${current%%/*}
-        # The native installer keeps each version as one executable file
-        # (older layouts used a folder); accept both.
-        prev=$(find "$dir" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) -printf '%f\n' | grep -vxF -- "$current" | sort -V | tail -n1)
+        { read -r current; read -r prev; } < <(claude_versions_kept)
         items=$(find "$dir" -mindepth 1 -maxdepth 1 \( -type f -o -type d \) -printf '%f\n' | grep -vxF -e "$current" -e "${prev:-/}" | sed "s|^|$dir/|")
         [ -n "$items" ] && [ -n "$current" ] && \
             cleanup_add_group "Claude Code versions ($(printf '%s\n' "$items" | wc -l) old; current and fallback kept)" y paths "" "$items" "$(kb_of_list "$items")"
@@ -738,7 +896,9 @@ cleanup_collect() {
     items=""
     while IFS= read -r path; do
         path=${path%/.git}
-        [ -n "$(rescue_repo_reasons "$path")" ] && continue
+        # A repo git cannot inspect is never reported as having nothing unpushed.
+        reasons=$(rescue_repo_reasons "$path") || continue
+        [ -n "$reasons" ] && continue
         recently_used "$path" && continue
         in_use_by_process "$path" && continue
         items+="$path"$'\n'
@@ -786,6 +946,14 @@ cleanup_preview() {
 cleanup_still_safe() {
     local path="$1"
     [ -e "$path" ] || return 1
+    case "$path" in
+        "$CLAUDE_VERSIONS_DIR"/*)
+            if claude_versions_kept | grep -qxF -- "${path#"$CLAUDE_VERSIONS_DIR"/}"; then
+                echo "  Skipped $path: it is now the current or fallback Claude Code version"
+                return 1
+            fi
+            ;;
+    esac
     if in_use_by_process "$path"; then
         echo "  Skipped $path: in use by a running process"
         return 1

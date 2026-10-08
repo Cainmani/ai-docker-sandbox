@@ -179,5 +179,23 @@ assert_exists "no input deletes nothing (even suggested groups)" "$HOME/.local/s
 if grep -q 'cache' "$FAKE_LOG"; then fail "no input runs no cache command"; else pass "no input runs no cache command"; fi
 assert_contains "closed input is reported" "$RUN_OUTPUT" "Input ended"
 
+# Third review: the launcher switches to a listed version while the prompt
+# waits (a background update can do this). The new current version - and the
+# new fallback - must survive.
+setup_case
+out="$CASE_DIR/out"; : > "$out"
+set +e
+{
+    printf 'n\nn\n'
+    for _ in $(seq 100); do grep -q 'Delete Claude' "$out" && break; sleep 0.1; done
+    ln -sfn "$HOME/.local/share/claude/versions/2.1.1" "$CASE_DIR/bin/claude"
+    printf 'y\nn\n'
+} | bash "$ROOT_DIR/docker/ai_docker.sh" cleanup --apply > "$out" 2>&1
+set -u
+RUN_OUTPUT=$(cat "$out")
+assert_exists "version made current during the prompt is kept" "$HOME/.local/share/claude/versions/2.1.1"
+assert_exists "launcher still resolves after cleanup" "$(readlink -f "$CASE_DIR/bin/claude")"
+assert_contains "the switch is reported" "$RUN_OUTPUT" "now the current"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

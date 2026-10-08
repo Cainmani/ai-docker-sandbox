@@ -155,7 +155,7 @@ AI Docker 1.6.0: ATTENTION - last update failed (pip) 1 day ago - run: ai-docker
 
 A rebuild, recreate or uninstall replaces the container's own disk: `/tmp`, `~/src` and the rest of the home folder. Your AI_Work folder and the named volumes (logins, Claude memory, SSH keys, router data) are kept.
 
-`ai-docker rescue-scan` lists what would be lost: git repos with uncommitted, stashed, ignored or unpushed work (any branch or tag) or no remote, and any other file outside dependency folders. `ai-docker rescue-scan --copy` copies it into `AI_Work\_rescued\<date>_container_rescue_vX_XX`, verifies every file, and makes rescued repos independent of the originals. The setup wizard and uninstall run this check automatically before they remove or recreate the container; if the check fails or cannot read something, they stop rather than delete.
+`ai-docker rescue-scan` lists what would be lost: git repos with uncommitted, stashed, ignored or unpushed work (any branch or tag) or no remote, and any other file outside dependency folders and known tool state (including unknown hidden folders and links to files a rebuild deletes). A repo or folder that cannot be checked makes the scan incomplete. `ai-docker rescue-scan --copy` copies it into `AI_Work\_rescued\<date>_container_rescue_vX_XX`, verifies every file, and makes rescued repos independent of the originals. The setup wizard and uninstall run this check automatically before they remove or recreate the container; if the check fails or cannot read something, they stop rather than delete.
 
 ### `ai-docker cleanup`
 

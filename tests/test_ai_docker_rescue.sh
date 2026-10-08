@@ -323,5 +323,124 @@ if [ "$(id -u)" -ne 0 ]; then
     assert_contains "failed copy says not to rebuild" "$RUN_OUTPUT" "Do not rebuild"
 fi
 
+# --- third review -------------------------------------------------------------
+# 1: the scanner's own temporary files land in the scanned /tmp by default.
+setup_case
+export TMPDIR="$AI_DOCKER_TMP_DIR"
+run_scan
+assert_eq "scanner's own temp file is not work (exit 0)" 0 "$RUN_RC"
+assert_contains "empty /tmp with TMPDIR inside it is clean" "$RUN_OUTPUT" "Nothing found"
+mkdir -p "$AI_DOCKER_TMP_DIR/work"; echo keep > "$AI_DOCKER_TMP_DIR/work/notes.md"
+run_scan --copy
+assert_eq "copy succeeds with TMPDIR inside the scanned /tmp" 0 "$RUN_RC"
+unset TMPDIR
+
+# 2: git failing to inspect a repo makes the scan incomplete, never clean.
+if [ "$(id -u)" -ne 0 ]; then
+    setup_case
+    clone_to "$HOME/src/noindex"; echo change >> "$HOME/src/noindex/README"
+    chmod 000 "$HOME/src/noindex/.git/index"
+    run_scan
+    chmod 644 "$HOME/src/noindex/.git/index"
+    assert_eq "unreadable git index makes the scan incomplete (exit 4)" 4 "$RUN_RC"
+    assert_contains "uninspectable repo is named" "$RUN_OUTPUT" "could not be read: $HOME/src/noindex"
+    assert_not_contains "git failure never reads as nothing found" "$RUN_OUTPUT" "Nothing found"
+fi
+
+# 3a: a file placed in an ignored virtualenv inside a clean, pushed repo.
+setup_case
+clone_to "$HOME/src/venvrepo"
+printf '.venv/\n' > "$HOME/src/venvrepo/.gitignore"; git -C "$HOME/src/venvrepo" add .gitignore
+git -C "$HOME/src/venvrepo" commit -qm ign && git -C "$HOME/src/venvrepo" push -q origin HEAD 2>/dev/null
+mkdir -p "$HOME/src/venvrepo/.venv/lib/python3/site-packages/pkg" "$HOME/src/venvrepo/.venv/bin"
+: > "$HOME/src/venvrepo/.venv/pyvenv.cfg"; printf '*\n' > "$HOME/src/venvrepo/.venv/.gitignore"
+echo x > "$HOME/src/venvrepo/.venv/lib/python3/site-packages/pkg/m.py"; echo y > "$HOME/src/venvrepo/.venv/bin/activate"
+run_scan
+assert_eq "a plain virtualenv in a pushed repo is not work" 0 "$RUN_RC"
+head -c 500 /dev/urandom > "$HOME/src/venvrepo/.venv/client.pdf"
+run_scan
+assert_eq "file placed in a repo's ignored virtualenv is work" 3 "$RUN_RC"
+assert_contains "it counts as one ignored file" "$RUN_OUTPUT" "src/venvrepo  (1 ignored file(s))"
+
+# 3b: unknown hidden folders are scanned; known app state is not.
+setup_case
+mkdir -p "$AI_DOCKER_TMP_DIR/.deliverables" "$AI_DOCKER_TMP_DIR/.X11-unix" "$HOME/.handover" "$HOME/.config/tool"
+head -c 300 /dev/urandom > "$AI_DOCKER_TMP_DIR/.deliverables/client.pdf"
+: > "$AI_DOCKER_TMP_DIR/.X11-unix/X0"; echo notes > "$HOME/.handover/notes.md"; echo '{}' > "$HOME/.config/tool/settings.json"
+run_scan
+assert_eq "hidden folder in /tmp holding a PDF is work" 3 "$RUN_RC"
+assert_contains "hidden /tmp folder is listed" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/.deliverables  (1 file"
+assert_contains "unknown hidden home folder is listed" "$RUN_OUTPUT" "$HOME/.handover  (1 file"
+assert_not_contains "X11 socket folder is not work" "$RUN_OUTPUT" ".X11-unix"
+assert_not_contains "tool config folder is not work" "$RUN_OUTPUT" ".config"
+
+# 3c: a lone symlink whose target the rebuild deletes; links to kept storage are not work.
+setup_case
+mkdir -p "$HOME/.config/exports"; echo linked-only > "$HOME/.config/exports/report.pdf"
+ln -s "$HOME/.config/exports/report.pdf" "$AI_DOCKER_TMP_DIR/report.pdf"
+run_scan
+assert_eq "lone symlink to discarded storage is work" 3 "$RUN_RC"
+assert_contains "lone symlink is counted" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/  (1 loose file"
+run_scan --copy
+assert_eq "lone symlink rescue succeeds" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+rm -rf "$HOME/.config/exports"
+assert_eq "rescued lone symlink keeps its content" "linked-only" "$(cat "$dest$AI_DOCKER_TMP_DIR/report.pdf" 2>/dev/null)"
+setup_case
+echo kept > "$HOME/.claude/kept.md"; ln -s "$HOME/.claude/kept.md" "$AI_DOCKER_TMP_DIR/kept-link"
+run_scan
+assert_eq "symlink to a named volume is not work" 0 "$RUN_RC"
+
+# 4a: a relative link to a named volume must still resolve in the rescue.
+setup_case
+echo on-volume > "$HOME/.claude/f"
+mkdir -p "$AI_DOCKER_TMP_DIR/proj"; echo mine > "$AI_DOCKER_TMP_DIR/proj/real.txt"
+ln -s ../../home/.claude/f "$AI_DOCKER_TMP_DIR/proj/rel-link"
+run_scan --copy
+assert_eq "folder with a relative link to a volume rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_eq "rescued relative link still resolves" "on-volume" "$(cat "$dest$AI_DOCKER_TMP_DIR/proj/rel-link" 2>/dev/null)"
+
+# 4b: a staged git symlink stays a symlink; its discarded target is still rescued.
+setup_case
+clone_to "$HOME/src/stlink"
+mkdir -p "$HOME/.config/exports"; echo target-content > "$HOME/.config/exports/unique.txt"
+ln -s "$HOME/.config/exports/unique.txt" "$HOME/src/stlink/deliverable"
+git -C "$HOME/src/stlink" add deliverable
+run_scan --copy
+assert_eq "repo with a staged symlink rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+[ -L "$dest$HOME/src/stlink/deliverable" ] && pass "staged symlink stays a symlink" || fail "staged symlink stays a symlink"
+rm -rf "$HOME/.config/exports"
+assert_eq "staged symlink's target is rescued" "target-content" "$(cat "$dest$HOME/.config/exports/unique.txt" 2>/dev/null)"
+
+# 5: a dirty worktree inside a folder that also holds a loose file.
+setup_case
+git clone -q "$CASE_DIR/remote.git" "$CASE_DIR/elsewhere/main" 2>/dev/null
+git -C "$CASE_DIR/elsewhere/main" worktree add -q -b task "$HOME/src/task" 2>/dev/null
+echo wip >> "$HOME/src/task/README"
+echo note > "$HOME/src/notes.txt"
+clone_to "$HOME/src/clean"
+run_scan --copy
+assert_eq "worktree beside a loose file rescues" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_eq "loose file beside the worktree is rescued" "note" "$(cat "$dest$HOME/src/notes.txt" 2>/dev/null)"
+[ -d "$dest$HOME/src/task/.git" ] && pass "worktree beside a loose file is standalone" || fail "worktree beside a loose file is standalone"
+[ ! -e "$dest$HOME/src/clean" ] && pass "clean clone in the same folder is not copied" || fail "clean clone in the same folder is not copied"
+
+# 7: a named volume mounted inside a rescued folder or repo is not copied.
+setup_case
+mkdir -p "$HOME/work/vol" "$HOME/src/mrepo"
+echo mine > "$HOME/work/notes.txt"; echo persistent > "$HOME/work/vol/big.bin"
+clone_to "$HOME/src/mrepo"; echo change >> "$HOME/src/mrepo/README"
+mkdir -p "$HOME/src/mrepo/data"; echo persistent > "$HOME/src/mrepo/data/big.bin"
+printf 'none %s ext4 rw 0 0\nnone %s ext4 rw 0 0\n' "$HOME/work/vol" "$HOME/src/mrepo/data" >> "$AI_DOCKER_MOUNTS_FILE"
+run_scan --copy
+assert_eq "folders with nested volumes rescue" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+[ -e "$dest$HOME/work/notes.txt" ] && pass "work beside a nested volume is copied" || fail "work beside a nested volume is copied"
+[ ! -e "$dest$HOME/work/vol/big.bin" ] && pass "nested volume in a folder is not copied" || fail "nested volume in a folder is not copied"
+[ ! -e "$dest$HOME/src/mrepo/data/big.bin" ] && pass "nested volume in a repo is not copied" || fail "nested volume in a repo is not copied"
+
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
