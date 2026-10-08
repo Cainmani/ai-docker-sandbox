@@ -92,7 +92,18 @@ if ($missingFiles.Count -gt 0) {
 $files = @{}
 foreach ($file in $filesToEmbed) {
     try {
-        $files[$file] = Get-Content $file -Raw -ErrorAction Stop
+        # -Encoding UTF8: without it Windows PowerShell 5.1 reads a file with
+        # no BOM as ANSI, and every non-ASCII character is embedded garbled.
+        $files[$file] = Get-Content $file -Raw -Encoding UTF8 -ErrorAction Stop
+        # The embedded text must be byte-identical to the source (a BOM aside).
+        $sourceBytes = [System.IO.File]::ReadAllBytes((Resolve-Path $file).Path)
+        if ($sourceBytes.Length -ge 3 -and $sourceBytes[0] -eq 0xEF -and $sourceBytes[1] -eq 0xBB -and $sourceBytes[2] -eq 0xBF) {
+            $sourceBytes = $sourceBytes[3..($sourceBytes.Length - 1)]
+        }
+        if ([System.Convert]::ToBase64String($sourceBytes) -ne [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($files[$file]))) {
+            Write-Host "  ERROR $file would not be embedded byte-for-byte (is it valid UTF-8?)" -ForegroundColor Red
+            exit 1
+        }
         Write-Host "    Read: $file" -ForegroundColor Gray
     } catch {
         Write-Host "  ERROR Failed to read $file : $($_.Exception.Message)" -ForegroundColor Red
