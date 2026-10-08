@@ -199,7 +199,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=4
+MANAGED_BLOCK_VERSION=5
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -267,6 +267,11 @@ if [ -f /usr/local/lib/router_utils.sh ]; then
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
 fi
+# One-line health summary when an interactive shell starts (details:
+# `ai-docker status`). Reads small status files only; never runs the tools.
+case $- in
+    *i*) command -v ai-docker >/dev/null 2>&1 && ai-docker status --brief ;;
+esac
 EOF
     cat >> "$bashrc" << EOF
 ${MANAGED_BLOCK_END}

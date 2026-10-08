@@ -88,6 +88,7 @@ COPY lib/entrypoint_helpers.sh /usr/local/lib/entrypoint_helpers.sh
 COPY install_cli_tools.sh /usr/local/bin/install_cli_tools.sh
 COPY auto_update.sh /usr/local/bin/auto_update.sh
 COPY configure_tools.sh /usr/local/bin/configure_tools.sh
+COPY ai_docker.sh /usr/local/bin/ai-docker
 
 # Copy mobile access scripts and configuration
 COPY setup_mobile_access.sh /usr/local/bin/setup_mobile_access.sh
@@ -103,6 +104,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/auto_update.sh \
     /usr/local/bin/configure_tools.sh \
+    /usr/local/bin/ai-docker \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \
@@ -116,6 +118,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
 RUN chmod +x /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/auto_update.sh \
     /usr/local/bin/configure_tools.sh \
+    /usr/local/bin/ai-docker \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \

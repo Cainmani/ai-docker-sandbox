@@ -66,6 +66,27 @@ assert_true "managed block reinstall is idempotent" install_managed_block "$bash
 block_count=$(grep -c '^# >>> ai-docker managed: router-wrappers' "$bashrc")
 assert_true "managed block appears once" test "$block_count" -eq 1
 
+# The managed block shows the one-line health banner in interactive shells only.
+banner_bin="$TMP_DIR/banner-bin"
+banner_marker="$TMP_DIR/banner-shown"
+mkdir -p "$banner_bin"
+cat > "$banner_bin/ai-docker" <<SCRIPT
+#!/usr/bin/env bash
+[ "\$*" = "status --brief" ] && touch "$banner_marker"
+SCRIPT
+chmod +x "$banner_bin/ai-docker"
+env PATH="$banner_bin:$PATH" bash --norc -i -c ". '$bashrc'" >/dev/null 2>&1
+assert_true "interactive shell shows the health banner" test -e "$banner_marker"
+rm -f "$banner_marker"
+env PATH="$banner_bin:$PATH" bash --norc -c ". '$bashrc'" >/dev/null 2>&1
+assert_false "non-interactive shell skips the health banner" test -e "$banner_marker"
+
+# An older installed block is replaced by the current version.
+old_bashrc="$TMP_DIR/bashrc-v4"
+printf '# user\n# >>> ai-docker managed: router-wrappers v4 >>>\nold\n# <<< ai-docker managed: router-wrappers <<<\n' > "$old_bashrc"
+install_managed_block "$old_bashrc"
+assert_true "older managed block is upgraded" grep -Fq 'ai-docker status --brief' "$old_bashrc"
+
 # Exercise production cron helpers with fake crontab/cron/pgrep commands.
 cron_bin="$TMP_DIR/cron-bin"
 cron_state="$TMP_DIR/crontab"

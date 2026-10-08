@@ -62,7 +62,7 @@ function Fix-LineEndings {
 
     # Docker files location - detect if running from embedded exe or project directory
     $dockerPath = Resolve-DockerFilesPath -ScriptPath $scriptPath
-    $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
+    $files = @('entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh')
     $fixed = $false
 
     foreach ($file in $files) {

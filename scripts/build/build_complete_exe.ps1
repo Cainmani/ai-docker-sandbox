@@ -53,6 +53,7 @@ $filesToEmbed = @(
    "..\..\docker\install_cli_tools.sh",
    "..\..\docker\auto_update.sh",
    "..\..\docker\configure_tools.sh",
+   "..\..\docker\ai_docker.sh",
    "..\..\docker\setup_mobile_access.sh",
    "..\..\docker\add_ssh_key.sh",
    "..\..\docker\setup_remote_connection.sh",
