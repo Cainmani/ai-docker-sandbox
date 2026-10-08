@@ -226,15 +226,206 @@ cmd_status() {
     [ "${#ISSUES[@]}" -eq 0 ]
 }
 
+# --- rescue-scan ----------------------------------------------------------------
+#
+# A rebuild, recreate or uninstall deletes the container's writable layer: /tmp
+# and everything in $HOME except the named-volume mounts. rescue-scan lists work
+# there that would be lost (git repos with uncommitted, stashed or unpushed work
+# or no remote; document/CAD/GIS files outside dependency folders) and --copy
+# moves it into the workspace, verified by checksum. Exit: 0 nothing found,
+# 3 work found (or, with --copy, 0 once safely copied), 1 copy failed.
+
+MOUNTS_FILE="${AI_DOCKER_MOUNTS_FILE:-/proc/mounts}"
+RESCUE_ROOT="${AI_DOCKER_RESCUE_ROOT:-/workspace/_rescued}"
+# Folders whose contents are reinstalled, never hand-made work.
+RESCUE_SKIP_DIRS="node_modules .venv venv site-packages __pycache__ .cache .npm .npm-global .local .cargo .rustup .gradle"
+RESCUE_DOC_EXTS="pdf doc docx xls xlsx xlsm ppt pptx odt ods csv kmz kml gpkg shp dbf geojson tif tiff dwg dxf step stp stl 3mf f3d fcstd iges igs zip 7z md txt"
+
+# Mount targets inside the scan roots (named volumes) survive a rebuild.
+rescue_mounts() {
+    awk '{ print $2 }' "$MOUNTS_FILE" 2>/dev/null | sed 's/\\040/ /g'
+}
+
+# rescue_find <root>: candidate git repos and document files, NUL-separated,
+# prefixed "repo:" or "doc:". Never descends into skip dirs, mounts or repos.
+rescue_find() {
+    local root="$1" name ext
+    local -a prune=() docs=()
+    [ -d "$root" ] || return 0
+    for name in $RESCUE_SKIP_DIRS; do prune+=(-name "$name" -o); done
+    while IFS= read -r name; do
+        [ -n "$name" ] && [ "$name" != "/" ] && prune+=(-path "$name" -o)
+    done < <(rescue_mounts)
+    # Hidden top-level folders are application state (certificate stores,
+    # tool configs, sockets), and Claude Code's bundled skills are reinstalled.
+    prune+=(-path "$root/.*" -o -path "$root/claude-*/bundled-skills" -o -path "$root/pytest-of-*" -o)
+    unset 'prune[${#prune[@]}-1]'
+    for ext in $RESCUE_DOC_EXTS; do docs+=(-iname "*.$ext" -o); done
+    unset 'docs[${#docs[@]}-1]'
+
+    find "$root" -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
+        -o \( -name .git -printf 'repo:%h\0' -prune \) \
+        -o \( -type f \( "${docs[@]}" \) -printf 'doc:%p\0' \) 2>/dev/null
+}
+
+# rescue_repo_reasons <repo>: comma-separated reasons the repo holds work only
+# here; empty if it is clean, stash-free and fully pushed.
+rescue_repo_reasons() {
+    local repo="$1" reasons=() n
+    n=$(git -C "$repo" status --porcelain 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] && reasons+=("$n uncommitted change(s)")
+    n=$(git -C "$repo" stash list 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] && reasons+=("$n stash(es)")
+    if [ -z "$(git -C "$repo" remote 2>/dev/null)" ]; then
+        reasons+=("no remote")
+    else
+        n=$(git -C "$repo" rev-list --count HEAD --not --remotes 2>/dev/null || echo 0)
+        [ "$n" -gt 0 ] && reasons+=("$n unpushed commit(s)")
+    fi
+    local IFS=','
+    echo "${reasons[*]}"
+}
+
+# rescue_collect: fills RESCUE_PATHS and RESCUE_LINES.
+rescue_collect() {
+    RESCUE_PATHS=()
+    RESCUE_LINES=()
+    local root entry path reasons repo inside group rel
+    local -a repos=() docs=() groups=()
+    local -A doc_root=() group_count=() group_bytes=()
+    # find only learns a folder is a repo when it reaches .git, so gather
+    # everything first, then judge documents inside a repo by the repo.
+    for root in "$HOME" "$TMP_ROOT"; do
+        while IFS= read -r -d '' entry; do
+            case "$entry" in
+                repo:*) repos+=("${entry#repo:}") ;;
+                doc:*) docs+=("${entry#doc:}"); doc_root["${entry#doc:}"]=$root ;;
+            esac
+        done < <(rescue_find "$root")
+    done
+
+    for repo in "${repos[@]}"; do
+        reasons=$(rescue_repo_reasons "$repo")
+        [ -n "$reasons" ] || continue
+        RESCUE_PATHS+=("$repo")
+        RESCUE_LINES+=("git repo  $repo  (${reasons//,/, })")
+    done
+    for path in "${docs[@]}"; do
+        inside=0
+        for repo in "${repos[@]}"; do
+            case "$path" in "$repo"/*) inside=1; break ;; esac
+        done
+        [ "$inside" -eq 0 ] || continue
+        # Group by top-level folder under the scan root, so one batch of
+        # files is one line (and one copied folder); loose files stand alone.
+        rel=${path#"${doc_root[$path]}"/}
+        case "$rel" in
+            */*) group="${doc_root[$path]}/${rel%%/*}" ;;
+            *) group=$path ;;
+        esac
+        if [ -z "${group_count[$group]:-}" ]; then
+            groups+=("$group")
+            group_count[$group]=0
+            group_bytes[$group]=0
+        fi
+        group_count[$group]=$(( ${group_count[$group]} + 1 ))
+        group_bytes[$group]=$(( ${group_bytes[$group]} + $(stat -c %s "$path" 2>/dev/null || echo 0) ))
+    done
+    local -A loose_count=() loose_bytes=()
+    for group in "${groups[@]}"; do
+        RESCUE_PATHS+=("$group")
+        if [ -d "$group" ]; then
+            RESCUE_LINES+=("folder    $group  ($(plural "${group_count[$group]}" document), $(human_bytes "${group_bytes[$group]}"))")
+        else
+            # Loose files directly in a scan root: one summary line per root.
+            root=${group%/*}
+            loose_count[$root]=$(( ${loose_count[$root]:-0} + 1 ))
+            loose_bytes[$root]=$(( ${loose_bytes[$root]:-0} + ${group_bytes[$group]} ))
+        fi
+    done
+    for root in "${!loose_count[@]}"; do
+        RESCUE_LINES+=("files     $root/  ($(plural "${loose_count[$root]}" "loose document"), $(human_bytes "${loose_bytes[$root]}"))")
+    done
+}
+
+# plural <n> <noun>: "1 document", "3 documents".
+plural() {
+    if [ "$1" -eq 1 ]; then echo "1 $2"; else echo "$1 ${2}s"; fi
+}
+
+human_bytes() {
+    awk -v b="$1" 'BEGIN { if (b >= 1073741824) printf "%.1f GB", b / 1073741824; else if (b >= 1048576) printf "%.1f MB", b / 1048576; else printf "%d KB", (b + 1023) / 1024 }'
+}
+
+# rescue_destination: next free <yyyymmdd>_container_rescue_vX_XX folder.
+rescue_destination() {
+    local day minor=0 dest
+    day=$(date +%Y%m%d)
+    while :; do
+        dest=$(printf '%s/%s_container_rescue_v1_%02d' "$RESCUE_ROOT" "$day" "$minor")
+        [ -e "$dest" ] || { echo "$dest"; return; }
+        minor=$((minor + 1))
+    done
+}
+
+# rescue_copy <dest>: copy each finding to <dest><absolute path>, skipping
+# dependency folders, then verify every copied file by checksum.
+rescue_copy() {
+    local dest="$1" path name
+    local -a excludes=() prune=()
+    # One skip list drives both the copy and its verification.
+    for name in $RESCUE_SKIP_DIRS; do
+        excludes+=(--exclude="$name")
+        prune+=(-name "$name" -o)
+    done
+    unset 'prune[${#prune[@]}-1]'
+    mkdir -p "$dest" || return 1
+    for path in "${RESCUE_PATHS[@]}"; do
+        tar -C / "${excludes[@]}" -cf - "${path#/}" 2>/dev/null | tar -C "$dest" -xf - 2>/dev/null || return 1
+        ( cd / && find "${path#/}" \( -type d \( "${prune[@]}" \) -prune \) -o -type f -print0 \
+            | xargs -0 -r sha256sum ) > "$dest/.verify.$$" 2>/dev/null || return 1
+        ( cd "$dest" && sha256sum --quiet -c "$dest/.verify.$$" ) >/dev/null 2>&1 || { rm -f "$dest/.verify.$$"; return 1; }
+        rm -f "$dest/.verify.$$"
+    done
+}
+
+cmd_rescue_scan() {
+    rescue_collect
+    if [ "${#RESCUE_PATHS[@]}" -eq 0 ]; then
+        echo "Nothing found outside the folders a rebuild keeps."
+        return 0
+    fi
+    echo "Found work outside the folders a rebuild keeps (${#RESCUE_LINES[@]} location(s)):"
+    echo "A rebuild, recreate or uninstall of the container deletes these:"
+    printf '  %s\n' "${RESCUE_LINES[@]}"
+    if [ "${1:-}" != "--copy" ]; then
+        echo ""
+        echo "Copy them into the workspace first with: ai-docker rescue-scan --copy"
+        return 3
+    fi
+    local dest
+    dest=$(rescue_destination)
+    if rescue_copy "$dest"; then
+        echo ""
+        echo "Copied and verified in: $dest"
+        return 0
+    fi
+    echo ""
+    echo "ERROR: the copy to $dest failed or did not verify. Do not rebuild or uninstall until this is resolved." >&2
+    return 1
+}
+
 usage() {
     cat <<'EOF'
 Usage: ai-docker <command>
 
 Commands:
-  status           Tools, updates, disk use and container limits
-  status --brief   One-line summary (shown when a shell starts)
-  doctor           Network, DNS, TLS and login diagnostics
-  help             Show this help
+  status               Tools, updates, disk use and container limits
+  status --brief       One-line summary (shown when a shell starts)
+  doctor               Network, DNS, TLS and login diagnostics
+  rescue-scan          List work a rebuild/uninstall would delete
+  rescue-scan --copy   Copy that work into the workspace (verified)
+  help                 Show this help
 EOF
 }
 
@@ -244,6 +435,9 @@ case "${1:-help}" in
         ;;
     doctor)
         exec /usr/local/bin/configure_tools.sh --diagnose
+        ;;
+    rescue-scan)
+        cmd_rescue_scan "${2:-}"
         ;;
     help|--help|-h)
         usage

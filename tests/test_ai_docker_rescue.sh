@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Behavioral tests for `ai-docker rescue-scan`: finds work a rebuild would
+# delete (outside the named volumes and the workspace bind mount).
+set -u
+
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+TMP_DIR=$(mktemp -d)
+PASS=0
+FAIL=0
+trap 'chmod -R u+w "$TMP_DIR" 2>/dev/null; rm -rf "$TMP_DIR"' EXIT
+
+pass() { printf 'ok - %s\n' "$1"; PASS=$((PASS + 1)); }
+fail() { printf 'not ok - %s\n' "$1" >&2; FAIL=$((FAIL + 1)); }
+assert_eq() {
+    local label=$1 expected=$2 actual=$3
+    if [ "$expected" = "$actual" ]; then pass "$label"; else fail "$label (expected $expected, got $actual)"; fi
+}
+assert_contains() {
+    local label=$1 haystack=$2 needle=$3
+    if printf '%s\n' "$haystack" | grep -Fq -- "$needle"; then pass "$label"; else fail "$label (missing: $needle)"; fi
+}
+assert_not_contains() {
+    local label=$1 haystack=$2 needle=$3
+    if printf '%s\n' "$haystack" | grep -Fq -- "$needle"; then fail "$label (unexpected: $needle)"; else pass "$label"; fi
+}
+
+export GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=test@example.invalid
+export GIT_COMMITTER_NAME=Test GIT_COMMITTER_EMAIL=test@example.invalid
+export GIT_CONFIG_GLOBAL=/dev/null
+
+setup_case() {
+    CASE_DIR=$(mktemp -d "$TMP_DIR/case.XXXXXX")
+    export HOME="$CASE_DIR/home"
+    export AI_DOCKER_TMP_DIR="$CASE_DIR/tmp"
+    export AI_DOCKER_LIB_DIR="$ROOT_DIR/docker/lib"
+    export AI_DOCKER_MOUNTS_FILE="$CASE_DIR/mounts"
+    export AI_DOCKER_RESCUE_ROOT="$CASE_DIR/workspace/_rescued"
+    mkdir -p "$HOME" "$AI_DOCKER_TMP_DIR" "$CASE_DIR/workspace"
+    # A named volume mounted inside home survives a rebuild.
+    mkdir -p "$HOME/.claude"
+    printf 'none %s ext4 rw 0 0\n' "$HOME/.claude" > "$AI_DOCKER_MOUNTS_FILE"
+    git init -q --bare "$CASE_DIR/remote.git"
+    seed="$CASE_DIR/seed"
+    git clone -q "$CASE_DIR/remote.git" "$seed" 2>/dev/null
+    echo base > "$seed/README"
+    git -C "$seed" add README && git -C "$seed" commit -qm base && git -C "$seed" push -q origin HEAD 2>/dev/null
+}
+
+clone_to() { git clone -q "$CASE_DIR/remote.git" "$1" 2>/dev/null; }
+
+run_scan() {
+    set +e
+    RUN_OUTPUT=$(bash "$ROOT_DIR/docker/ai_docker.sh" rescue-scan "$@" 2>&1)
+    RUN_RC=$?
+    set -u
+}
+
+# Nothing at risk -> exit 0.
+setup_case
+clone_to "$HOME/src/clean"
+run_scan
+assert_eq "nothing at risk exits 0" 0 "$RUN_RC"
+assert_contains "nothing at risk is said plainly" "$RUN_OUTPUT" "Nothing found outside the folders a rebuild keeps"
+
+# Work at risk -> listed, exit 3.
+setup_case
+clone_to "$HOME/src/clean"
+clone_to "$HOME/src/dirty"; echo change >> "$HOME/src/dirty/README"
+clone_to "$HOME/src/unpushed"; echo more >> "$HOME/src/unpushed/README"
+git -C "$HOME/src/unpushed" commit -qam local
+git init -q "$AI_DOCKER_TMP_DIR/noremote"; echo x > "$AI_DOCKER_TMP_DIR/noremote/f"
+git -C "$AI_DOCKER_TMP_DIR/noremote" add f && git -C "$AI_DOCKER_TMP_DIR/noremote" commit -qm one
+clone_to "$HOME/src/stashed"; echo s >> "$HOME/src/stashed/README"; git -C "$HOME/src/stashed" stash -q
+mkdir -p "$AI_DOCKER_TMP_DIR/handoff"; head -c 3000 /dev/urandom > "$AI_DOCKER_TMP_DIR/handoff/model.step"
+head -c 1000 /dev/urandom > "$AI_DOCKER_TMP_DIR/report.pdf"
+mkdir -p "$HOME/app/.venv/lib" "$HOME/app/node_modules/pkg"
+: > "$HOME/app/.venv/lib/bundled.pdf"; : > "$HOME/app/node_modules/pkg/doc.pdf"
+: > "$HOME/.claude/notes.pdf"
+run_scan
+assert_eq "work at risk exits 3" 3 "$RUN_RC"
+assert_contains "dirty repo is listed" "$RUN_OUTPUT" "src/dirty"
+assert_contains "dirty repo reason" "$RUN_OUTPUT" "uncommitted"
+assert_contains "unpushed repo is listed" "$RUN_OUTPUT" "src/unpushed"
+assert_contains "unpushed reason" "$RUN_OUTPUT" "unpushed"
+assert_contains "repo without remote is listed" "$RUN_OUTPUT" "no remote"
+assert_contains "stash is listed" "$RUN_OUTPUT" "stash"
+assert_contains "folder holding a CAD file is listed" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/handoff"
+assert_contains "loose PDF is counted" "$RUN_OUTPUT" "1 loose document"
+assert_not_contains "clean pushed repo is not listed" "$RUN_OUTPUT" "src/clean"
+assert_not_contains "documents in virtualenvs are ignored" "$RUN_OUTPUT" "bundled.pdf"
+assert_not_contains "documents in node_modules are ignored" "$RUN_OUTPUT" "doc.pdf"
+assert_not_contains "named volumes are not scanned" "$RUN_OUTPUT" "notes.pdf"
+assert_contains "wording does not claim files exist nowhere else" "$RUN_OUTPUT" "outside the folders a rebuild keeps"
+assert_not_contains "documents inside repos are covered by the repo entry" "$RUN_OUTPUT" "src/dirty/README"
+
+# --copy rescues everything into a versioned workspace folder and verifies it.
+run_scan --copy
+assert_eq "verified copy exits 0" 0 "$RUN_RC"
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+assert_contains "rescue folder follows the naming policy" "$(basename "${dest:-none}")" "_container_rescue_v1_00"
+assert_eq "rescued CAD file is byte-identical" \
+    "$(sha256sum < "$AI_DOCKER_TMP_DIR/handoff/model.step")" "$(sha256sum < "$dest$AI_DOCKER_TMP_DIR/handoff/model.step" 2>/dev/null)"
+assert_eq "rescued dirty repo keeps its uncommitted change" \
+    "$(cat "$HOME/src/dirty/README")" "$(cat "$dest$HOME/src/dirty/README" 2>/dev/null)"
+[ -d "$dest$HOME/src/unpushed/.git" ] && pass "rescued repo keeps its history" || fail "rescued repo keeps its history"
+assert_contains "copy reports where it went" "$RUN_OUTPUT" "$dest"
+run_scan --copy
+assert_eq "second rescue succeeds" 0 "$RUN_RC"
+[ -d "$AI_DOCKER_RESCUE_ROOT/$(date +%Y%m%d)_container_rescue_v1_01" ] \
+    && pass "second rescue gets the next version, never overwriting" || fail "second rescue gets the next version, never overwriting"
+
+# Findings are grouped by top-level folder, and app state is not "work".
+setup_case
+mkdir -p "$AI_DOCKER_TMP_DIR/batch/sub" "$HOME/.pki/nssdb" "$AI_DOCKER_TMP_DIR/claude-$(id -u)/bundled-skills/x"
+: > "$AI_DOCKER_TMP_DIR/batch/a.pdf"; : > "$AI_DOCKER_TMP_DIR/batch/sub/b.docx"
+: > "$HOME/.pki/nssdb/pkcs11.txt"; : > "$AI_DOCKER_TMP_DIR/claude-$(id -u)/bundled-skills/x/SKILL.md"
+run_scan
+assert_contains "documents are grouped by top-level folder" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/batch  (2 documents"
+assert_not_contains "grouped files are not listed one by one" "$RUN_OUTPUT" "a.pdf"
+assert_not_contains "hidden app-state folders are skipped" "$RUN_OUTPUT" "pkcs11.txt"
+assert_not_contains "Claude Code bundled skills are skipped" "$RUN_OUTPUT" "SKILL.md"
+
+# Loose files at the top of a scan root fold into one line; pytest temp is skipped.
+setup_case
+: > "$AI_DOCKER_TMP_DIR/note1.md"; : > "$AI_DOCKER_TMP_DIR/note2.md"; : > "$AI_DOCKER_TMP_DIR/map.kmz"
+mkdir -p "$AI_DOCKER_TMP_DIR/single" "$AI_DOCKER_TMP_DIR/pytest-of-$(id -un)/test0"
+: > "$AI_DOCKER_TMP_DIR/single/only.pdf"; : > "$AI_DOCKER_TMP_DIR/pytest-of-$(id -un)/test0/out.pdf"
+run_scan
+assert_contains "loose files are summarised in one line" "$RUN_OUTPUT" "3 loose documents"
+assert_not_contains "loose files are not listed one by one" "$RUN_OUTPUT" "note1.md"
+assert_contains "a single document is singular" "$RUN_OUTPUT" "(1 document,"
+assert_not_contains "pytest temp folders are skipped" "$RUN_OUTPUT" "pytest-of"
+run_scan --copy
+dest=$(find "$AI_DOCKER_RESCUE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -n1)
+[ -e "$dest$AI_DOCKER_TMP_DIR/note2.md" ] && pass "summarised loose files are still copied" || fail "summarised loose files are still copied"
+
+# Documents inside a repo are judged by the repo, not listed on their own.
+setup_case
+clone_to "$HOME/src/withdocs"
+mkdir -p "$HOME/src/withdocs/docs"; head -c 800 /dev/urandom > "$HOME/src/withdocs/docs/spec.pdf"
+git -C "$HOME/src/withdocs" add docs && git -C "$HOME/src/withdocs" commit -qm docs && git -C "$HOME/src/withdocs" push -q origin HEAD 2>/dev/null
+run_scan
+assert_eq "tracked document in a pushed repo is safe" 0 "$RUN_RC"
+assert_not_contains "tracked document is not listed separately" "$RUN_OUTPUT" "spec.pdf"
+
+# A rescued repo containing a skipped cache folder still verifies.
+setup_case
+clone_to "$HOME/src/cachey"; echo change >> "$HOME/src/cachey/README"
+mkdir -p "$HOME/src/cachey/.cache/tool"; echo junk > "$HOME/src/cachey/.cache/tool/blob"
+run_scan --copy
+assert_eq "repo with a cache folder copies and verifies" 0 "$RUN_RC"
+
+# A copy that cannot be written fails loudly (the rebuild must not proceed).
+setup_case
+head -c 500 /dev/urandom > "$AI_DOCKER_TMP_DIR/report.pdf"
+mkdir -p "$AI_DOCKER_RESCUE_ROOT"; chmod 555 "$AI_DOCKER_RESCUE_ROOT"
+run_scan --copy
+chmod 755 "$AI_DOCKER_RESCUE_ROOT"
+if [ "$(id -u)" -ne 0 ]; then
+    assert_eq "unwritable destination fails the copy" 1 "$RUN_RC"
+    assert_contains "failed copy says not to rebuild" "$RUN_OUTPUT" "Do not rebuild"
+fi
+
+printf '%s passed, %s failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]
