@@ -85,9 +85,18 @@ if (-not $dockerCmd) {
     if (-not (Test-Path (Join-Path $scannerDir 'ai_docker.sh'))) {
         $scannerDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'docker'
     }
-    if (Get-Command Invoke-ContainerRescueScan -ErrorAction SilentlyContinue) {
+    if (-not (Get-Command Get-RescueDecision -ErrorAction SilentlyContinue)) {
+        if ($SkipRescueCheck) {
+            Write-Host "[WARN] Rescue check unavailable - continuing because -SkipRescueCheck was given." -ForegroundColor Yellow
+        } else {
+            Write-Host "[ERROR] The rescue check is unavailable (docker_helpers.ps1 not found), so unsaved work in the container cannot be checked. Uninstall stopped; nothing was removed. Re-run with -SkipRescueCheck to remove it anyway." -ForegroundColor Red
+            Write-AppLog "Uninstall aborted: rescue check unavailable" "ERROR"
+            exit 1
+        }
+    } else {
         $scan = Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath $dockerCmd
-        if ($scan.State -eq 'WorkFound') {
+        $decision = Get-RescueDecision -State $scan.State -SkipRescueCheck:$SkipRescueCheck
+        if ($decision -eq 'OfferCopy') {
             Write-Host $scan.Output -ForegroundColor Yellow
             $copyIt = $true
             if (-not $Force) {
@@ -106,20 +115,17 @@ if (-not $dockerCmd) {
             } else {
                 Write-AppLog "User chose to uninstall without rescuing work found by the scan" "WARN"
             }
-        } elseif ($scan.State -eq 'Error') {
+        } elseif ($decision -eq 'Stop') {
             # Never delete what we could not check - not even with -Force.
-            Write-Host "[ERROR] Could not check the container for unsaved work: $($scan.Error)" -ForegroundColor Red
-            if ($SkipRescueCheck) {
-                Write-Host "[WARN] -SkipRescueCheck given - continuing without the check." -ForegroundColor Yellow
-                Write-AppLog "Uninstall continuing without rescue check (-SkipRescueCheck): $($scan.Error)" "WARN"
-            } else {
-                Write-Host "[INFO] Uninstall stopped. Nothing was removed. Fix the error, or re-run with -SkipRescueCheck to remove the container anyway." -ForegroundColor Cyan
-                Write-AppLog "Uninstall aborted: rescue check failed ($($scan.Error))" "ERROR"
-                exit 1
-            }
+            Write-Host "[ERROR] Could not confirm the container is safe to remove (state: $($scan.State)). $($scan.Error)" -ForegroundColor Red
+            if ($scan.Output) { Write-Host $scan.Output -ForegroundColor Red }
+            Write-Host "[INFO] Uninstall stopped. Nothing was removed. Fix the problem, or re-run with -SkipRescueCheck to remove the container anyway." -ForegroundColor Cyan
+            Write-AppLog "Uninstall aborted: rescue check state $($scan.State)" "ERROR"
+            exit 1
+        } elseif ($scan.State -ne 'Clean' -and $scan.State -ne 'NoContainer') {
+            Write-Host "[WARN] -SkipRescueCheck given - removing without a successful check (state: $($scan.State))." -ForegroundColor Yellow
+            Write-AppLog "Uninstall continuing without a successful rescue check (-SkipRescueCheck, state $($scan.State))" "WARN"
         }
-    } else {
-        Write-Host "[WARN] Rescue check unavailable (docker_helpers.ps1 not found) - work in /tmp and the home folder will be deleted." -ForegroundColor Yellow
     }
 
     # ---------- remove container ----------

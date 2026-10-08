@@ -201,6 +201,22 @@ assert_contains "a real file in home is counted" "$RUN_OUTPUT" "$HOME/  (1 loose
 assert_contains "a hidden file inside a project folder still counts" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/proj  (1 file"
 assert_not_contains "top-level dotfiles in /tmp are not work" "$RUN_OUTPUT" "$AI_DOCKER_TMP_DIR/  ("
 
+# Second review: an unreadable folder must make the scan incomplete, not clean.
+if [ "$(id -u)" -ne 0 ]; then
+    setup_case
+    mkdir -p "$AI_DOCKER_TMP_DIR/locked"; head -c 300 /dev/urandom > "$AI_DOCKER_TMP_DIR/locked/only-copy.pdf"
+    chmod 000 "$AI_DOCKER_TMP_DIR/locked"
+    run_scan
+    chmod 755 "$AI_DOCKER_TMP_DIR/locked"
+    assert_eq "unreadable folder makes the scan incomplete (exit 4)" 4 "$RUN_RC"
+    assert_contains "unreadable folder is named" "$RUN_OUTPUT" "could not be read: $AI_DOCKER_TMP_DIR/locked"
+    assert_not_contains "incomplete scan never says nothing was found" "$RUN_OUTPUT" "Nothing found"
+    chmod 000 "$AI_DOCKER_TMP_DIR/locked"
+    run_scan --copy
+    chmod 755 "$AI_DOCKER_TMP_DIR/locked"
+    assert_eq "an incomplete scan cannot certify a rescue (exit 1)" 1 "$RUN_RC"
+fi
+
 # Documents inside a repo are judged by the repo, not listed on their own.
 setup_case
 clone_to "$HOME/src/withdocs"

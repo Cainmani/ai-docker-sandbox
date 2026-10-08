@@ -151,6 +151,67 @@ Describe 'Invoke-ContainerRescueScan' {
     }
 }
 
+Describe 'Inspection failures are not "no container"' {
+    It 'Rescue scan reports Error (not NoContainer) when docker inspect times out' {
+        Mock Invoke-DockerCommand { @{ Success = $false; ExitCode = -1; Output = ''; Error = 'docker command timed out after 15s'; TimedOut = $true } }
+        $dir = Join-Path $TestDrive 'df'; New-Item -ItemType Directory -Path (Join-Path $dir 'lib') -Force | Out-Null
+        Set-Content (Join-Path $dir 'ai_docker.sh') 'x'; Set-Content (Join-Path $dir 'lib/entrypoint_helpers.sh') 'x'
+        (Invoke-ContainerRescueScan -ScannerDir $dir -DockerPath 'docker').State | Should -Be 'Error'
+    }
+
+    It 'Rescue scan reports NoContainer only when Docker says the container does not exist' {
+        Mock Invoke-DockerCommand { @{ Success = $false; ExitCode = 1; Output = ''; Error = 'Error: No such object: ai-cli'; TimedOut = $false } }
+        $dir = Join-Path $TestDrive 'df2'; New-Item -ItemType Directory -Path (Join-Path $dir 'lib') -Force | Out-Null
+        Set-Content (Join-Path $dir 'ai_docker.sh') 'x'; Set-Content (Join-Path $dir 'lib/entrypoint_helpers.sh') 'x'
+        (Invoke-ContainerRescueScan -ScannerDir $dir -DockerPath 'docker').State | Should -Be 'NoContainer'
+    }
+
+    It 'Recreate prediction treats an inspect timeout as a possible recreate of an existing container' {
+        Mock Invoke-DockerCommand { @{ Success = $false; ExitCode = -1; Output = ''; Error = 'docker command timed out after 15s'; TimedOut = $true } }
+        $r = Test-ContainerRecreateLikely -DockerPath 'docker' -ComposeFiles @('x') -ProjectDirectory $TestDrive
+        $r.ContainerExists | Should -BeTrue
+        $r.Likely | Should -BeTrue
+    }
+
+    It 'Maps scanner exit 4 (incomplete scan) to Error' {
+        Mock Invoke-DockerCommand {
+            $line = $Arguments -join ' '
+            if ($line -like 'inspect*State.Running*') { return @{ Success = $true; ExitCode = 0; Output = "true`n"; Error = ''; TimedOut = $false } }
+            if ($line -like '*printenv USER_NAME*') { return @{ Success = $true; ExitCode = 0; Output = "mike`n"; Error = ''; TimedOut = $false } }
+            if ($line -like '*rescue-scan*') { return @{ Success = $false; ExitCode = 4; Output = 'could not be read: /tmp/x'; Error = ''; TimedOut = $false } }
+            return @{ Success = $true; ExitCode = 0; Output = ''; Error = ''; TimedOut = $false }
+        }
+        $dir = Join-Path $TestDrive 'df3'; New-Item -ItemType Directory -Path (Join-Path $dir 'lib') -Force | Out-Null
+        Set-Content (Join-Path $dir 'ai_docker.sh') 'x'; Set-Content (Join-Path $dir 'lib/entrypoint_helpers.sh') 'x'
+        $r = Invoke-ContainerRescueScan -ScannerDir $dir -DockerPath 'docker'
+        $r.State | Should -Be 'Error'
+        $r.Error | Should -Match 'could not be read'
+    }
+}
+
+Describe 'Get-RescueDecision' {
+    It 'Proceeds only on Clean or NoContainer' {
+        Get-RescueDecision -State 'Clean' | Should -Be 'Proceed'
+        Get-RescueDecision -State 'NoContainer' | Should -Be 'Proceed'
+    }
+    It 'Offers a copy when work was found' {
+        Get-RescueDecision -State 'WorkFound' | Should -Be 'OfferCopy'
+    }
+    It 'Stops on every other state, including Failed, Error and anything unknown' {
+        foreach ($state in @('Failed', 'Error', 'Copied', '', 'Surprise')) {
+            Get-RescueDecision -State $state | Should -Be 'Stop'
+        }
+    }
+    It 'Proceeds past a failed check only with an explicit override' {
+        Get-RescueDecision -State 'Error' -SkipRescueCheck | Should -Be 'Proceed'
+        Get-RescueDecision -State 'Failed' -SkipRescueCheck | Should -Be 'Proceed'
+    }
+    It 'Uninstall and the wizard both use it' {
+        (Get-Content "$PSScriptRoot/../scripts/uninstall.ps1" -Raw) | Should -Match 'Get-RescueDecision'
+        (Get-Content "$PSScriptRoot/../scripts/setup_wizard.ps1" -Raw) | Should -Match 'Get-RescueDecision'
+    }
+}
+
 Describe 'Rebuild and uninstall paths run the rescue scan' {
     It 'Every container removal in the setup wizard goes through the rescue gate' {
         $wizard = Get-Content "$PSScriptRoot/../scripts/setup_wizard.ps1" -Raw
@@ -181,10 +242,18 @@ Describe 'Rebuild and uninstall paths run the rescue scan' {
     It 'Uninstall -Force stops when the rescue check fails, unless explicitly skipped' {
         $uninstall = Get-Content "$PSScriptRoot/../scripts/uninstall.ps1" -Raw
         $uninstall | Should -Match '\[switch\]\$SkipRescueCheck'
-        $errorBranch = $uninstall.Substring($uninstall.IndexOf("`$scan.State -eq 'Error'"))
-        $errorBranch = $errorBranch.Substring(0, $errorBranch.IndexOf('# ---------- remove container'))
-        $errorBranch | Should -Match 'exit 1'
-        $errorBranch | Should -Not -Match 'if \(-not \$Force\)'
+        $uninstall | Should -Match 'Get-RescueDecision -State \$scan.State -SkipRescueCheck:\$SkipRescueCheck'
+        $stopBranch = $uninstall.Substring($uninstall.IndexOf("`$decision -eq 'Stop'"))
+        $stopBranch = $stopBranch.Substring(0, $stopBranch.IndexOf('}'))
+        $stopBranch | Should -Not -Match '\$Force'
+        $uninstall.Substring($uninstall.IndexOf("`$decision -eq 'Stop'")) | Should -Match 'exit 1'
+    }
+
+    It 'Uninstall stops when the rescue check itself is unavailable' {
+        $uninstall = Get-Content "$PSScriptRoot/../scripts/uninstall.ps1" -Raw
+        $block = $uninstall.Substring($uninstall.IndexOf('Get-Command Get-RescueDecision'))
+        $block = $block.Substring(0, $block.IndexOf('} else {', $block.IndexOf('exit 1')))
+        $block | Should -Match 'exit 1'
     }
 
     It 'The helpers uninstall needs are extracted next to it' {

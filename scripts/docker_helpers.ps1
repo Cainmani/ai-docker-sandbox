@@ -330,7 +330,15 @@ function Test-ContainerRecreateLikely {
 
     $containerImage = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
         'inspect', '--format', '{{.Image}}', $ContainerName) -TimeoutSeconds 15
-    if (-not $containerImage.Success) { return $result }
+    if (-not $containerImage.Success) {
+        if (Test-DockerNotFound $containerImage) { return $result }
+        # Timed out or failed: the container may well exist. Assume it does
+        # and that it may be recreated, so the rescue check still runs.
+        $result.ContainerExists = $true
+        $result.Likely = $true
+        $result.Reason = 'the container could not be inspected'
+        return $result
+    }
     $result.ContainerExists = $true
 
     $image = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
@@ -376,6 +384,28 @@ function Test-ContainerRecreateLikely {
     return $result
 }
 
+# Test-DockerNotFound <result>: docker said the object does not exist (as
+# opposed to a timeout or any other failure, which proves nothing).
+function Test-DockerNotFound($DockerResult) {
+    if ($DockerResult.TimedOut) { return $false }
+    return (("$($DockerResult.Error)`n$($DockerResult.Output)") -match 'No such (object|container)')
+}
+
+# Get-RescueDecision: what a caller about to remove or recreate the container
+# may do with a rescue-scan state. Only an explicit Clean or a confirmed
+# NoContainer allows proceeding; WorkFound offers the copy; every other state
+# (Failed, Error, unknown) stops unless the user deliberately overrides.
+function Get-RescueDecision {
+    param([string]$State, [switch]$SkipRescueCheck)
+    switch ($State) {
+        'Clean'       { return 'Proceed' }
+        'NoContainer' { return 'Proceed' }
+        'WorkFound'   { return 'OfferCopy' }
+    }
+    if ($SkipRescueCheck) { return 'Proceed' }
+    return 'Stop'
+}
+
 # Runs `ai-docker rescue-scan` inside the container using the launcher's own
 # copy of the scanner, so containers built before it existed are covered too.
 # State: NoContainer | Clean | WorkFound | Copied | Failed | Error
@@ -401,7 +431,12 @@ function Invoke-ContainerRescueScan {
     $running = Invoke-DockerCommand -DockerPath $DockerPath -Arguments @(
         'inspect', '--format', '{{.State.Running}}', $ContainerName) -TimeoutSeconds 15
     if (-not $running.Success) {
-        $result.State = 'NoContainer'
+        # Only a confirmed "no such container" means there is nothing to lose.
+        if (Test-DockerNotFound $running) {
+            $result.State = 'NoContainer'
+        } else {
+            $result.Error = "Could not inspect the container: $($running.Error)"
+        }
         return $result
     }
     if ($running.Output.Trim() -ne 'true') {
@@ -447,6 +482,10 @@ function Invoke-ContainerRescueScan {
         0 { if ($Copy) { $result.State = 'Copied' } else { $result.State = 'Clean' } }
         3 { $result.State = 'WorkFound' }
         1 { $result.State = 'Failed' }
+        4 {
+            $result.State = 'Error'
+            $result.Error = "The scan is incomplete: $($result.Output)"
+        }
         default {
             $result.State = 'Error'
             $result.Error = "Rescue scan did not complete (exit $($scan.ExitCode)): $($scan.Error)"

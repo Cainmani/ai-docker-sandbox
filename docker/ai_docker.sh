@@ -257,7 +257,8 @@ cmd_status() {
 # there that would be lost (git repos with uncommitted, stashed or unpushed work
 # or no remote; any other file outside dependency folders) and --copy
 # moves it into the workspace, verified by checksum. Exit: 0 nothing found,
-# 3 work found (or, with --copy, 0 once safely copied), 1 copy failed.
+# 3 work found (or, with --copy, 0 once safely copied), 1 copy failed,
+# 4 scan incomplete (some location unreadable).
 
 MOUNTS_FILE="${AI_DOCKER_MOUNTS_FILE:-/proc/mounts}"
 RESCUE_ROOT="${AI_DOCKER_RESCUE_ROOT:-/workspace/_rescued}"
@@ -293,10 +294,12 @@ rescue_find() {
     # Dotfiles directly in the root (shell rc, install markers, tool config)
     # are app state. Each entry carries its size so callers need no stat.
     # pyvenv.cfg marks a virtualenv, whatever the folder is called.
+    # Errors (unreadable folders) go to RESCUE_ERRFILE: a scan that could not
+    # see everything must never report "nothing found".
     find "$root" -mindepth 1 \( -type d \( "${prune[@]}" \) -prune \) \
         -o \( -name .git -printf 'repo:%h\0' -prune \) \
         -o \( -name pyvenv.cfg -printf 'venv:%h\0' \) \
-        -o \( -type f ! -path "$root/.*" -printf 'doc:%s:%p\0' \) 2>/dev/null
+        -o \( -type f ! -path "$root/.*" -printf 'doc:%s:%p\0' \) 2>>"${RESCUE_ERRFILE:-/dev/null}"
 }
 
 # rescue_repo_docs <repo>: document files in the working tree (relative paths),
@@ -344,6 +347,8 @@ rescue_collect() {
 rescue_collect_roots() {
     RESCUE_PATHS=()
     RESCUE_LINES=()
+    RESCUE_UNREADABLE=()
+    RESCUE_ERRFILE=$(mktemp)
     local root entry path reasons repo inside group rel venv
     local -a repos=() docs=() groups=() venvs=()
     local -A doc_root=() doc_size=() group_count=() group_bytes=()
@@ -363,6 +368,12 @@ rescue_collect_roots() {
             esac
         done < <(rescue_find "$root")
     done
+    mapfile -t RESCUE_UNREADABLE < <(sed -n -E "s/^find: ['‘](.*)['’]: Permission denied$/\1/p" "$RESCUE_ERRFILE" | sort -u)
+    if [ "${#RESCUE_UNREADABLE[@]}" -eq 0 ] && [ -s "$RESCUE_ERRFILE" ]; then
+        # Any other find error also makes the scan untrustworthy.
+        mapfile -t RESCUE_UNREADABLE < <(sed 's/^find: //' "$RESCUE_ERRFILE" | sort -u)
+    fi
+    rm -f "$RESCUE_ERRFILE"
 
     for repo in "${repos[@]}"; do
         reasons=$(rescue_repo_reasons "$repo")
@@ -494,6 +505,24 @@ rescue_verify_repo() {
 
 cmd_rescue_scan() {
     rescue_collect
+    if [ "${#RESCUE_UNREADABLE[@]}" -gt 0 ]; then
+        # Incomplete: something could not be checked, so nothing can be
+        # declared safe and no rescue can be certified.
+        echo "The scan is INCOMPLETE - these locations could not be read:"
+        printf '  could not be read: %s\n' "${RESCUE_UNREADABLE[@]}"
+        if [ "${#RESCUE_PATHS[@]}" -gt 0 ]; then
+            echo ""
+            echo "Work found in the readable locations:"
+            printf '  %s\n' "${RESCUE_LINES[@]}"
+        fi
+        echo ""
+        if [ "${1:-}" = "--copy" ]; then
+            echo "ERROR: cannot certify a rescue while locations are unreadable. Do not rebuild or uninstall until this is resolved." >&2
+            return 1
+        fi
+        echo "Fix the permissions (or copy those folders out by hand) before rebuilding."
+        return 4
+    fi
     if [ "${#RESCUE_PATHS[@]}" -eq 0 ]; then
         echo "Nothing found outside the folders a rebuild keeps."
         return 0

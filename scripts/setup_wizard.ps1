@@ -139,11 +139,13 @@ function Invoke-RebuildRescueGate([string]$dockerFilesPath, [bool]$mobileEnabled
         Write-Host "[INFO] The container will be recreated ($($risk.Reason)) - checking for work that would be lost" -ForegroundColor Cyan
     }
     $scan = Invoke-ContainerRescueScan -ScannerDir $dockerFilesPath -DockerPath $script:dockerExe
-    if ($scan.State -eq 'Clean' -or $scan.State -eq 'NoContainer') { return $true }
+    $decision = Get-RescueDecision -State $scan.State
+    if ($decision -eq 'Proceed') { return $true }
 
-    if ($scan.State -ne 'WorkFound') {
+    if ($decision -eq 'Stop') {
+        # Failed, incomplete or unknown: continuing is the user's deliberate override.
         $answer = [System.Windows.Forms.MessageBox]::Show(
-            "Could not check the container for work that the rebuild would delete:`n$($scan.Error)`n`nContinue anyway?",
+            "Could not confirm that the rebuild deletes no work (state: $($scan.State)):`n$($scan.Error)`n`nContinue anyway and accept that work in the container may be lost?",
             'Setup', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning,
             [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
         return ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
