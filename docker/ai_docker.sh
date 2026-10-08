@@ -151,12 +151,36 @@ cmd_brief() {
 
 memory_limit() {
     local raw
-    raw=$(cat "$CGROUP_DIR/memory.max" 2>/dev/null || echo max)
-    if [ "$raw" = max ] || ! [ "$raw" -gt 0 ] 2>/dev/null; then
-        echo "memory limit none"
+    raw=$(cat "$CGROUP_DIR/memory.max" 2>/dev/null || true)
+    if [ "$raw" = max ]; then
+        echo "no container limit"
+    elif [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -gt 0 ] 2>/dev/null; then
+        awk -v b="$raw" 'BEGIN { printf "%.1f GB limit", b / 1073741824 }'
     else
-        awk -v b="$raw" 'BEGIN { printf "memory limit %.1f GB", b / 1073741824 }'
+        echo "limit unavailable"
     fi
+}
+
+# Match Docker stats on cgroup v2: subtract inactive file cache from current usage.
+# Missing counters stay unknown; a missing or inconsistent cache counter is labelled.
+memory_usage() {
+    local current cache
+    current=$(cat "$CGROUP_DIR/memory.current" 2>/dev/null || true)
+    if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+        echo "usage unavailable"
+        return
+    fi
+    cache=$(awk '$1 == "inactive_file" { print $2; exit }' "$CGROUP_DIR/memory.stat" 2>/dev/null || true)
+    awk -v current="$current" -v cache="$cache" 'BEGIN {
+        used = current
+        suffix = " (includes cache)"
+        if (cache ~ /^[0-9]+$/ && (cache < current || current == 0 && cache == 0)) {
+            used -= cache
+            suffix = ""
+        }
+        if (used < 1073741824) printf "%.0f MB used%s", used / 1048576, suffix
+        else printf "%.1f GB used%s", used / 1073741824, suffix
+    }'
 }
 
 cpu_limit() {
@@ -210,7 +234,8 @@ cmd_status() {
 
     echo "AI Docker status"
     echo ""
-    echo "Container   image $(image_version) - $(memory_limit) - $(cpu_limit)"
+    echo "Container   image $(image_version) - RAM $(memory_usage) / $(memory_limit) - $(cpu_limit)"
+    echo "            (RAM usage excludes reclaimable file cache when available; VmmemWSL covers all of WSL)"
     echo "            (change limits with Resources in the Windows launcher; no image rebuild needed)"
     echo ""
 

@@ -149,7 +149,7 @@ AI Docker 1.6.0 - tools OK - updates checked 2 days ago - Docker disk 22 GB used
 AI Docker 1.6.0: ATTENTION - last update failed (pip) 1 day ago - run: ai-docker status
 ```
 
-`ai-docker status` shows the details: each tool's version, the last update's result and failed stages, disk use, and the container's memory and CPU limits, with the command that fixes each problem. `ai-docker doctor` checks network, DNS and logins.
+`ai-docker status` shows the details: each tool's version, the last update's result and failed stages, disk use, and the container's current RAM usage alongside its limit, and CPU limits, with the command that fixes each problem. `ai-docker doctor` checks network, DNS and logins.
 
 Container RAM and CPU limits follow your chosen resource profile or existing WSL settings. Setup displays them before deployment. Use **Resources...** in the Windows launcher to edit the running container's limits and save them for future recreates; no image rebuild, container recreation or restart is needed. Limits cannot exceed the currently available WSL/Docker budget. Raising that budget in `.wslconfig` requires restarting WSL/Docker after saving work.
 

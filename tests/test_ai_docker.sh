@@ -32,6 +32,8 @@ setup_case() {
     printf 'STATUS=ok\nFAILED_TOOLS=\n' > "$HOME/.cli_tools_installed"
     printf '1.6.0\n' > "$CASE_DIR/version"
     printf '10737418240\n' > "$CASE_DIR/cgroup/memory.max"
+    printf '1073741824\n' > "$CASE_DIR/cgroup/memory.current"
+    printf 'inactive_file 80740352\n' > "$CASE_DIR/cgroup/memory.stat"
     printf '600000 100000\n' > "$CASE_DIR/cgroup/cpu.max"
     export AI_DOCKER_LIB_DIR="$ROOT_DIR/docker/lib"
     export AI_DOCKER_VERSION_FILE="$CASE_DIR/version"
@@ -129,7 +131,7 @@ mkdir -p "$AI_DOCKER_TMP_DIR/claude-$(id -u)/session/scratchpad"
 head -c 2048 /dev/zero > "$AI_DOCKER_TMP_DIR/claude-$(id -u)/session/scratchpad/blob"
 run_cli status
 assert_eq "full status with a failure exits 1" 1 "$RUN_RC"
-assert_contains "full status shows memory limit" "$RUN_OUTPUT" "memory limit 10.0 GB"
+assert_contains "full status shows memory limit" "$RUN_OUTPUT" "RAM 947 MB used / 10.0 GB limit"
 assert_contains "full status shows CPU limit" "$RUN_OUTPUT" "6 CPUs"
 assert_contains "full status shows live tool versions" "$RUN_OUTPUT" "codex 9.9.9"
 assert_contains "full status shows the last result" "$RUN_OUTPUT" "last result: failed"
@@ -138,6 +140,37 @@ assert_contains "full status reports scratch dirs" "$RUN_OUTPUT" "Claude scratch
 assert_contains "disk figures are labelled as estimates" "$RUN_OUTPUT" "estimate"
 assert_contains "full status suggests a fix for the failure" "$RUN_OUTPUT" "update-container-tools"
 assert_contains "full status points to doctor for network checks" "$RUN_OUTPUT" "ai-docker doctor"
+
+# RAM readings use the same cache adjustment as Docker, not the whole WSL VM.
+setup_case
+printf '2147483648\n' > "$AI_DOCKER_CGROUP_DIR/memory.current"
+printf 'inactive_file 536870912\n' > "$AI_DOCKER_CGROUP_DIR/memory.stat"
+run_cli status
+assert_contains "RAM scales to GB" "$RUN_OUTPUT" "RAM 1.5 GB used / 10.0 GB limit"
+assert_contains "status distinguishes container RAM from VmmemWSL" "$RUN_OUTPUT" "VmmemWSL covers all of WSL"
+printf '0\n' > "$AI_DOCKER_CGROUP_DIR/memory.current"
+printf 'inactive_file 0\n' > "$AI_DOCKER_CGROUP_DIR/memory.stat"
+run_cli status
+assert_contains "a real zero reading stays zero" "$RUN_OUTPUT" "RAM 0 MB used / 10.0 GB limit"
+rm "$AI_DOCKER_CGROUP_DIR/memory.current"
+run_cli status
+assert_contains "missing RAM usage is unavailable, not zero" "$RUN_OUTPUT" "RAM usage unavailable / 10.0 GB limit"
+printf 'invalid\n' > "$AI_DOCKER_CGROUP_DIR/memory.current"
+run_cli status
+assert_contains "invalid RAM usage is unavailable" "$RUN_OUTPUT" "RAM usage unavailable / 10.0 GB limit"
+printf '1073741824\n' > "$AI_DOCKER_CGROUP_DIR/memory.current"
+rm "$AI_DOCKER_CGROUP_DIR/memory.stat"
+run_cli status
+assert_contains "raw RAM usage is labelled if cache cannot be read" "$RUN_OUTPUT" "RAM 1.0 GB used (includes cache) / 10.0 GB limit"
+printf 'inactive_file invalid\n' > "$AI_DOCKER_CGROUP_DIR/memory.stat"
+run_cli status
+assert_contains "invalid cache counters leave the raw usage labelled" "$RUN_OUTPUT" "1.0 GB used (includes cache)"
+printf 'inactive_file 2147483648\n' > "$AI_DOCKER_CGROUP_DIR/memory.stat"
+run_cli status
+assert_contains "racing counters do not produce negative usage" "$RUN_OUTPUT" "1.0 GB used (includes cache)"
+rm "$AI_DOCKER_CGROUP_DIR/memory.max"
+run_cli status
+assert_contains "missing RAM limit is unavailable, not unlimited" "$RUN_OUTPUT" "limit unavailable"
 
 # Missing optional folders are normal and must not look like failed size checks.
 setup_case
@@ -175,7 +208,7 @@ setup_case
 printf 'max\n' > "$AI_DOCKER_CGROUP_DIR/memory.max"
 printf 'max 100000\n' > "$AI_DOCKER_CGROUP_DIR/cpu.max"
 run_cli status
-assert_contains "unlimited memory is reported as such" "$RUN_OUTPUT" "memory limit none"
+assert_contains "unlimited memory is reported as such" "$RUN_OUTPUT" "no container limit"
 assert_contains "unlimited CPU is reported as such" "$RUN_OUTPUT" "CPU limit none"
 
 setup_case

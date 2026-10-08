@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Container rebuild/recreate required for the updater fixes to take effect.
 
 ### Fixed
+- **Status shows actual container RAM usage beside its limit**, using Docker's cache-adjusted calculation. It explains that VmmemWSL covers all of WSL, and labels missing readings as unavailable rather than zero.
 - **Container RAM follows your resource settings.** The wizard now saves both RAM and CPU limits, including when it keeps an existing WSL configuration, and shows the limits before deployment. The launcher's Resources button can change and verify the running container limits without rebuilding or recreating it, then save them for future recreates. Failed changes or saves attempt to restore and verify the previous running limits.
 - **Status no longer calls absent optional folders an incomplete scan.** Missing scratch/cache/home source folders say "not present"; unreadable paths remain marked partial. The home source line explains that it is separate from AI_Work.
 - **The README's security section now matches the container.** It claimed the AI ran as a non-root user and only reached the APIs you configure; in fact the container user has passwordless `sudo`, seccomp is relaxed for Codex's sandbox, and outbound network access is unrestricted. The section now says what is and is not protected (only AI_Work is mounted; everything in it is writable). (#92)
