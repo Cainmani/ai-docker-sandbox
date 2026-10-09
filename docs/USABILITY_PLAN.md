@@ -1,6 +1,6 @@
 # AI Docker usability implementation plan
 
-Draft revision 0.03, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
+Draft revision 0.04, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
 
 Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The proposed 1.7 candidate focuses on health, native Claude/Codex connections and actionable diagnostics; coordinated repair follows separately. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
@@ -91,6 +91,7 @@ Show one configured/default agent and a main Open action. Put other agents and d
 - [ ] Replace string-built launches through cmd/Windows Terminal with a PS5.1-compatible child launch contract. Allow only fixed actions and validated local identifiers; resolve any folder inside the child, never interpolate user text into executable shell code.
 - [ ] Read actual container mounts/user from docker inspect; .env expresses requested state and can differ from a running container. Check expected image/container identity and missing or mismatched mounts before acting.
 - [ ] Native interactive launch must match the plain terminal environment and select the working directory after startup files run. Use a fixed command such as `bash -li -c 'cd -- "$1" && exec claude' bash <validated-folder>`, with the folder passed as a positional argument through the safe child contract; use an equivalent fixed Codex command. The example describes argument boundaries, not a Windows command string to concatenate. Test .bashrc/.profile behavior and prove the tool starts in the selected folder on both new and real 1.6 containers despite their startup `cd /workspace`. Use explicit noninteractive environments for status probes rather than assuming bash -lc loads interactive exports/wrappers.
+- [ ] Slice 1a acceptance: a missing, renamed or inaccessible selected folder shows a plain actionable message, does not start the agent in a different folder, and leaves an interactive shell open so the user can read the error. Test on new and 1.6 containers. The compact launch example above describes the success path; implementation must handle this failure explicitly.
 - [ ] Test spaces, Unicode, apostrophes, dollar signs, semicolons, percent signs, carets, exclamation marks, double quotes, ampersands and pipes. No input can become a command, redirect, environment expansion or extra terminal tab.
 - [ ] Keep native prompts/trust decisions visible. Do not bypass permissions or automatically accept repository trust. Resume uses vendor interfaces, not a new transcript store.
 

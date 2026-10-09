@@ -117,7 +117,7 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 ### The update status record is the single source of truth for update health
 
-`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times, and every mutating mode takes `~/.ai-docker/update.lock` so startup, cron and manual runs cannot overlap.
+`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times. Only `auto_update.sh` takes `~/.ai-docker/update.lock` for its check/apply/force/default modes; installer repair/force/update and the Vibe Kanban install do not share that lock. Busy updater runs exit 0, and missing `flock` permits an unlocked run. Shared mutation coordination is planned in [the usability plan](USABILITY_PLAN.md#slice-1b-selected-repair-and-maintenance-coordination), not implemented.
 
 ### Release asset names are an API (self-update depends on them)
 
@@ -179,7 +179,7 @@ Scripts are mounted read-only. Only for local development.
 | File | Purpose |
 |------|---------|
 | `scripts/AI_Docker_Complete.ps1` | Main app template with embedded files |
-| `scripts/AI_Docker_Launcher.ps1` | Lightweight launcher (no setup wizard) |
+| `scripts/AI_Docker_Launcher.ps1` | Alternate script launcher that starts the separate setup wizard; not the released EXE |
 | `scripts/setup_wizard.ps1` | WinForms setup wizard |
 | `scripts/wsl_config.ps1` | WSL detection functions (dot-sourced by wizard) |
 | `scripts/launch_claude.ps1` | Launches Docker exec terminal |
