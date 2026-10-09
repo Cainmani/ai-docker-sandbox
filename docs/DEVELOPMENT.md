@@ -12,7 +12,7 @@ For architecture details (embedded-file build system, Docker volumes, auth persi
 ai-docker-sandbox/
 ├── scripts/                  # Windows-side PowerShell
 │   ├── AI_Docker_Complete.ps1    # Main app template (files embedded as Base64 at build)
-│   ├── AI_Docker_Launcher.ps1    # Lightweight launcher variant
+│   ├── AI_Docker_Launcher.ps1    # Alternate script launcher; starts the separate setup wizard
 │   ├── setup_wizard.ps1          # WinForms first-time setup wizard
 │   ├── launch_claude.ps1         # Daily launcher (docker exec terminal)
 │   ├── launch_vibe_kanban.ps1    # Vibe Kanban web UI launcher
