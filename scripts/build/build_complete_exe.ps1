@@ -1,5 +1,7 @@
 # build_complete_exe.ps1 - Creates a single self-contained executable
 
+param([switch]$SourceOnly)
+
 # Read the app version from the root VERSION file (single source of truth)
 $versionFilePath = Join-Path $PSScriptRoot "..\..\VERSION"
 $appVersion = "0.0.0"
@@ -24,7 +26,7 @@ Write-Host "================================================================" -F
 Write-Host ""
 
 # Check if ps2exe is installed
-if (-not (Get-Module -ListAvailable -Name ps2exe)) {
+if (-not $SourceOnly -and -not (Get-Module -ListAvailable -Name ps2exe)) {
     Write-Host "[INFO] Installing ps2exe module..." -ForegroundColor Yellow
     Install-Module -Name ps2exe -Scope CurrentUser -Force
     Write-Host "[SUCCESS] ps2exe installed" -ForegroundColor Green
@@ -39,6 +41,9 @@ $filesToEmbed = @(
    "..\wsl_config.ps1",
    "..\resource_settings.ps1",
    "..\launch_claude.ps1",
+   "..\agent_helpers.ps1",
+   "..\agent_connections.ps1",
+   "..\agent_worker.ps1",
    "..\launch_vibe_kanban.ps1",
    "..\log_utils.ps1",
    "..\docker_helpers.ps1",
@@ -55,6 +60,9 @@ $filesToEmbed = @(
    "..\..\docker\auto_update.sh",
    "..\..\docker\configure_tools.sh",
    "..\..\docker\ai_docker.sh",
+   "..\..\docker\agent_session.sh",
+   "..\..\docker\agent_health.sh",
+   "..\..\docker\lib\maintenance.sh",
    "..\..\docker\setup_mobile_access.sh",
    "..\..\docker\add_ssh_key.sh",
    "..\..\docker\setup_remote_connection.sh",
@@ -203,6 +211,11 @@ if ($bundledContent -match "'[A-Z_]+_BASE64_HERE'") {
 }
 
 Write-Host "  OK Created AI_Docker_Complete_Bundled.ps1" -ForegroundColor Green
+
+if ($SourceOnly) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $bundledScriptPath
+    exit $LASTEXITCODE
+}
 
 # Compile to exe
 Write-Host "[3/4] Compiling to executable..." -ForegroundColor Cyan

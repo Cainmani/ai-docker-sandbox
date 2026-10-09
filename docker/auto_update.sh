@@ -13,12 +13,6 @@
 # We DO use set -uo pipefail to catch undefined variables and pipe failures.
 set -uo pipefail
 
-# Ensure npm is configured to use user-local directory (fixes permission issues)
-mkdir -p "${HOME}/.npm-global"
-npm config set prefix "${HOME}/.npm-global"
-# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
-export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
-
 # Source logging library
 if [ -f "/usr/local/lib/logging.sh" ]; then
     source "/usr/local/lib/logging.sh"
@@ -52,7 +46,6 @@ UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 # so "checked", "updated" and "failed" are never conflated.
 STATE_DIR="${HOME}/.ai-docker"
 STATUS_FILE="${STATE_DIR}/update-status"
-LOCK_FILE="${STATE_DIR}/update.lock"
 # Tools whose --version is snapshotted before and verified after an update.
 VERIFY_TOOLS="claude gh codex gemini opencode"
 # Space-separated stages that failed in this run (check npm npm-pins pip apt verify).
@@ -129,19 +122,35 @@ write_update_status() {
         echo "LAST_CHECK_OK=$last_check_ok"
         echo "LAST_UPDATE_OK=$last_update_ok"
         echo "FAILED_STAGES=$FAILED_STAGES"
-    } > "$tmp" && mv "$tmp" "$STATUS_FILE"
+    } > "$tmp" && mv "$tmp" "$STATUS_FILE" || return 1
+    case "$result" in up_to_date|updated) rm -f -- "${STATE_DIR}/update-skipped" ;; esac
 }
 
 # Only one updater at a time (startup trigger, cron and manual runs can overlap).
 # A second invocation backs off cleanly rather than racing npm/apt.
 acquire_update_lock() {
-    command -v flock >/dev/null 2>&1 || return 0
-    mkdir -p "$STATE_DIR"
-    exec 9> "$LOCK_FILE"
-    if ! flock -n 9; then
-        update_log "${YELLOW}[INFO]${NC} Another update is already running - skipping this one"
-        exit 0
+    if [ -f /usr/local/lib/maintenance.sh ]; then
+        source /usr/local/lib/maintenance.sh
+    else
+        source "$(dirname "$(readlink -f "$0")")/lib/maintenance.sh"
     fi
+    local attempts=1 rc=0
+    # Scheduled triggers retry briefly; an active session is a skip, not failure.
+    if [ "${1:-}" = --scheduled ]; then attempts=4; fi
+    while [ "$attempts" -gt 0 ]; do
+        ai_maintenance_acquire exclusive && return 0
+        rc=$?
+        [ "$rc" -eq 75 ] || exit "$rc"
+        attempts=$((attempts - 1))
+        [ "$attempts" -eq 0 ] || sleep 5
+    done
+    mkdir -p "$STATE_DIR"
+    # Separate atomic attempt record: do not overwrite another updater's
+    # running/success status or snooze the normal scheduling timestamp.
+    local tmp="${STATE_DIR}/update-skipped.tmp.$$"
+    printf 'RESULT=skipped_busy\nLAST_ATTEMPT=%s\n' "$(date -Iseconds)" > "$tmp" && mv -f -- "$tmp" "${STATE_DIR}/update-skipped"
+    update_log "[INFO] Update skipped: busy. Close agent sessions and retry."
+    exit 75
 }
 
 # snapshot_versions <file>: one "tool<TAB>version" line per VERIFY_TOOLS entry,
@@ -509,6 +518,7 @@ run_auto_update() {
         update_log "${BLUE}[INFO]${NC} Skipping update check (last check: $last_check_date)"
         update_log "  Next check in $((UPDATE_INTERVAL_DAYS - $(( ($(date +%s) - $(stat -c %Y "$UPDATE_CHECK_FILE")) / 86400 )))) days"
         update_log "  Use --force to check now"
+        rm -f -- "${STATE_DIR}/update-skipped"
         return 0
     fi
 
@@ -564,21 +574,33 @@ setup_cron() {
     # Add cron job. Source the proxy/CA login profile first: cron runs in a
     # bare environment, so without it the updater loses proxy/CA config on
     # corporate networks (same line entrypoint_helpers.sh installs).
-    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
+    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh --scheduled >/dev/null 2>&1") | crontab -
     update_log "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
 }
 
 # Parse command line arguments
 case "${1:-}" in
     --check|-c|--apply|-a|--force|-f|'') acquire_update_lock ;;
+    --scheduled) acquire_update_lock --scheduled ;;
+    --cron|--help|-h) ;;
+    *) echo 'Unknown update option.' >&2; exit 2 ;;
 esac
+
+# Ensure npm is configured to use user-local directory (fixes permission issues)
+case "${1:-}" in
+    --check|-c|--apply|-a|--force|-f|--scheduled|'')
+        mkdir -p "${HOME}/.npm-global"
+        npm config set prefix "${HOME}/.npm-global" ;;
+esac
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 case "${1:-}" in
     --check|-c)
         check_updates
         case $? in
-            0) echo "Updates are available. Run with --apply to install them." ;;
-            1) echo "No updates available" ;;
+            0) rm -f -- "${STATE_DIR}/update-skipped"; echo "Updates are available. Run with --apply to install them." ;;
+            1) rm -f -- "${STATE_DIR}/update-skipped"; echo "No updates available" ;;
             *) echo "Update check FAILED - could not determine update status." >&2; exit 2 ;;
         esac
         ;;
@@ -593,6 +615,9 @@ case "${1:-}" in
         ;;
     --force|-f)
         run_auto_update --force
+        ;;
+    ''|--scheduled)
+        run_auto_update
         ;;
     --cron)
         setup_cron "${2:-}"
@@ -610,6 +635,7 @@ case "${1:-}" in
         echo "  --check, -c     Check for available updates"
         echo "  --apply, -a     Apply available updates"
         echo "  --force, -f     Force update check regardless of interval"
+        echo "  --scheduled     Scheduled check; retry busy admission for up to 15 seconds"
         echo "  --cron [SCHEDULE]  Setup cron job for auto-updates"
         echo "  --help, -h      Show this help message"
         echo ""
@@ -617,6 +643,6 @@ case "${1:-}" in
         echo "  UPDATE_INTERVAL_DAYS  Days between update checks (default: 7)"
         ;;
     *)
-        run_auto_update
+        echo "Unknown update option" >&2; exit 2
         ;;
 esac

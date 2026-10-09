@@ -35,7 +35,8 @@ status_value() {
 update_lock_held() {
     command -v flock >/dev/null 2>&1 || return 1
     [ -e "$STATE_DIR/update.lock" ] || return 1
-    ! flock -n "$STATE_DIR/update.lock" true 2>/dev/null
+    # Agent shared locks do not prove an updater is running.
+    ! flock -sn "$STATE_DIR/update.lock" true 2>/dev/null
 }
 
 # days_since <iso-timestamp>: whole days elapsed, or nothing if unparseable.
@@ -267,6 +268,9 @@ cmd_status() {
     fi
     echo ""
 
+    if [ -f "${STATE_DIR}/update-skipped" ]; then
+        echo "Updates     skipped: busy at $(sed -n 's/^LAST_ATTEMPT=//p' "${STATE_DIR}/update-skipped" | head -n1)"
+    fi
     disk_used=$(disk_used_gb)
     disk_size=$(df -B1 --output=size "$DISK_PATH" 2>/dev/null | tail -n1 | awk '{ printf "%d", $1 / 1073741824 }')
     echo "Disk        Docker disk: ${disk_used} GB used of ${disk_size} GB"
@@ -1164,6 +1168,12 @@ EOF
 }
 
 case "${1:-help}" in
+    capabilities)
+        printf 'PROTOCOL=1\nHEALTH=1\nSESSION=1\nSELECTED_REPAIR=1\nMAINTENANCE=1\n'
+        ;;
+    health)
+        exec /usr/local/bin/agent_health.sh
+        ;;
     status)
         if [ "${2:-}" = "--brief" ]; then cmd_brief; else cmd_status; fi
         ;;

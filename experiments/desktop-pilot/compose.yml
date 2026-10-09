@@ -1,0 +1,35 @@
+# Standalone: never combine with the production/mobile Compose files.
+name: ai-docker-desktop-pilot
+services:
+  pilot:
+    build:
+      context: .
+    image: ai-docker-desktop-pilot:local
+    container_name: ai-desktop-pilot
+    restart: 'no'
+    environment:
+      USER_NAME: pilot
+      ENABLE_DESKTOP_PILOT: '1'
+      AI_DOCKER_SCHEDULED_UPDATE: '0'
+      ENABLE_MOBILE_ACCESS: '0'
+      AI_DOCKER_STARTUP_UPDATE: '0'
+    ports:
+      - '127.0.0.1:2222:2222'
+    volumes:
+      - type: bind
+        source: ${PILOT_WORKSPACE:?Select a synthetic or public workspace}
+        target: /workspace
+      - type: bind
+        source: ${PILOT_PUBLIC_KEY:?Select a public SSH key}
+        target: /run/pilot-key.pub
+        read_only: true
+      - pilot-home:/home/pilot
+    secrets:
+      - user_password
+    tty: true
+    stdin_open: true
+volumes:
+  pilot-home:
+secrets:
+  user_password:
+    file: ${PILOT_PASSWORD_FILE:?Provide the disposable password file}

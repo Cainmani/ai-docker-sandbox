@@ -41,3 +41,6 @@ npm-debug.log*
 
 # Claude (root-level personal context file only — docs/CLAUDE.md is tracked project documentation)
 /CLAUDE.md
+
+# Local Pester output (CI uploads its own test report)
+/testResults.xml

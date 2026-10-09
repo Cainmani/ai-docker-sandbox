@@ -30,7 +30,9 @@ jobs:
           Get-ChildItem -Path "scripts/*.ps1" | ForEach-Object {
             Write-Host "Checking: $($_.Name)"
             try {
-              $null = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$null)
+              $parseErrors = $null
+              $null = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$parseErrors)
+              if ($parseErrors.Count -gt 0) { throw ($parseErrors.Message -join '; ') }
               Write-Host "  ✓ Syntax OK" -ForegroundColor Green
             } catch {
               Write-Host "  ✗ Syntax Error: $($_.Exception.Message)" -ForegroundColor Red
@@ -97,14 +99,14 @@ jobs:
       - name: Lint shell scripts (blocking errors)
         shell: bash
         run: |
-          mapfile -t scripts < <(find docker tests -type f -name '*.sh' -print | sort)
+          mapfile -t scripts < <(find docker tests experiments -type f -name '*.sh' -print | sort)
           shellcheck --severity=error "${scripts[@]}"
 
       - name: Lint shell scripts (visible warnings)
         shell: bash
         continue-on-error: true
         run: |
-          mapfile -t scripts < <(find docker tests -type f -name '*.sh' -print | sort)
+          mapfile -t scripts < <(find docker tests experiments -type f -name '*.sh' -print | sort)
           shellcheck --severity=warning "${scripts[@]}"
 
       - name: Lint Dockerfile (hadolint)
@@ -140,6 +142,9 @@ jobs:
           $config.TestResult.OutputPath = 'tests/results.xml'
           $config.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $config
+
+      - name: Test agent admission, health and folder contracts
+        run: python3 tests/test_agent_usability.py
 
       - name: Run bash tests
         shell: bash

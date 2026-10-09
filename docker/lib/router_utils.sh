@@ -59,7 +59,13 @@ ai_router_installed() {
 # Install a router at its pinned version, enforcing "only one at a time": if the
 # other router is installed it is removed first. Records the single pin so the
 # weekly updater holds it. Returns nonzero on install failure.
-ai_router_install() {
+ai_router_install() (
+    if [ -f /usr/local/lib/maintenance.sh ]; then
+        source /usr/local/lib/maintenance.sh
+    else
+        source "$(dirname "${BASH_SOURCE[0]}")/maintenance.sh"
+    fi
+    ai_maintenance_acquire exclusive || exit $?
     local name="$1" other pin
     other=$(__ai_router_other "$name")
     pin=$(__ai_router_pin "$name")
@@ -79,7 +85,7 @@ ai_router_install() {
     # Record the single active pin so auto_update.sh holds it at this version.
     printf '%s\n' "$pin" > "${HOME}/.npm-pinned-tools"
     return 0
-}
+)
 
 # Echo the PIDs of processes listening on the given TCP port (one per line).
 # Catches the Next.js `next-server` child that actually binds the port, which
