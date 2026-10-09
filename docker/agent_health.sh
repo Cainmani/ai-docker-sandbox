@@ -2,6 +2,12 @@
 set -uo pipefail
 # No credentials, account identifiers or vendor output ever leave this protocol.
 # Native status reports login availability, not network/plan entitlement.
+if [ -f /usr/local/lib/maintenance.sh ]; then
+    source /usr/local/lib/maintenance.sh
+else
+    source "$(dirname "$(readlink -f "$0")")/lib/maintenance.sh"
+fi
+ai_maintenance_acquire shared || exit $?
 echo 'PROTOCOL=1'
 for tool in claude codex gh; do
     state=broken
@@ -21,11 +27,9 @@ for tool in claude codex gh; do
     fi
     echo "AUTH_${tool}=$auth"
 done
-for record in update-status; do
-    file="${HOME}/.ai-docker/$record"
-    for key in RESULT LAST_ATTEMPT LAST_CHECK_OK LAST_UPDATE_OK FAILED_STAGES; do
-        value=$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -n1)
-        # Only small, printable protocol values; no arbitrary local file contents.
-        if [[ "$value" =~ ^[a-zA-Z0-9_[:space:]:.+-]{0,100}$ ]]; then printf 'UPDATE_%s=%s\n' "$key" "$value"; fi
-    done
+file="${HOME}/.ai-docker/update-status"
+for key in RESULT LAST_ATTEMPT LAST_CHECK_OK LAST_UPDATE_OK FAILED_STAGES; do
+    value=$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -n1)
+    # Only small, printable protocol values; no arbitrary local file contents.
+    if [[ "$value" =~ ^[a-zA-Z0-9_[:space:]:.+-]{0,100}$ ]]; then printf 'UPDATE_%s=%s\n' "$key" "$value"; fi
 done

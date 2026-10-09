@@ -127,9 +127,9 @@ exit 0''')
             selected=Path(fixture)/'Unicode-λ spaces \' $ ; % ^ ! " & |'
             selected.mkdir()
             shell=self.root/'startup'
-            shell.write_text('cd /workspace\n')
+            shell.write_text('cd -- '+str(ROOT)+'\n')
             script=self.root/'session.sh'
-            script.write_text((ROOT/'docker/agent_session.sh').read_text().replace('/usr/local/lib/maintenance.sh',str(ROOT/'docker/lib/maintenance.sh')))
+            script.write_text((ROOT/'docker/agent_session.sh').read_text().replace('/workspace',str(ROOT)).replace('/usr/local/lib/maintenance.sh',str(ROOT/'docker/lib/maintenance.sh')))
             self.tool('claude','printf "AGENT_PWD=%s\\n" "$PWD"')
             self.tool('bash','printf "SHELL_OPEN=%s\\n" "$PWD"')
             result=subprocess.run(['/bin/bash','--noprofile','--rcfile',str(shell),'-i','-c','exec /bin/bash "$1" claude "$2"','bash',str(script),str(selected)],env=self.env,capture_output=True,text=True)

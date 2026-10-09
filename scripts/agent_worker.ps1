@@ -38,7 +38,7 @@ try {
     } else {
         $command = if ($context.Supported) { 'exec /usr/local/bin/agent_health.sh' } else { 'for t in claude codex; do if timeout 12 "$t" --version >/dev/null 2>&1; then echo "TOOL_$t=ready"; else echo "TOOL_$t=broken"; fi; done' }
         $probe = Invoke-DockerCommand -DockerPath $docker -Arguments ($base + @($command)) -TimeoutSeconds 80
-        if (-not $probe.Success) { Write-Output 'ERROR=health-unverified'; exit 1 }
+        if (-not $probe.Success) { if ($probe.ExitCode -eq 75) { Write-Output 'ERROR=maintenance-busy' } else { Write-Output 'ERROR=health-unverified' }; exit 1 }
         $values = ConvertFrom-AgentProtocol $probe.Output
         foreach ($key in $values.Keys) { Write-Output "$key=$($values[$key])" }
     }

@@ -46,7 +46,6 @@ UPDATE_INTERVAL_DAYS=${UPDATE_INTERVAL_DAYS:-7}  # Default: check weekly
 # so "checked", "updated" and "failed" are never conflated.
 STATE_DIR="${HOME}/.ai-docker"
 STATUS_FILE="${STATE_DIR}/update-status"
-LOCK_FILE="${STATE_DIR}/update.lock"
 # Tools whose --version is snapshotted before and verified after an update.
 VERIFY_TOOLS="claude gh codex gemini opencode"
 # Space-separated stages that failed in this run (check npm npm-pins pip apt verify).

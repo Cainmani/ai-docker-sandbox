@@ -96,6 +96,7 @@ $timer.Add_Tick({
         if ($errorCode) {
             $status.Text = switch ($errorCode) {
                 'docker-missing' { 'Install Docker Desktop, then run First Time Setup.' }
+                'maintenance-busy' { 'Maintenance is running. Check health again when it finishes.' }
                 'workspace-stopped' { 'Start Docker Desktop and the ai-cli workspace, then check again.' }
                 'container-old' { 'Repair requires setup/recreate with the 1.7 container. Existing tools remain available in the terminal.' }
                 'workspace-recreated' { 'The workspace was recreated. Check health again.' }

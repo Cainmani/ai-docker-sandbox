@@ -37,3 +37,44 @@ Describe 'Agent arguments and protocol' {
         }
     }
 }
+Describe 'Inspected container compatibility' {
+    BeforeEach {
+        $script:InspectFixture = @{
+            Config = @{ Image='ai-docker-cli:latest'; Env=@('USER_NAME=alice'); Labels=@{'ai-docker.version'='1.7.0'} }
+            State = @{ Running=$true }
+            Mounts = @(@{Type='bind';Destination='/workspace';Source='C:\actual-workspace'})
+            Id='container-a'
+        }
+        Mock New-AgentProcess {
+            $text = $script:InspectFixture | ConvertTo-Json -Depth 8 -Compress
+            $reader = [pscustomobject]@{ Value=$text }
+            $reader | Add-Member ScriptMethod ReadToEndAsync { @{Result=$this.Value} }
+            $process = [pscustomobject]@{ExitCode=0;StandardOutput=$reader;StandardError=$reader}
+            $process | Add-Member ScriptMethod WaitForExit { $true }
+            $process | Add-Member ScriptMethod Dispose {}
+            $process
+        }
+    }
+    It 'Reads the actual mount/user and gates new support from the image label' {
+        $context = Get-AgentContainer 'docker'
+        $context.Source | Should -Be 'C:\actual-workspace'
+        $context.User | Should -Be 'alice'
+        $context.Supported | Should -BeTrue
+    }
+    It 'Keeps old and unknown images on the legacy route' {
+        foreach ($version in @('1.6.0','0.0.0','unknown','')) {
+            $script:InspectFixture.Config.Labels['ai-docker.version']=$version
+            (Get-AgentContainer 'docker').Supported | Should -BeFalse
+        }
+    }
+    It 'Rejects an unexpected image, invalid user or missing workspace mount' {
+        $script:InspectFixture.Config.Image='unrelated:latest'
+        { Get-AgentContainer 'docker' } | Should -Throw
+        $script:InspectFixture.Config.Image='ai-docker-cli:latest'
+        $script:InspectFixture.Config.Env=@('USER_NAME=alice;echo injected')
+        { Get-AgentContainer 'docker' } | Should -Throw
+        $script:InspectFixture.Config.Env=@('USER_NAME=alice')
+        $script:InspectFixture.Mounts=@()
+        { Get-AgentContainer 'docker' } | Should -Throw
+    }
+}
