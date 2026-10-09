@@ -1,10 +1,10 @@
 # AI Docker usability implementation plan
 
-Draft revision 0.02, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Revision 0.01 is retained in Git history.
+Draft revision 0.03, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
 
-Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The proposed 1.7 candidate focuses on health, native Claude/Codex connections and safe recovery. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
+Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The proposed 1.7 candidate focuses on health, native Claude/Codex connections and actionable diagnostics; coordinated repair follows separately. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
-This PR contains planning only. No installation, SSH exposure, runtime change or staff trial has been performed. Keep the PR draft, and merge only after the user approves its final result. Release tagging is separate. Version 1.7 is a proposed target.
+PR #97 is documentation only; implementation belongs in separate focused PRs. No installation, SSH exposure, runtime change or staff trial has been performed. Keep this PR draft until the user approves merging the plan. Plan approval does not certify the pilot or implementation; their acceptance gates remain open. Release tagging is separate. Version 1.7 is a proposed target.
 
 ## Cainmani fit and boundaries
 
@@ -20,13 +20,14 @@ A separate PR in `cainmani-skills` should add ai-docker-sandbox to ECOSYSTEM.md 
 
 | Slice | Scope | Gate |
 | --- | --- | --- |
-| 0 | Desktop SSH feasibility and task baseline | Prove isolation, installation/config preservation, native resume and non-developer usability on a disposable environment |
-| 1, proposed 1.7 | Minimal capabilities/status contract, compact health, Claude/Codex native connections, coordinated selected-tool repair | Correct legacy fallback, preserved settings, maintenance safety, real Windows and colleague acceptance |
+| 0 | Desktop SSH feasibility and task baseline using synthetic/public material only | Prove exposure/access boundaries, installation/config preservation, native resume and non-developer usability on a disposable environment |
+| 1a, proposed 1.7 | Minimal capabilities/status contract, compact health and Claude/Codex native connections; no new install/update/repair actions | Correct legacy fallback, preserved settings, real Windows and colleague acceptance |
+| 1b | Shared maintenance coordination and selected-tool repair | Independent focused PR; race, lock, interruption and recovery tests pass before enabling new mutation actions |
 | 2 | Optional Desktop handoff and read-only reference access | Slice 0 result and verified data-access requirements; separate focused implementation PR |
 | 3 | Custom recent-folder screen only if still needed | Demonstrated friction that vendor UI/native resume does not solve; separate focused implementation PR |
 | Later | Templates, other tool adapters, published images, isolated profiles, editor/worktree UI or backend substitution | Specific observed need, owner and bounded maintenance effort |
 
-Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). Keep #97 as the revised design and proposed first implementation slice; do not accumulate every later feature on this PR. A lock/recovery prerequisite that needs independent review can land in its own focused dependency PR. Each slice has an independent review/release decision; staff do not wait for the entire roadmap.
+Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). Merge #97 as a docs PR only after user approval; do not add implementation here. Use separate focused PRs for Slice 0 pilot tooling, Slice 1a and Slice 1b, and later features. Each slice has an independent review/release decision; staff do not wait for the entire roadmap.
 
 ## Verified baseline corrections
 
@@ -37,6 +38,7 @@ Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). 
 | Configuration | configure_tools.sh can initialise/migrate Codex configuration and writes an OpenAI API-key export | Native login must bypass legacy configure actions that change settings |
 | Launcher | Only AI_Docker_Complete.ps1 is compiled/released; the alternate launcher has separate logic and test references | One maintained product UI; deprecate the alternate UI into a thin developer wrapper after checking callers and updating tests/docs |
 | Launch path | launch_claude.ps1 constructs a command through Windows Terminal and cmd; it opens at /workspace | Replace its command construction; preserve a compatibility wrapper for existing callers |
+| Startup directory | Generated .bashrc ends with `cd /workspace`, including in 1.6 containers | Select the project directory after shell startup files run; docker exec -w alone is insufficient |
 | Tool health | Installer health tests only executable presence for Codex and gh | Add bounded execution probes; selected reinstall must work even when a broken binary exists |
 | SSH | Mobile override publishes SSH without a host-loopback prefix and also publishes Mosh; server disables forwarding | Do not enable that override unchanged for the Desktop test; use a dedicated loopback-only SSH configuration |
 | CI | Docker Smoke is path-filtered; EXE smoke recognises startup log lines | Require runtime smoke evidence explicitly and exercise the new screen/background behavior in the compiled artifact |
@@ -45,19 +47,23 @@ Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). 
 
 Official [Claude Desktop documentation](https://code.claude.com/docs/en/desktop#ssh-sessions) supports SSH targets and project links. It also says Desktop installs Claude Code on the target. The link starts a new-session page; it does not itself prove resume works. First test installation and lifecycle against the container's native Claude installation and updater.
 
-- [ ] Use a uniquely named disposable Compose project, synthetic/non-sensitive workspace and test credentials. Do not connect Desktop to the user's live container first.
+- [ ] Use a uniquely named disposable Compose project and synthetic/public, non-sensitive workspace. Record the actual authorised account/seat used, ideally a dedicated non-production subscription seat; do not assume Claude supplies test subscriptions. Keep account identifiers and credentials out of public PR evidence. Do not connect Desktop to the user's live container first.
 - [ ] Add a dedicated pilot SSH mapping such as `127.0.0.1:2222:2222`, with no Mosh ports and no change to mobile-access defaults. Validate the actual listening interface from Windows and ensure another host cannot reach it. Handle a busy port explicitly.
 - [ ] Use key authentication and verified host keys. Confirm SSH user, UID, HOME, working directory, PATH, native config locations, sudo access and credential visibility. SSH forwarding is disabled today: test Desktop requirements and avoid enabling it broadly to hide a failure.
 - [ ] Record Claude executable paths/versions and non-secret configuration checksums before and after first connect, reconnect, container recreation and update. Establish who owns installation and updates; block adoption if Desktop silently replaces tools or loses config/session persistence.
 - [ ] Confirm which account authenticates inference and which config/MCP/hooks/skills apply. Desktop login, remote SSH identity and persisted CLI login are separate concerns until demonstrated otherwise.
 - [ ] Generate correctly URL-encoded links with an explicit user, loopback host, port and remote folder. Check installed Desktop version/account policy; do not include secrets or sensitive prompts in links. Test a plain non-Git folder as well as a repository.
 - [ ] Test a new session, native continuation of yesterday's work, closing/reopening Desktop, missing folder, stopped container and failed authentication. Retain the terminal route for Codex and for Desktop failure.
-- [ ] Before using company data, test source access and writable scope. The shared home exposes stored credentials and passwordless sudo; a selected folder is not an enforced boundary.
-- [ ] Compare real tasks using 1.6 and the pilot: time to first useful work, assistance required, source/output mistakes and next-day continuation. Provisional pass: a non-developer completes the agreed task and returns to it without maintainer intervention; inspect quality and source/version correctness too.
+- [ ] Test source access and writable scope using synthetic/public material. The shared home exposes stored credentials and passwordless sudo; a selected folder is not an enforced boundary. Slice 0 does not use confidential or other company project data.
+- [ ] Before any later company-data trial, record the actual inference provider and account type (personal, Team/Enterprise or API), applicable data-use/training/retention terms and settings, and the responsible Cainmani approval for that data classification under the confidentiality policy. Source-access/read-only approval is a separate gate. Unclear or unapproved account terms mean no company data is sent; a container alone does not authorise vendor disclosure.
+- [ ] Compare realistic software and document/analysis tasks using 1.6 and the pilot with the same synthetic/public inputs: time to first useful work, assistance required, source/output mistakes and next-day continuation. Provisional pass: a non-developer completes the agreed task and returns to it without maintainer intervention; inspect quality and source/version correctness too.
+- [ ] After recording non-secret evidence, remove pilot-owned saved login state and SSH private-key copies from the disposable environment through an explicit teardown checklist, including any pilot keyring state. Verify ownership before removing pilot volumes; preserve useful outputs first. Do not delete or log out a user's existing Desktop/CLI account, revoke shared credentials or cancel the subscription as pilot cleanup.
 
 Time-box technical feasibility to two working days. If blocked, record the specific unsupported behavior and keep terminal access; do not expand into a browser product. Gather weekly active use and support categories manually over two weeks, without collecting prompts, tokens or document contents. Native Desktop may serve Claude well and still leave a distinct Codex/folder-navigation need.
 
-## Slice 1 Health and connections
+## Slice 1a Health and native connections
+
+This slice adds observation, native authentication and safe launch only. Native login may write its own credentials; the launcher does not add installs, updates or repairs. Existing automatic maintenance remains baseline behavior, with its limitations disclosed. Slice 1b is separate by default, not a late scope reduction.
 
 ### Minimal contract and compatibility
 
@@ -73,21 +79,22 @@ Time-box technical feasibility to two working days. If blocked, record the speci
 Show one configured/default agent and a main Open action. Put other agents and detailed versions/resource figures behind Advanced/Details. Summarise actionability in plain language; do not claim Ready from credential-file presence alone. Keep installation, authentication evidence, connection outcome and freshness separate internally.
 
 - [ ] Start native Claude authentication/interactive onboarding and `codex login` directly according to verified installed-version support. Do not call legacy configure-tools --codex/--openai as a sign-in shortcut or rewrite models, permissions, environment exports, MCP, hooks or instructions.
+- [ ] Replace the generated shell banner's blanket API-key/configure-tools recommendation with native sign-in guidance that matches the new flow, while retaining legacy configuration access for users who choose it. Update the applicable managed-block/template migration and container baseline metadata; verify existing installs after recreation.
 - [ ] Prefer native status interfaces. Support Codex credential-store modes; missing auth.json does not prove sign-out. Do not copy, inspect or reset token values. [Codex authentication](https://learn.chatgpt.com/docs/auth) documents file/keyring storage and beta device-code login requiring account/workspace enablement.
 - [ ] Explain supported browser/device/manual flows and account prerequisites. Real Windows/container tests must prove callbacks or fallbacks work. Recheck when the user returns; process launch or terminal closure is not login success.
 - [ ] Classify expired/rejected authentication versus network/TLS failure only when a native check gives that evidence. Otherwise report Unable to verify and a concrete next step. No implicit billable prompt for a status badge.
 - [ ] Give Docker-not-running, WSL, proxy/CA and VPN failures appropriate guidance; a package reinstall is not their fix. Offer previewed, sanitised copyable support details, with no automatic message/upload.
-- [ ] Give async operations IDs and tool/context ownership. Ignore stale/superseded results, avoid duplicate actions, and distinguish read-only cancellation from stopping package mutation. Closing a window does not silently kill an installer.
+- [ ] Give async operations IDs and tool/context ownership. Ignore stale/superseded results and avoid duplicate actions. Define cancellation for status/login separately; package-mutation cancellation belongs to Slice 1b. Closing the 1a window must not terminate existing background maintenance.
 
 ### Launch and environment
 
 - [ ] Replace string-built launches through cmd/Windows Terminal with a PS5.1-compatible child launch contract. Allow only fixed actions and validated local identifiers; resolve any folder inside the child, never interpolate user text into executable shell code.
 - [ ] Read actual container mounts/user from docker inspect; .env expresses requested state and can differ from a running container. Check expected image/container identity and missing or mismatched mounts before acting.
-- [ ] Native interactive launch must match the plain terminal environment; use an interactive login shell (`bash -li`) with safe fixed argument passing, and test .bashrc/.profile behavior. Use explicit noninteractive environments for status probes rather than assuming bash -lc loads interactive exports/wrappers.
+- [ ] Native interactive launch must match the plain terminal environment and select the working directory after startup files run. Use a fixed command such as `bash -li -c 'cd -- "$1" && exec claude' bash <validated-folder>`, with the folder passed as a positional argument through the safe child contract; use an equivalent fixed Codex command. The example describes argument boundaries, not a Windows command string to concatenate. Test .bashrc/.profile behavior and prove the tool starts in the selected folder on both new and real 1.6 containers despite their startup `cd /workspace`. Use explicit noninteractive environments for status probes rather than assuming bash -lc loads interactive exports/wrappers.
 - [ ] Test spaces, Unicode, apostrophes, dollar signs, semicolons, percent signs, carets, exclamation marks, double quotes, ampersands and pipes. No input can become a command, redirect, environment expansion or extra terminal tab.
 - [ ] Keep native prompts/trust decisions visible. Do not bypass permissions or automatically accept repository trust. Resume uses vendor interfaces, not a new transcript store.
 
-### Selected repair and maintenance coordination
+## Slice 1b Selected repair and maintenance coordination
 
 - [ ] Introduce one maintenance contract across installer --repair/--force/--update, updater startup/cron/manual paths and Vibe Kanban's npm installation. Make lock absence a reported unsupported/failure state, not permission to mutate unlocked. Plan a documented lock order if multiple locks are needed.
 - [ ] Return explicit success, failure, busy/skipped and unsupported outcomes. Existing exit-0 consumers must not turn busy into a successful update; preserve documented legacy command behavior or provide versioned new entry points.
@@ -96,11 +103,11 @@ Show one configured/default agent and a main Open action. Put other agents and d
 - [ ] Define interruption/recovery behavior, install-marker writes, package-stage handling and safe UI-close semantics. Never remove a working binary before validating its replacement. Show progress and actionable failure without logging secrets.
 - [ ] Keep rescue checks on recreate/uninstall, volumes intact, and repositories/virtualenvs/scratch dependencies report-only. No generic reset or clean-everything action.
 
-A repair control is enabled only after its coordination/recovery tests pass. If repair prevents timely delivery, release the smaller health/native-connections slice with an accurate existing recovery route and track repair separately; do not label a full repair as selected-tool repair.
+A repair control is enabled only after Slice 1b's coordination/recovery tests pass. Slice 1a can ship independently with accurate troubleshooting and an explicitly labelled existing recovery route; do not label a full repair as selected-tool repair or imply 1a fixes existing maintenance races.
 
 ## Read-only inputs and future folder screen
 
-Move the reference-access decision before any company-data pilot. Do not mount entire SharePoint/sync trees. Verify a narrowly scoped read-only source mount or approved working-copy process. Existing writable mounts must not expose the same source through another path. A read-only bind protects that path, not all company data or shared credentials; stronger isolation needs separate container/identity design and must account for sudo. No staff release may claim project isolation while retaining one shared workspace/home.
+Slice 0's colleague trial uses synthetic/public inputs only. Any later company-data trial requires the vendor-account/confidentiality gate above and a verified reference-access decision before it starts, regardless of which delivery slice supplies that access. Do not mount entire SharePoint/sync trees. Verify a narrowly scoped read-only source mount or approved working-copy process. Existing writable mounts must not expose the same source through another path. A read-only bind protects that path, not all company data or shared credentials; stronger isolation needs separate container/identity design and must account for sudo. No staff release may claim project isolation while retaining one shared workspace/home.
 
 Build a custom folder picker only if the pilot shows a remaining need. If approved:
 
@@ -118,22 +125,29 @@ A later New project option may carry approved folder structure, naming guidance,
 | --- | --- |
 | Legacy support | Real 1.6/unknown-version container never receives guessed flags; no interactive menu in a background probe; explicit unknown/busy/failure outcomes |
 | Native compatibility | Claude/Codex supported-version table for launch/login/status/resume, native account modes, preserved custom settings/MCP/hooks, conditional authentication classification |
-| Mutation safety | Updater/installer/Vibe contention, missing flock, broken-but-present binaries, launch-versus-repair race, interrupted repair, active/manual/Desktop sessions and vendor self-update limits |
-| Windows execution | PS5.1 plus applicable PS7 helper tests; both terminal hosts; hostile path characters; interactive environment parity; async stale results and cancellation |
-| Desktop pilot | Localhost-only SSH, actual user/home/auth/tool ownership, before/after installation checks, reconnect/recreate/resume, non-Git folder, approved data handling |
+| Mutation safety, Slice 1b | Updater/installer/Vibe contention, missing flock, broken-but-present binaries, launch-versus-repair race, interrupted repair, active/manual/Desktop sessions and vendor self-update limits |
+| Windows execution | PS5.1 plus applicable PS7 helper tests; both terminal hosts; hostile path characters; interactive environment parity; post-startup selected directory on new and 1.6 containers; async stale results and cancellation |
+| Desktop pilot | Localhost-only SSH, recorded authorised seat/account type and actual user/home/auth/tool ownership, before/after installation checks, reconnect/recreate/resume, non-Git folder, synthetic/public inputs and pilot-only credential teardown |
+| Later company-data trial | Vendor account/data-use settings and responsible confidentiality approval recorded separately from approved source/read-only/output handling; no confidential input before both gates pass |
 | Persistence/migration | Existing 1.6 install retains work/volumes/config; mount drift detected; old-container terminal fallback; preference schema/recovery if picker is approved |
 | Packaging/runtime | Pester, focused behavioral Bash, required lint, embedding/version checks; compiled EXE opens the new screen and exercises representative worker success/failure under Restricted policy; disposable Docker smoke on final relevant commit |
 | Business usefulness | A non-developer completes the agreed source-backed task, locates a correctly named/versioned output and continues next day without maintainer help; compare time/errors/support with baseline |
 
 Mock tools certify argument/error ordering, not real login or Desktop behavior. Use disposable Docker resources for destructive checks. Docker Smoke evidence is a merge gate even when path filters do not trigger it: dispatch/extend triggers as needed. Do not claim it is branch-protection-required without checking repository settings; changing those settings is separate work.
 
-## Release and review gates
+## Plan review and merge
+
+- [ ] Reconcile review findings and ensure the plan has no contradictory pilot, directory or release requirements.
+- [ ] Documentation checks and applicable existing CI pass on the final planning commit; no claim of runtime/pilot completion from docs CI.
+- [ ] User approves merging documentation-only PR #97. The pilot and implementation gates below are not prerequisites for merging an agreed plan, and remain unchecked in their own PRs.
+
+## Implementation release and review gates
 
 - [ ] Tracking issue records agreed first-slice scope and later items; initial UI review covers simple Open and recovery, not a full dashboard.
 - [ ] Desktop feasibility result is recorded before approving a custom folder UI; record unsupported behavior rather than work around it with silent config changes.
 - [ ] Implementation commits/PRs remain focused; description and evidence match the actual slice. Later items do not block a completed smaller slice.
 - [ ] Maintenance ownership, supported CLI versions and a bounded support budget are agreed; add adapters only after observed need.
-- [ ] Required CI plus runtime/Windows/native-login/colleague evidence pass on the final candidate commit. Keep evidence of mock, automated runtime and real-user checks distinct.
+- [ ] Required CI plus applicable runtime/Windows/native-login/colleague evidence pass on the final candidate commit for each slice. Mutation gates apply to Slice 1b, not as a blocker on observation/login-only Slice 1a. Keep evidence of mock, automated runtime and real-user checks distinct.
 - [ ] Update migration, troubleshooting and truthful credential/folder boundaries. For the proposed container-side 1.7 changes, bump ContainerBaselineVersion to that release together with VERSION and required metadata. No bump in this planning revision.
 - [ ] User approves final scope and candidate behavior before ready/merge; release tag/publication remains separate.
 
