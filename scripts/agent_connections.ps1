@@ -129,7 +129,11 @@ $buttons['Sign in'].Add_Click({ Open-AgentAction ($tool.Text.ToLowerInvariant()+
 $buttons['Open'].Add_Click({ Open-AgentAction $tool.Text.ToLowerInvariant() })
 $buttons['Resume'].Add_Click({ Open-AgentAction ($tool.Text.ToLowerInvariant()+'-resume') })
 $buttons['Open terminal'].Add_Click({ Open-AgentAction 'terminal' })
-$buttons['Copy support'].Add_Click({ [Windows.Forms.Clipboard]::SetText($script:Support) })
+$buttons['Copy support'].Add_Click({
+    if ([Windows.Forms.MessageBox]::Show($script:Support + "`r`n`r`nCopy this summary to the clipboard?", 'Support summary', 'YesNo', 'Information') -eq 'Yes') {
+        [Windows.Forms.Clipboard]::SetText($script:Support)
+    }
+})
 $buttons['Device sign-in'].Add_Click({
     if ($tool.Text -ne 'Codex') { $status.Text = 'Device sign-in is available for Codex. Choose it under Advanced.'; return }
     $status.Text = 'Enable device-code login in ChatGPT security settings (or ask your workspace admin) before using this beta flow.'
