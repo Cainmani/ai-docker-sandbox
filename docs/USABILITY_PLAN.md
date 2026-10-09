@@ -2,7 +2,7 @@
 
 Draft revision 0.05, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
 
-Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The 1.7 candidate includes health, native Claude/Codex connections, actionable diagnostics and coordinated selected repair. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
+Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The 1.7 candidate includes health, native Claude/Codex connections, actionable diagnostics and selected repair with shared maintenance admission (Codex staged; Claude native/latest). Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
 PR #97 contains the implementation by the user’s latest instruction. Keep it draft until automated checks pass and the user tests locally before merge/release. Pilot tooling does not certify Desktop/native sign-in or colleague acceptance. Version 1.7.0 is an unreleased candidate; no live SSH/account/staff trial has been performed.
 

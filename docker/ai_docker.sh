@@ -267,6 +267,9 @@ cmd_status() {
     fi
     echo ""
 
+    if [ -f "${STATE_DIR}/update-skipped" ]; then
+        echo "Updates     skipped: busy at $(sed -n 's/^LAST_ATTEMPT=//p' "${STATE_DIR}/update-skipped" | head -n1)"
+    fi
     disk_used=$(disk_used_gb)
     disk_size=$(df -B1 --output=size "$DISK_PATH" 2>/dev/null | tail -n1 | awk '{ printf "%d", $1 / 1073741824 }')
     echo "Disk        Docker disk: ${disk_used} GB used of ${disk_size} GB"

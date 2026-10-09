@@ -22,8 +22,15 @@ ai_maintenance_acquire() {
             case "$target" in */.local/share/claude/versions/*)
                 echo 'LOCK=active-session' >&2; flock -u 9; return 75 ;;
             esac
+            # cli.js is a common filename, not evidence of an AI session.
+            if [ "${executable##*/}" = node ]; then
+                case "$arg" in
+                    */node_modules/@anthropic-ai/claude-code/cli.js|*/node_modules/@google/gemini-cli/*|*/node_modules/vibe-kanban/*|*/node_modules/9router/*|*/node_modules/omniroute/*)
+                        echo 'LOCK=active-session' >&2; flock -u 9; return 75 ;;
+                esac
+            fi
             case "${executable##*/}:${arg##*/}" in
-                claude:*|codex:*|codex-*:*|gemini:*|opencode:*|vibe-kanban:*|9router:*|omniroute:*|node:claude|node:codex|node:codex.js|node:gemini|node:opencode|node:vibe-kanban|node:cli.js|node:9router|node:omniroute)
+                claude:*|codex:*|codex-*:*|gemini:*|opencode:*|vibe-kanban:*|9router:*|omniroute:*|node:claude|node:codex|node:codex.js|node:gemini|node:opencode|node:vibe-kanban|node:9router|node:omniroute)
                     echo 'LOCK=active-session' >&2; flock -u 9; return 75 ;;
             esac
         done

@@ -269,9 +269,6 @@ $script:EmbeddedFiles = @{
     'agent_session.sh' = 'AGENT_SESSION_SH_BASE64_HERE'
     'agent_health.sh' = 'AGENT_HEALTH_SH_BASE64_HERE'
     'lib/maintenance.sh' = 'MAINTENANCE_SH_BASE64_HERE'
-    'setup_desktop_pilot.sh' = 'SETUP_DESKTOP_PILOT_SH_BASE64_HERE'
-    'docker-compose.desktop-pilot.yml' = 'DOCKER_COMPOSE_DESKTOP_PILOT_YML_BASE64_HERE'
-    'desktop_pilot.ps1' = 'DESKTOP_PILOT_PS1_BASE64_HERE'
     'agent_helpers.ps1' = 'AGENT_HELPERS_PS1_BASE64_HERE'
     'agent_worker.ps1' = 'AGENT_WORKER_PS1_BASE64_HERE'
     'agent_connections.ps1' = 'AGENT_CONNECTIONS_PS1_BASE64_HERE'
@@ -386,7 +383,7 @@ function Export-EmbeddedHelpers {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'setup_desktop_pilot.sh', 'docker-compose.desktop-pilot.yml', 'desktop_pilot.ps1', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', 'docker_helpers.ps1', 'log_utils.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', 'docker_helpers.ps1', 'log_utils.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -394,7 +391,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'setup_desktop_pilot.sh', 'docker-compose.desktop-pilot.yml', 'desktop_pilot.ps1', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
@@ -518,17 +515,6 @@ $lblDesc.BackColor = 'Transparent'
 $lblDesc.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($lblDesc)
 
-if ($env:AI_DOCKER_CONNECTIONS_SMOKE -eq '1') {
-    Extract-DockerFiles
-    Export-EmbeddedHelpers @('log_utils.ps1','docker_helpers.ps1','agent_helpers.ps1','agent_connections.ps1','agent_worker.ps1') | Out-Null
-    . ([ScriptBlock]::Create((Get-EmbeddedFileContent 'agent_helpers.ps1')))
-    $child = New-AgentProcess powershell.exe @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $filesDir 'agent_connections.ps1'),'-SmokeTest')
-    $child.WaitForExit()
-    if ($child.ExitCode -ne 0) { Write-AppLog 'Connections smoke failed' 'ERROR'; exit 1 }
-    Write-AppLog 'Connections smoke passed' 'INFO'
-    exit 0
-}
-
 # Button 1: First Time Setup
 $btnSetup = New-Object System.Windows.Forms.Button
 $btnSetup.Text = "1. FIRST TIME SETUP"
@@ -619,8 +605,13 @@ $form.Controls.Add($lblAppData)
 
 $btnConnections = New-Object System.Windows.Forms.Button
 $btnConnections.Text = 'Health / Sign in / Open agent'
+$btnConnections.Font = New-Object System.Drawing.Font("Consolas", 12, [System.Drawing.FontStyle]::Bold)
+$btnConnections.BackColor = $script:MatrixMidGreen
+$btnConnections.ForeColor = $script:MatrixGreen
+$btnConnections.FlatStyle = 'Flat'
+$btnConnections.FlatAppearance.BorderSize = 0
 $btnConnections.SetBounds(50, 600, 500, 40)
-$form.Height = 700
+$form.Height = 740
 $form.Controls.Add($btnConnections)
 $btnConnections.Add_Click({
     try {
@@ -669,7 +660,7 @@ $form.Controls.Add($btnResources)
 
 # Footer with version and Report Issue link
 $lblVersion = New-Object System.Windows.Forms.Label
-$lblVersion.Left = 20; $lblVersion.Top = 605
+$lblVersion.Left = 20; $lblVersion.Top = 655
 $lblVersion.Width = 280; $lblVersion.Height = 20
 $lblVersion.Text = "v$script:AppVersion"
 $lblVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -679,7 +670,7 @@ $lblVersion.Font = New-Object System.Drawing.Font('Consolas', 8)
 $form.Controls.Add($lblVersion)
 
 $lblReportIssue = New-Object System.Windows.Forms.LinkLabel
-$lblReportIssue.Left = 300; $lblReportIssue.Top = 605
+$lblReportIssue.Left = 300; $lblReportIssue.Top = 655
 $lblReportIssue.Width = 280; $lblReportIssue.Height = 20
 $lblReportIssue.Text = "Report Issue"
 $lblReportIssue.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
@@ -709,6 +700,22 @@ $lblReportIssue.Add_LinkClicked({
     # Open GitHub issue template
     Start-Process "https://github.com/$script:GitHubRepo/issues/new?template=bug_report.yml"
 })
+
+if ($env:AI_DOCKER_CONNECTIONS_SMOKE -eq '1') {
+    foreach ($control in @($lblVersion, $lblReportIssue, $btnResources, $btnExit)) {
+        if ($btnConnections.Bounds.IntersectsWith($control.Bounds)) { throw 'Connections button overlaps another control.' }
+    }
+    if ($lblVersion.Bottom -gt $form.ClientSize.Height -or $lblReportIssue.Bottom -gt $form.ClientSize.Height) { throw 'Footer is outside the main screen.' }
+    Extract-DockerFiles
+    Export-EmbeddedHelpers @('log_utils.ps1','docker_helpers.ps1','agent_helpers.ps1','agent_connections.ps1','agent_worker.ps1') | Out-Null
+    . ([ScriptBlock]::Create((Get-EmbeddedFileContent 'agent_helpers.ps1')))
+    $child = New-AgentProcess powershell.exe @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $filesDir 'agent_connections.ps1'),'-SmokeTest')
+    $child.WaitForExit()
+    if ($child.ExitCode -ne 0) { Write-AppLog 'Connections smoke failed' 'ERROR'; exit 1 }
+    Write-AppLog 'Connections smoke passed' 'INFO'
+    exit 0
+}
+
 $form.Controls.Add($lblReportIssue)
 
 # Event Handlers

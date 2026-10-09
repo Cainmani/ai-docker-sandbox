@@ -277,6 +277,41 @@ assert_eq "concurrent run reports busy" 75 "$RUN_RC"
 assert_contains "concurrent run says it is already running" "$RUN_OUTPUT" "LOCK=busy"
 assert_log_not_contains "concurrent run does not touch npm" "npm outdated -g"
 
+assert_contains "busy skip has a durable separate status" "$(cat "$HOME/.ai-docker/update-skipped")" "RESULT=skipped_busy"
+assert_eq "busy skip does not mark a successful scheduled check" false "$(test -f "$HOME/.last_update_check" && echo true || echo false)"
+
+# The entrypoint and old cron lines invoke the updater without arguments.
+setup_case
+run_updater
+assert_eq "bare updater runs its normal check" 0 "$RUN_RC"
+assert_eq "bare updater records checked state" up_to_date "$(status_get RESULT)"
+run_updater
+assert_eq "bare updater honours the interval" 0 "$RUN_RC"
+
+# A long-lived visible CLI blocks the old default path without npm mutation.
+setup_case
+mkdir -p "$AI_MAINTENANCE_PROC_ROOT/123" "$HOME/.ai-docker"
+printf 'codex\0app-server\0' > "$AI_MAINTENANCE_PROC_ROOT/123/cmdline"
+printf 'RESULT=running\nLAST_CHECK_OK=previous-success\n' > "$HOME/.ai-docker/update-status"
+run_updater
+assert_eq "bare updater skips a long-running process" 75 "$RUN_RC"
+assert_eq "busy skip preserves another updater status" running "$(status_get RESULT)"
+assert_eq "busy skip preserves the last successful check" previous-success "$(status_get LAST_CHECK_OK)"
+assert_log_not_contains "busy default invocation performs no npm config" "npm config"
+rm "$AI_MAINTENANCE_PROC_ROOT/123/cmdline"
+run_updater --scheduled
+assert_eq "scheduled updater runs once the process exits" 0 "$RUN_RC"
+
+# Scheduled retry admits after a transient holder exits instead of failing.
+setup_case
+mkdir -p "$HOME/.ai-docker"
+( flock 9; sleep 2 ) 9> "$HOME/.ai-docker/update.lock" &
+holder=$!
+sleep 0.2
+run_updater --scheduled
+wait "$holder"
+assert_eq "scheduled trigger retries a transient busy lock" 0 "$RUN_RC"
+
 # Versions are snapshotted before/after, and a tool broken by the update is caught.
 setup_case
 add_fake_codex "codex-cli 1.0.0"

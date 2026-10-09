@@ -78,3 +78,51 @@ Describe 'Inspected container compatibility' {
         { Get-AgentContainer 'docker' } | Should -Throw
     }
 }
+Describe 'Windows source launch through a native Docker boundary' {
+    It 'Inspects then launches both container versions with folder data intact' -Skip:($PSVersionTable.PSEdition -ne 'Desktop') {
+        $fakeDirectory = Join-Path $TestDrive 'native-docker'
+        [void][IO.Directory]::CreateDirectory($fakeDirectory)
+        $fakeDocker = Join-Path $fakeDirectory 'docker.exe'
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+public class AgentFakeDocker {
+    public static void Main(string[] args) {
+        using (var output = new StreamWriter(Environment.GetEnvironmentVariable("AI_DOCKER_TEST_ARGS"), true)) {
+            output.WriteLine("CALL");
+            foreach (var value in args) output.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(value)));
+        }
+        if (args.Length > 0 && args[0] == "inspect") Console.Write(Environment.GetEnvironmentVariable("AI_DOCKER_TEST_INSPECT"));
+    }
+}
+'@ -OutputAssembly $fakeDocker -OutputType ConsoleApplication
+        $previousPath = $env:PATH
+        $previousArgs = $env:AI_DOCKER_TEST_ARGS
+        $previousInspect = $env:AI_DOCKER_TEST_INSPECT
+        try {
+            $env:PATH = $fakeDirectory + ';' + $previousPath
+            $env:AI_DOCKER_TEST_ARGS = Join-Path $TestDrive 'docker-arguments.txt'
+            $folder = '/workspace/λ spaces '' $ ; % ^ ! " & |'
+            foreach ($version in @('1.7.0', '1.6.0')) {
+                $env:AI_DOCKER_TEST_INSPECT = @(@{
+                    Config=@{Image='ai-docker-cli:latest';Env=@('USER_NAME=alice');Labels=@{'ai-docker.version'=$version}}
+                    State=@{Running=$true};Mounts=@(@{Type='bind';Destination='/workspace';Source='C:\test'});Id='test-container'
+                }) | ConvertTo-Json -Depth 8 -Compress
+                if (Test-Path $env:AI_DOCKER_TEST_ARGS) { Remove-Item $env:AI_DOCKER_TEST_ARGS }
+                & "$PSScriptRoot/../scripts/launch_claude.ps1" -Action claude -FolderBase64 ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($folder)))
+                $decoded = @(Get-Content $env:AI_DOCKER_TEST_ARGS | Where-Object { $_ -ne 'CALL' } | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
+                $decoded | Should -Contain 'inspect'
+                $decoded | Should -Contain 'exec'
+                $decoded | Should -Contain $folder
+                $decoded | Should -Contain '-li'
+                if ($version -eq '1.7.0') { $decoded | Should -Contain 'exec /usr/local/bin/agent_session.sh "$1" "$2"' }
+                else { ($decoded -join "`n") | Should -Match 'source "\$HOME/\.bashrc"' }
+            }
+        } finally {
+            $env:PATH=$previousPath
+            $env:AI_DOCKER_TEST_ARGS=$previousArgs
+            $env:AI_DOCKER_TEST_INSPECT=$previousInspect
+        }
+    }
+}

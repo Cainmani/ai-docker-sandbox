@@ -5,11 +5,10 @@ param(
     [string]$PublicKey
 )
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\agent_helpers.ps1"
 $docker = (Get-Command docker -ErrorAction Stop).Source
-$root = Split-Path -Parent $PSScriptRoot
-$dockerDir = if (Test-Path (Join-Path $root 'docker\Dockerfile')) { Join-Path $root 'docker' } else { $PSScriptRoot }
-$compose = Join-Path $dockerDir 'docker-compose.desktop-pilot.yml'
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$dockerDir = Join-Path $root 'docker'
+$compose = Join-Path $PSScriptRoot 'compose.yml'
 if ($Action -eq 'Evidence') {
     & $docker inspect --format 'Image={{.Image}} Running={{.State.Running}} Ports={{json .NetworkSettings.Ports}}' ai-desktop-pilot
     if ($LASTEXITCODE -ne 0) { throw 'Start the disposable pilot first.' }
@@ -46,6 +45,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Pilot could not stop.' }
         Write-Host 'Pilot stopped. Workspace, private key and pilot state remain for review. Use the acceptance checklist for deliberate teardown.'
     } else {
+        # Separate base tag: never replace the user's production image.
+        & $docker build --build-arg "AI_DOCKER_VERSION=$env:AI_DOCKER_VERSION" -t ai-docker-pilot-base:local $dockerDir
+        if ($LASTEXITCODE -ne 0) { throw 'Pilot base image could not build.' }
         & $docker compose -f $compose up --build -d
         if ($LASTEXITCODE -ne 0) { throw 'Pilot could not start. Port 2222 may already be in use.' }
         $link = 'claude://code/new?ssh_host=' + [Uri]::EscapeDataString('pilot@127.0.0.1') + '&ssh_port=2222&ssh_folder=' + [Uri]::EscapeDataString('/workspace')

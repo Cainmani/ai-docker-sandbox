@@ -9,6 +9,7 @@
 # failures produce a nonzero exit so startup never reports a broken environment as ready.
 # We DO use set -uo pipefail to catch undefined variables and pipe failures.
 set -uo pipefail
+CODEX_PACKAGE="@openai/codex@0.146.0"
 
 # Validate before any mutation. Selected repair is deliberately Claude/Codex only.
 SELECTED_TOOL=""
@@ -550,7 +551,7 @@ install_cli_tools() {
         : # already working - skipped in repair mode
     elif npm view @openai/codex version >/dev/null 2>&1; then
         print_status "Installing OpenAI Codex CLI..."
-        if npm_install_with_retry "@openai/codex@0.146.0" "/tmp/codex_install.log"; then
+        if npm_install_with_retry "$CODEX_PACKAGE" "/tmp/codex_install.log"; then
             print_success "OpenAI Codex CLI installed successfully"
         else
             print_warning "OpenAI Codex CLI installation failed - can be installed manually with: npm install -g @openai/codex"
@@ -731,6 +732,8 @@ cleanup_old_installations() {
     print_success "Cleanup complete (no working tool was removed)"
 }
 
+# One pinned Codex package specification for install and selected repair.
+# Publication retains npm's normal global package/bin layout.
 # Check if this is first run, repair, force, or update request
 # Use ${1:-} to avoid "unbound variable" error with set -u when called without arguments
 # The marker is NOT deleted before reinstalling: the login banner/entrypoint
@@ -739,19 +742,42 @@ INSTALL_RESULT=0
 if [ -n "$SELECTED_TOOL" ]; then
     # No broad cleanup, apt update, config writes, or unrelated installations.
     if [ "$SELECTED_TOOL" = codex ]; then
-        stage="${HOME}/.npm-global/ai-docker-repairs/codex-$(date +%s)-$$"
-        mkdir -p "$stage" || exit 1
-        if npm install --prefix "$stage" "@openai/codex@0.146.0" \
-            && timeout 12 "$stage/node_modules/.bin/codex" --version >/dev/null 2>&1; then
-            mkdir -p "${HOME}/.npm-global/bin"
-            link="${HOME}/.npm-global/bin/.codex-repair-$$"
-            if ln -s "$stage/node_modules/.bin/codex" "$link"; then
-                mv -Tf -- "$link" "${HOME}/.npm-global/bin/codex" || INSTALL_RESULT=1
-            else INSTALL_RESULT=1; fi
+        if [ -f "${HOME}/.ai-docker/codex-recovery" ]; then
+            print_error "An interrupted Codex repair has a retained backup. Recover it before retrying."
+            exit 1
+        fi
+        stage=$(mktemp -d "${HOME}/.npm-global/.codex-repair.XXXXXX") || exit 1
+        package="${HOME}/.npm-global/lib/node_modules/@openai/codex"
+        launcher="${HOME}/.npm-global/bin/codex"
+        # Validate before touching the existing installation. Global npm installs
+        # nest dependencies inside the package, so the whole package moves together.
+        if npm install -g --prefix "$stage/new" "$CODEX_PACKAGE" \
+            && timeout 12 "$stage/new/bin/codex" --version >/dev/null 2>&1; then
+            mkdir -p "${package%/*}" "${launcher%/*}" || { rm -rf -- "$stage"; exit 1; }
+            # A recovery record survives interruption between the two renames.
+            printf '%s\n' "$stage" > "${HOME}/.ai-docker/codex-recovery" || { rm -rf -- "$stage"; exit 1; }
+            if { [ ! -e "$package" ] || mv -- "$package" "$stage/old-package"; } \
+                && { { [ ! -e "$launcher" ] && [ ! -L "$launcher" ]; } || mv -- "$launcher" "$stage/old-launcher"; } \
+                && mv -- "$stage/new/lib/node_modules/@openai/codex" "$package" \
+                && ln -s ../lib/node_modules/@openai/codex/bin/codex.js "$launcher" \
+                && timeout 12 "$launcher" --version >/dev/null 2>&1; then
+                rm -f -- "${HOME}/.ai-docker/codex-recovery"
+            else
+                # Restore only paths moved by this transaction.
+                if [ -e "$stage/old-package" ]; then rm -rf -- "$package"; mv -- "$stage/old-package" "$package"; fi
+                if [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then rm -f -- "$launcher"; mv -- "$stage/old-launcher" "$launcher"; fi
+                INSTALL_RESULT=1
+                if [ -e "$stage/old-package" ] || [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then
+                    print_warning "Recovery incomplete; retained backup and recovery record"
+                else rm -f -- "${HOME}/.ai-docker/codex-recovery"; fi
+            fi
         else
             print_warning "Replacement validation failed; the existing Codex launcher was preserved"
             INSTALL_RESULT=1
         fi
+        # Keep an incomplete transaction for recovery, otherwise discard only our
+        # temporary download/verified backup, never existing legacy stage folders.
+        [ -f "${HOME}/.ai-docker/codex-recovery" ] || rm -rf -- "$stage"
     else
         installer=$(mktemp) || exit 1
         if curl -fsSL https://claude.ai/install.sh -o "$installer"; then

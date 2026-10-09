@@ -33,7 +33,6 @@ $folderLabel.SetBounds(20,60,600,25)
 $folder = New-Object Windows.Forms.TextBox
 $folder.Text = '/workspace'
 $folder.SetBounds(20,88,600,28)
-$folder.Add_TextChanged({ $script:Generation++ })
 $tool.Add_SelectedIndexChanged({ $script:Generation++ })
 $status = New-Object Windows.Forms.TextBox
 $status.Multiline = $true
@@ -109,6 +108,7 @@ $timer.Add_Tick({
         else {
             $name = $tool.Text.ToLowerInvariant()
             $status.Text = if ($values['TOOL_'+$name] -ne 'ready') { 'Fix this: the selected tool could not start. Repair this tool, then check again.' } elseif ($values['AUTH_'+$name] -eq 'ready') { ('Ready. Open a session or resume a conversation. Checked locally at ' + [DateTime]::Now.ToShortTimeString() + '.') } else { 'Tool ready. Sign-in: unable to verify. Sign in using the native terminal, then check again.' }
+            if ($values['UPDATE_SKIP_RESULT'] -eq 'skipped_busy') { $status.AppendText("`r`nUpdate skipped: busy at " + $values['UPDATE_SKIP_LAST_ATTEMPT']) }
             if ($values.ContainsKey('UPDATE_RESULT')) { $status.AppendText("`r`nLast update: " + $values['UPDATE_RESULT']) }
             if ($values['CONTAINER_SUPPORTED'] -ne '1') { $status.AppendText("`r`nOlder/unknown container: native terminal available; new diagnostics and repair require setup/recreate.") }
         }
@@ -136,7 +136,6 @@ $buttons['Copy support'].Add_Click({
 })
 $buttons['Device sign-in'].Add_Click({
     if ($tool.Text -ne 'Codex') { $status.Text = 'Device sign-in is available for Codex. Choose it under Advanced.'; return }
-    $status.Text = 'Enable device-code login in ChatGPT security settings (or ask your workspace admin) before using this beta flow.'
     Open-AgentAction 'codex-device'
     $status.AppendText("`r`nEnable device-code login in ChatGPT security settings (or ask your workspace admin) before using this beta flow.")
 })

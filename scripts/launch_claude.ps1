@@ -32,9 +32,9 @@ try {
             'codex-device' { 'codex login --device-auth' }
             'claude-resume' { 'claude --resume' }
             'codex-resume' { 'codex resume' }
-            default { 'exec bash --norc -i' }
+            default { 'exec bash -i' }
         }
-        $command += '; echo "Session finished. Terminal remains open."; exec bash --norc -i'
+        $command += '; echo "Session finished. Terminal remains open."; export AI_DOCKER_SESSION_FOLDER="$1"; exec bash --rcfile <(printf "%s\n" ''source "$HOME/.bashrc"'' ''cd -- "$AI_DOCKER_SESSION_FOLDER" || echo "Selected folder is no longer accessible."'' ''unset AI_DOCKER_SESSION_FOLDER'') -i'
         $arguments += @($command,'bash',$folder)
     }
     # Invoke the native executable directly in this console. PowerShell's native
@@ -44,4 +44,5 @@ try {
     $process.Dispose()
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Yellow
+    [void](Read-Host 'Press Enter to close this window')
 }

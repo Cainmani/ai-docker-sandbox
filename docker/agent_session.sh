@@ -11,9 +11,19 @@ if { [ "$resolved" != /workspace ] && [[ "$resolved" != /workspace/* ]]; } || ! 
     echo 'The selected folder is missing, inaccessible, or outside the workspace. No agent was started.' >&2
     exec bash -i
 fi
-if [ "$action" = terminal ]; then exec bash --norc -i; fi
+if [ "$action" = terminal ]; then exec bash -i; fi
 source /usr/local/lib/maintenance.sh
-ai_maintenance_acquire shared || { echo 'Tools are being maintained. Try again when maintenance finishes.'; exec 9>&-; exec bash -i; }
+ai_maintenance_acquire shared
+lock_result=$?
+if [ "$lock_result" -ne 0 ]; then
+    if [ "$lock_result" -eq 69 ]; then
+        echo 'Maintenance coordination is unavailable. Recreate the container using setup.'
+    else
+        echo 'Tools are being maintained. Try again when maintenance finishes.'
+    fi
+    exec 9>&-
+    exec bash -i
+fi
 case "$action" in
     claude) claude ;;
     codex) codex ;;
@@ -28,4 +38,5 @@ flock -u 9
 exec 9>&-
 echo "Agent finished (exit $result). Your terminal remains open."
 # bashrc may contain cd /workspace; restore the selected folder after it runs.
-exec bash -i -c 'cd -- "$1"; exec bash --norc -i' bash "$folder"
+export AI_DOCKER_SESSION_FOLDER="$folder"
+exec bash --rcfile <(printf '%s\n' 'source "$HOME/.bashrc"' 'cd -- "$AI_DOCKER_SESSION_FOLDER" || echo "Selected folder is no longer accessible."' 'unset AI_DOCKER_SESSION_FOLDER') -i

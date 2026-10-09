@@ -12,7 +12,7 @@ For architecture details (embedded-file build system, Docker volumes, auth persi
 ai-docker-sandbox/
 ├── scripts/                  # Windows-side PowerShell
 │   ├── AI_Docker_Complete.ps1    # Main app template (files embedded as Base64 at build)
-│   ├── AI_Docker_Launcher.ps1    # Developer wrapper; opens the compiled manager
+│   ├── AI_Docker_Launcher.ps1    # Developer wrapper; runs the source-bundled manager
 │   ├── setup_wizard.ps1          # WinForms first-time setup wizard
 │   ├── launch_claude.ps1         # Daily launcher (docker exec terminal)
 │   ├── launch_vibe_kanban.ps1    # Vibe Kanban web UI launcher
@@ -138,3 +138,6 @@ Scripts are mounted read-only; for local development only.
 | Script changes not picked up | Docker cached the COPY layer — use Force Rebuild (`--no-cache`) |
 | `claude: command not found` | Check `~/.local/bin/claude` exists in the container; re-run `install_cli_tools.sh` |
 | Auth lost after rebuild | Verify `claude-config` and `tool-auth` volumes are mounted (see docker-compose.yml) |
+
+
+The usability candidate’s EXE smoke opens the main form, checks the connections button against footer/control bounds, then runs the connections screen using built-in ready/error/busy worker responses. These responses do not access Docker or prove sign-in. Windows PowerShell 5.1 Pester also invokes the source launch path through a compiled fake Docker executable to check inspect/exec arguments for 1.6 and 1.7. Docker Smoke tests the real default/scheduled updater, a live named CLI process, and production Bash startup before and after a mock agent exits. Actual vendor authentication, Desktop SSH and display scaling remain local acceptance checks.

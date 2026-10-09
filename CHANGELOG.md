@@ -10,11 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Health and native sign-in for Claude and Codex, safe workspace launch and vendor resume, and a sanitised copyable support summary.
 - Shared maintenance admission for updates, installations, selected repair and managed agent sessions. Busy returns 75; unavailable coordination returns 69.
-- Localhost-only disposable Claude Desktop SSH pilot tooling and a local acceptance checklist.
+- Source-only localhost Claude Desktop SSH experiment (excluded from production image/EXE) and a local acceptance checklist.
 
 ### Changed
-- The alternate launcher is a developer wrapper for the compiled manager. Older containers retain a limited native-terminal route.
+- The alternate launcher is a developer wrapper for the same source-bundled manager, without a build dependency. Older containers retain a limited native-terminal route.
 - Native sign-in guidance replaces the blanket API-key configuration recommendation. Container changes require recreation; version 1.7.0 is a candidate, not a published release.
+
+### Fixed
+- Normal interactive terminals retain aliases, router wrappers and the status line, including after an agent exits.
+- Bare updater invocation runs its interval check; scheduled updates retry briefly and record busy skips without overwriting update progress.
+- The health button no longer overlaps the version/issue footer; folder edits retain independent health results and finished repair result files are consumed.
+- Codex selected repair retains npm ownership and cleans its temporary staging directory. Claude remains a native latest-installer repair, with that limit stated explicitly.
 
 ## [1.6.0] - 2026-10-08
 

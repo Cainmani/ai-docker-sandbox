@@ -51,7 +51,7 @@ function ConvertFrom-AgentProtocol {
     param([string]$Text)
     $result = @{}
     foreach ($line in ($Text -split '\r?\n')) {
-        if ($line -match '^(PROTOCOL|ERROR|REPAIR_RESULT|CONTAINER_SUPPORTED|CONTAINER_VERSION|TOOL_(claude|codex|gh)|AUTH_(claude|codex|gh)|UPDATE_(RESULT|LAST_ATTEMPT|LAST_CHECK_OK|LAST_UPDATE_OK|FAILED_STAGES))=([a-zA-Z0-9_ :.+-]{0,100})$') {
+        if ($line -match '^(PROTOCOL|ERROR|REPAIR_RESULT|CONTAINER_SUPPORTED|CONTAINER_VERSION|TOOL_(claude|codex|gh)|AUTH_(claude|codex|gh)|UPDATE_(RESULT|LAST_ATTEMPT|LAST_CHECK_OK|LAST_UPDATE_OK|FAILED_STAGES|SKIP_RESULT|SKIP_LAST_ATTEMPT))=([a-zA-Z0-9_ :.+-]{0,100})$') {
             $result[$Matches[1]] = $Matches[5]
         }
     }
@@ -64,5 +64,5 @@ function Start-AgentConsole {
     # become PowerShell single-quoted literals, not interpolated executable code.
     $command = '& ''' + $ScriptPath.Replace("'", "''") + "' -Action '" + $Action.Replace("'", "''") + "' -FolderBase64 '" + $folderValue + "'"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    New-AgentProcess powershell.exe @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-EncodedCommand', $encoded)
+    New-AgentProcess powershell.exe @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded)
 }

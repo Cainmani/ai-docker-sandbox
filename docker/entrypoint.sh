@@ -471,12 +471,9 @@ fi
 # Setup and start the scheduled updater. Failures remain non-fatal because
 # interactive updates are still available, but the helper logs an actionable
 # warning and behavioral tests cover registration and daemon liveness.
-if [ "${ENABLE_DESKTOP_PILOT:-0}" != 1 ]; then
+if [ "${AI_DOCKER_SCHEDULED_UPDATE:-1}" != 0 ]; then
     setup_auto_update_cron "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
     ensure_cron_daemon_running 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
-fi
-if [ "${ENABLE_DESKTOP_PILOT:-0}" = 1 ]; then
-    /usr/local/bin/setup_desktop_pilot.sh
 fi
 
 # Mobile Access Setup (optional - enabled via ENABLE_MOBILE_ACCESS=1)

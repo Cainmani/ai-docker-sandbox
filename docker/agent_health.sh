@@ -33,3 +33,9 @@ for key in RESULT LAST_ATTEMPT LAST_CHECK_OK LAST_UPDATE_OK FAILED_STAGES; do
     # Only small, printable protocol values; no arbitrary local file contents.
     if [[ "$value" =~ ^[a-zA-Z0-9_[:space:]:.+-]{0,100}$ ]]; then printf 'UPDATE_%s=%s\n' "$key" "$value"; fi
 done
+
+file="${HOME}/.ai-docker/update-skipped"
+for key in RESULT LAST_ATTEMPT; do
+    value=$(sed -n "s/^${key}=//p" "$file" 2>/dev/null | head -n1)
+    if [[ "$value" =~ ^[a-zA-Z0-9_[:space:]:.+-]{0,100}$ ]]; then printf 'UPDATE_SKIP_%s=%s\n' "$key" "$value"; fi
+done

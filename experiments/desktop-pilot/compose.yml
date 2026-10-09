@@ -4,16 +4,13 @@ services:
   pilot:
     build:
       context: .
-      args:
-        AI_DOCKER_VERSION: ${AI_DOCKER_VERSION:-1.7.0}
     image: ai-docker-desktop-pilot:local
     container_name: ai-desktop-pilot
     restart: 'no'
-    security_opt:
-      - seccomp=unconfined
     environment:
       USER_NAME: pilot
       ENABLE_DESKTOP_PILOT: '1'
+      AI_DOCKER_SCHEDULED_UPDATE: '0'
       ENABLE_MOBILE_ACCESS: '0'
       AI_DOCKER_STARTUP_UPDATE: '0'
     ports:

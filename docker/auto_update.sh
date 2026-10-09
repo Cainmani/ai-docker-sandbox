@@ -133,7 +133,23 @@ acquire_update_lock() {
     else
         source "$(dirname "$(readlink -f "$0")")/lib/maintenance.sh"
     fi
-    ai_maintenance_acquire exclusive || exit $?
+    local attempts=1 rc=0
+    # Scheduled triggers retry briefly; an active session is a skip, not failure.
+    if [ "${1:-}" = --scheduled ]; then attempts=4; fi
+    while [ "$attempts" -gt 0 ]; do
+        ai_maintenance_acquire exclusive && return 0
+        rc=$?
+        [ "$rc" -eq 75 ] || exit "$rc"
+        attempts=$((attempts - 1))
+        [ "$attempts" -eq 0 ] || sleep 5
+    done
+    mkdir -p "$STATE_DIR"
+    # Separate atomic attempt record: do not overwrite another updater's
+    # running/success status or snooze the normal scheduling timestamp.
+    local tmp="${STATE_DIR}/update-skipped.tmp.$$"
+    printf 'RESULT=skipped_busy\nLAST_ATTEMPT=%s\n' "$(date -Iseconds)" > "$tmp" && mv -f -- "$tmp" "${STATE_DIR}/update-skipped"
+    update_log "[INFO] Update skipped: busy. Close agent sessions and retry."
+    exit 75
 }
 
 # snapshot_versions <file>: one "tool<TAB>version" line per VERIFY_TOOLS entry,
@@ -556,20 +572,21 @@ setup_cron() {
     # Add cron job. Source the proxy/CA login profile first: cron runs in a
     # bare environment, so without it the updater loses proxy/CA config on
     # corporate networks (same line entrypoint_helpers.sh installs).
-    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1") | crontab -
+    (crontab -l 2>/dev/null; echo "$cron_schedule . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh --scheduled >/dev/null 2>&1") | crontab -
     update_log "${GREEN}[SUCCESS]${NC} Cron job added: $cron_schedule"
 }
 
 # Parse command line arguments
 case "${1:-}" in
     --check|-c|--apply|-a|--force|-f|'') acquire_update_lock ;;
+    --scheduled) acquire_update_lock --scheduled ;;
     --cron|--help|-h) ;;
     *) echo 'Unknown update option.' >&2; exit 2 ;;
 esac
 
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 case "${1:-}" in
-    --check|-c|--apply|-a|--force|-f|'')
+    --check|-c|--apply|-a|--force|-f|--scheduled|'')
         mkdir -p "${HOME}/.npm-global"
         npm config set prefix "${HOME}/.npm-global" ;;
 esac
@@ -597,6 +614,9 @@ case "${1:-}" in
     --force|-f)
         run_auto_update --force
         ;;
+    ''|--scheduled)
+        run_auto_update
+        ;;
     --cron)
         setup_cron "${2:-}"
         ;;
@@ -613,6 +633,7 @@ case "${1:-}" in
         echo "  --check, -c     Check for available updates"
         echo "  --apply, -a     Apply available updates"
         echo "  --force, -f     Force update check regardless of interval"
+        echo "  --scheduled     Scheduled check; retry busy admission for up to 15 seconds"
         echo "  --cron [SCHEDULE]  Setup cron job for auto-updates"
         echo "  --help, -h      Show this help message"
         echo ""

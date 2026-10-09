@@ -99,14 +99,14 @@ jobs:
       - name: Lint shell scripts (blocking errors)
         shell: bash
         run: |
-          mapfile -t scripts < <(find docker tests -type f -name '*.sh' -print | sort)
+          mapfile -t scripts < <(find docker tests experiments -type f -name '*.sh' -print | sort)
           shellcheck --severity=error "${scripts[@]}"
 
       - name: Lint shell scripts (visible warnings)
         shell: bash
         continue-on-error: true
         run: |
-          mapfile -t scripts < <(find docker tests -type f -name '*.sh' -print | sort)
+          mapfile -t scripts < <(find docker tests experiments -type f -name '*.sh' -print | sort)
           shellcheck --severity=warning "${scripts[@]}"
 
       - name: Lint Dockerfile (hadolint)

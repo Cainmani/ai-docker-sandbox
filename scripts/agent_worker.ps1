@@ -23,13 +23,13 @@ try {
         $id = [Guid]::NewGuid().ToString('N')
         # Detached container command owns maintenance. Closing the window/worker
         # cannot interrupt package replacement. Only the exit code is persisted.
-        $command = '/usr/local/bin/install_cli_tools.sh --repair-tool "$1" >/dev/null 2>&1; rc=$?; mkdir -p "$HOME/.ai-docker"; f="$HOME/.ai-docker/repair-$2"; printf "%s\n" "$rc" > "$f.tmp"; mv -f -- "$f.tmp" "$f"'
+        $command = 'mkdir -p "$HOME/.ai-docker"; find "$HOME/.ai-docker" -maxdepth 1 -type f -name "repair-????????-????-????-????-????????????" -mtime +7 -delete; /usr/local/bin/install_cli_tools.sh --repair-tool "$1" >/dev/null 2>&1; rc=$?; mkdir -p "$HOME/.ai-docker"; f="$HOME/.ai-docker/repair-$2"; printf "%s\n" "$rc" > "$f.tmp"; mv -f -- "$f.tmp" "$f"'
         $started = Invoke-DockerCommand -DockerPath $docker -Arguments (@('exec','-d','-u',$context.User,'ai-cli','bash','-li','-c') + @($command,'bash',$Tool,$id)) -TimeoutSeconds 15
         if (-not $started.Success) { Write-Output 'ERROR=repair-start-failed'; exit 1 }
         $deadline = [DateTime]::UtcNow.AddMinutes(20)
         $repairCode = -1
         while ([DateTime]::UtcNow -lt $deadline) {
-            $poll = Invoke-DockerCommand -DockerPath $docker -Arguments (@('exec','-u',$context.User,'ai-cli','bash','-c') + @('f="$HOME/.ai-docker/repair-$1"; test -f "$f" && cat -- "$f"','bash',$id)) -TimeoutSeconds 15
+            $poll = Invoke-DockerCommand -DockerPath $docker -Arguments (@('exec','-u',$context.User,'ai-cli','bash','-c') + @('f="$HOME/.ai-docker/repair-$1"; test -f "$f" && { cat -- "$f"; rm -f -- "$f"; }','bash',$id)) -TimeoutSeconds 15
             if ($poll.Success -and $poll.Output.Trim() -match '^[0-9]{1,3}$' -and [int]$poll.Output.Trim() -le 255) { $repairCode=[int]$poll.Output.Trim(); break }
             Start-Sleep -Seconds 1
         }
