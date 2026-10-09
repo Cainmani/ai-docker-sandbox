@@ -1,162 +1,146 @@
 # AI Docker usability implementation plan
 
-Draft, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026.
+Draft revision 0.02, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Revision 0.01 is retained in Git history.
 
-Make daily use follow one clear journey: choose a project, check that the selected tool is available, and start working. The proposed 1.7 scope is a project picker, guided tool connections, and visible health with repair actions. Keep the native terminal and Vibe Kanban available throughout.
+Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The proposed 1.7 candidate focuses on health, native Claude/Codex connections and safe recovery. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
-This draft PR starts with planning only. Continue implementation and review on the same branch and PR once scope is agreed. Keep it draft until the implementation and release gates below are satisfied; merge to main only after the user is happy with the result. Version 1.7 is a proposed target, not a release commitment.
+This PR contains planning only. No installation, SSH exposure, runtime change or staff trial has been performed. Keep the PR draft, and merge only after the user approves its final result. Release tagging is separate. Version 1.7 is a proposed target.
 
-## Scope and sequence
+## Cainmani fit and boundaries
 
-| Order | Deliverable | Completion condition |
+This is an extension of existing local AI infrastructure, with indirect benefit to engineering, analysis and document work. It does not own business Projects, Documents, Decisions or Credentials. A future local folder list stores shortcuts and preferences only; project records and source documents stay in their owning systems.
+
+The first users to test are a colleague unfamiliar with CLI setup and an existing engineering/analysis user. A successful login is not sufficient: both must locate a saved result and continue unfinished work. Do not infer adoption from company headcount or promise measured savings before a pilot.
+
+Company documents must remain in approved SharePoint locations or the relevant project source/data-room system. AI_Work is a working area, not a new authoritative document store. Before a pilot, identify the authoritative source, approved local-copy/sync method, source version and output-review/return route for that task. Do not add automatic SharePoint download, sync, upload or publication. Record only non-secret provenance in local task notes, and follow the existing Cainmani naming/version policy.
+
+A separate PR in `cainmani-skills` should add ai-docker-sandbox to ECOSYSTEM.md as cross-cutting AI/dev infrastructure. Confirm the local-desktop exception and actual adoption before recording status; do not imply a deployed shared server or new entity ownership. This repository's PR does not edit that map.
+
+## Delivery slices
+
+| Slice | Scope | Gate |
 | --- | --- | --- |
-| 1 | Shared launcher and tool integration foundations | Both launcher variants use the same behavior; installed tool capabilities are detected safely |
-| 2 | Project home screen | Open, create, clone, pin and reopen projects; launch the selected tool in the right directory |
-| 3 | Guided connections | Native sign-in for supported tools; installation, saved authentication and connection checks are distinct |
-| 4 | Health and recovery | Show existing health records; offer bounded diagnostics and targeted, non-destructive repair |
-| 5 | Migration, packaging and user review | Existing 1.6 users retain settings and work; compiled EXE and real Windows flows pass |
-| Later | Browser workspace, protected mounts, profiles, published images and separate-change workflows | Each passes its own feasibility and acceptance gate before becoming release scope |
+| 0 | Desktop SSH feasibility and task baseline | Prove isolation, installation/config preservation, native resume and non-developer usability on a disposable environment |
+| 1, proposed 1.7 | Minimal capabilities/status contract, compact health, Claude/Codex native connections, coordinated selected-tool repair | Correct legacy fallback, preserved settings, maintenance safety, real Windows and colleague acceptance |
+| 2 | Optional Desktop handoff and read-only reference access | Slice 0 result and verified data-access requirements; separate focused implementation PR |
+| 3 | Custom recent-folder screen only if still needed | Demonstrated friction that vendor UI/native resume does not solve; separate focused implementation PR |
+| Later | Templates, other tool adapters, published images, isolated profiles, editor/worktree UI or backend substitution | Specific observed need, owner and bounded maintenance effort |
 
-Orders 1–5 form the proposed initial release. Later items are planned here so that the first implementation leaves room for them; they are not prerequisites for merging the initial release. Expand this PR's scope only through an explicit scope decision and update its description to match.
+Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). Keep #97 as the revised design and proposed first implementation slice; do not accumulate every later feature on this PR. A lock/recovery prerequisite that needs independent review can land in its own focused dependency PR. Each slice has an independent review/release decision; staff do not wait for the entire roadmap.
 
-## Current implementation and gaps
+## Verified baseline corrections
 
-- `scripts/AI_Docker_Complete.ps1` is the packaged application; `scripts/AI_Docker_Launcher.ps1` is the alternate launcher. Their UI behavior overlaps and can drift.
-- `scripts/launch_claude.ps1`, despite its name, opens a login shell at `/workspace`. Extend or delegate this path for project-specific launches while retaining the existing entry point.
-- `docker/configure_tools.sh` offers native interactive configuration, but some status checks infer authentication from files or environment variables. These are evidence of saved configuration, not proof of a working account.
-- `docker/ai_docker.sh` implements health, diagnostics, rescue and cleanup. `~/.ai-docker/update-status` is authoritative for update health. The launcher should consume structured output rather than parse colored display text or invent another status record.
-- `docker/install_cli_tools.sh --repair` skips healthy tools but currently evaluates the installation set. A button labelled "Repair Codex" needs a real tool selector before it can make that promise.
-- The container shares the mounted workspace across tools. Launching in a subfolder selects context; it does not restrict access to sibling projects.
-
-## User journeys
-
-### Existing user
-
-Open the manager and see recent projects plus container health. Select a project and an agent, then choose Open. Start the container if necessary, wait for readiness, and open the agent in that project's directory as the existing container user. Preserve a plain terminal option and the Vibe Kanban launch path.
-
-Never run setup automatically because the project list is empty. If the container is missing, show a specific setup action. If Docker is unavailable, distinguish not installed, not running, and readiness timeout.
-
-### New user
-
-Complete the existing setup wizard, then choose a folder or create a project. Connect the desired tool using its native flow and return to the project screen. Connecting every installed tool is optional. Explain subscription login versus API-key billing where relevant without requesting secrets in the general project UI.
-
-### User with a problem
-
-Show which tool or operation failed and when it was checked. Offer its native sign-in, diagnostics, or repair action. Network failure is not labelled expired credentials. A tool that is already working remains available while another tool is repaired.
-
-## Compatibility contract
-
-1. Launch installed vendor binaries through documented interfaces, with capability detection for the installed version. Never assume all tools have the same login, status or resume command.
-2. Preserve the same container user, home directory, login-shell environment and existing persistence volumes. The manager does not copy or reinterpret credential stores.
-3. Store project selection and UI preferences separately from vendor settings. Do not rewrite models, API base URLs, permissions, MCP entries, hooks, skills, `AGENTS.md`, `CLAUDE.md`, or project configuration when opening a project.
-4. Pass only the arguments needed for the user's chosen operation. No automatic permission bypass or trust acceptance. Tool prompts remain visible in an interactive terminal.
-5. Detect unsupported commands and fall back to opening the tool or plain terminal. Unknown status is an honest state, not a reason to reset configuration.
-6. Preserve human-readable health commands and their existing exit-code semantics when adding machine-readable output.
-7. Keep repairs and updates serialized using the existing update lock contract. Avoid replacing a binary used by an active session; explain how to finish the session and retry.
-8. Preserve the Windows PowerShell 5.1 runtime, compiled EXE behavior under Restricted policy, release asset names, loopback-only dashboard ports, and rescue protections.
-
-Official interfaces to recheck against installed versions during implementation: [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli), [Codex configuration precedence](https://learn.chatgpt.com/docs/config-file/config-basic), and [Claude CLI](https://code.claude.com/docs/en/cli-reference). Add verified Gemini, OpenCode and GitHub CLI references when their adapters are implemented.
-
-## Phase 1 Shared foundations
-
-- [ ] Extract shared project, process and UI behavior used by both launcher variants. Keep EXE loading compatible with embedded ScriptBlocks; do not dot-source extracted scripts inside the compiled host.
-- [ ] Define a small, versioned tool registry: stable tool ID, executable, display name, supported launch/login/status/repair actions, and capability detection. Use a fixed allowlist rather than commands supplied by project metadata.
-- [ ] Define a versioned status response with timestamp, tool version, installation state, authentication evidence, connection state, supported actions, and sanitized failure classification.
-- [ ] Add structured output to existing health/diagnostic entry points. Keep normal text output and existing behavior intact. Missing or malformed records become unknown with an actionable explanation.
-- [ ] Implement asynchronous process execution with timeouts, bounded output, cancellation and duplicate-action guards. Slow Docker commands, directory scans or network checks must not freeze WinForms.
-- [ ] Separate lightweight launch-time checks from explicit detailed/network checks. Normal opening must not send an AI prompt or incur inference charges.
-
-Expected touch points: `scripts/docker_helpers.ps1`, a shared launcher helper, `docker/ai_docker.sh`, `docker/configure_tools.sh`, and both launcher templates. Add embedded-file registration, extraction and structural tests for every new runtime dependency.
-
-Acceptance: a failing or older CLI cannot crash the manager; unknown capabilities have a usable terminal fallback; launcher variants produce the same actions; canceled operations never show success.
-
-## Phase 2 Project home screen
-
-- [ ] Show a searchable recent/pinned project list, selected tool, Open, Open terminal, Open in Explorer, and Vibe Kanban. Include Add existing folder, New project and Clone repository actions.
-- [ ] Store a versioned `projects.json` under the existing Windows application-data directory. Record stable IDs, display names, workspace-relative paths, preferred tool, pin state and last-opened time; never secrets or arbitrary shell commands.
-- [ ] Save atomically and handle malformed JSON, concurrent launcher instances and missing folders. Preserve a corrupt file for recovery rather than overwriting it silently.
-- [ ] Translate the configured Windows workspace root to `/workspace` using validated relative paths. Test canonical containment, traversal, symlink/junction escapes and missing paths. External folders require a later explicit mount workflow.
-- [ ] Pass arguments safely across PowerShell, Windows Terminal/cmd and Docker. Do not concatenate user-controlled names into a shell command. Test spaces, Unicode, apostrophes, ampersands, dollar signs and other metacharacters.
-- [ ] Create projects only after validating the name and destination. Clone via the existing Git/GitHub tools; do not overwrite an existing destination, and make interrupted clones visible for retry/review.
-- [ ] Keep both terminal hosts supported and preserve the existing launcher command for callers that do not select a project.
-- [ ] Make the screen usable with keyboard navigation, high-DPI scaling, readable status text and sufficient contrast. Status must not depend on color alone.
-
-Acceptance: opening a selected project starts the chosen native tool there; an empty list does not alter existing setup; removing an item only removes the listing; canceled create/clone actions preserve existing folders.
-
-## Phase 3 Guided tool connections
-
-- [ ] Show separate installation and connection information. Use states such as Not installed, Installed, Sign-in needed, Saved authentication, Verified at a stated time, Unknown and Check failed.
-- [ ] Implement Claude and Codex first, then Gemini, GitHub CLI and OpenCode. Treat the OpenAI SDK separately from an interactive coding agent. Leave optional routers in their existing opt-in flow.
-- [ ] Use supported native status commands where available. File-based fallback reports saved authentication only, without exposing or reading token values into the UI.
-- [ ] Launch sign-in in an interactive terminal as the same container user. Verify browser/device-code behavior across the Windows/container boundary; offer supported manual/device flows when automatic callbacks cannot work.
-- [ ] Recheck status when the user returns. Closing a terminal or a zero process-launch result does not mean authentication succeeded.
-- [ ] Make any live account check explicit and classify network, TLS, rejected credentials, usage/quota restrictions and unsupported checks separately. If no non-inference check is supported, explain that verification is unavailable instead of issuing a billable prompt.
-- [ ] Mask secrets in any dedicated API-key path; keep them out of command arguments, project metadata and logs. Prefer the vendor's existing credential handling.
-
-Acceptance: subscription and supported API-key flows work; expired credentials and offline conditions have distinct outcomes; changing the selected agent does not change another agent's settings or account.
-
-## Phase 4 Visible health and targeted recovery
-
-- [ ] Display container readiness, installed tool versions, update result and ages, disk usage, resource limits and the timestamp of the latest observation.
-- [ ] Read durable update status rather than infer successful updates from the scheduling marker. Label disk measurements accurately: container filesystem usage is not necessarily Windows Docker virtual-disk size or reclaimable space.
-- [ ] Offer Refresh, Diagnostics, Sign in, Repair selected tool, and the existing full update action where appropriate. Do not label an all-tool update as a selected-tool update.
-- [ ] Add validated tool selection to repair, preserving aggregate install-marker correctness after partial repair. Keep healthy installations, vendor config and credentials intact on failure.
-- [ ] Serialize maintenance with startup/cron/manual updates and handle lock contention clearly. Recheck running sessions before a disruptive action.
-- [ ] Present sanitized progress, operation results and concrete next actions. Export sanitized support information only on request, with a preview before sharing.
-- [ ] Link to the existing cleanup preview and rescue flow. Preserve report-only treatment of repositories, virtualenvs and scratch dependencies; no generic "clean everything" button.
-
-Acceptance: failures are not shown as success; update/repair operations cannot overlap; working tools survive a failed repair; rebuild and uninstall still pass the rescue check.
-
-## Phase 5 Migration and release readiness
-
-- [ ] Upgrade from an existing 1.6 installation without deleting volumes, changing workspace mappings or resetting accounts. Project preferences are additive and optional.
-- [ ] Degrade gracefully with an older container: retain terminal access and explain which new actions need a container upgrade. Route necessary recreates through the existing rescue checks.
-- [ ] Update the user manual, quick reference, troubleshooting and migration guidance to show the new flows and truthful folder-access boundaries.
-- [ ] Update build embedding, extraction, Dockerfile COPY/chmod and line-ending lists as applicable. Check both launcher variants and the actual packaged EXE.
-- [ ] Bump release versions only when implementation scope is settled. Update ContainerBaselineVersion only if container-side changes actually require recreation.
-- [ ] Publish a CI-built candidate artifact for user testing on the draft PR; do not create a release tag or overwrite published release assets.
-
-## Later phases and decision gates
-
-| Feature | Proposed behavior | Gate before implementation |
+| Area | Current code at e903677 | Design consequence |
 | --- | --- | --- |
-| Browser workspace | Optional browser chat, files and native session discovery alongside terminal/Vibe Kanban | Prototype compatibility with persistent state, installed CLI versions and session ownership; evaluate licensing; loopback-only by default; authenticated remote access requires separate design |
-| Protected references and project isolation | Explicit editable project and read-only reference mounts, with a clear access summary | Design per-project containers/Compose identities, labels, ports, lifecycle and persistence; a subfolder picker alone cannot enforce isolation; verify write protection and credential visibility |
-| Work and personal profiles | Explicitly isolated accounts/configuration when supported | Distinguish model/settings profiles from separate credentials; choose supported vendor homes and separate volumes; validate switching without automatic credential copying |
-| Published images | Pull a tested, versioned image with a local-build fallback | Measure first-run time and download size; define digest verification, provenance, tag-to-release mapping, proxy/custom-CA behavior, offline recovery and supported architectures |
-| Separate changes and review | Create a persistent Git worktree, review diffs and checks, then merge explicitly | Reuse Vibe Kanban where possible; retain untracked/ignored work; handle conflicts and non-Git folders; no automatic commit, merge or discard |
-| Resume sessions | Reopen a tool's existing conversation in the right project | Use native supported resume interfaces; distinguish starting a new session from attaching to a live process; avoid two writers to one conversation |
-| Editor integration | Open the selected container project in VS Code | Verify Dev Containers prerequisites, same user/home and configuration, path mapping and behavior when the extension is absent |
+| Locks | `auto_update.sh` takes update.lock; installer modes and the Vibe Kanban npm install do not. Busy exits 0; absent flock permits an unlocked run | Build shared coordination across mutations and explicit busy/unsupported outcomes; it is not an existing repair guarantee |
+| Arguments | `ai-docker status --json` would return display text; unknown configure-tools options enter a menu; `--repair codex` ignores the extra selector | Never discover support by invoking a guessed action; version-gate known contracts before requesting capabilities |
+| Configuration | configure_tools.sh can initialise/migrate Codex configuration and writes an OpenAI API-key export | Native login must bypass legacy configure actions that change settings |
+| Launcher | Only AI_Docker_Complete.ps1 is compiled/released; the alternate launcher has separate logic and test references | One maintained product UI; deprecate the alternate UI into a thin developer wrapper after checking callers and updating tests/docs |
+| Launch path | launch_claude.ps1 constructs a command through Windows Terminal and cmd; it opens at /workspace | Replace its command construction; preserve a compatibility wrapper for existing callers |
+| Tool health | Installer health tests only executable presence for Codex and gh | Add bounded execution probes; selected reinstall must work even when a broken binary exists |
+| SSH | Mobile override publishes SSH without a host-loopback prefix and also publishes Mosh; server disables forwarding | Do not enable that override unchanged for the Desktop test; use a dedicated loopback-only SSH configuration |
+| CI | Docker Smoke is path-filtered; EXE smoke recognises startup log lines | Require runtime smoke evidence explicitly and exercise the new screen/background behavior in the compiled artifact |
 
-Reference patterns: [CloudCLI](https://github.com/siteboon/claudecodeui) for project/session UI; [claude-sandbox](https://github.com/rsh3khar/claude-sandbox) for remembered mounts, worktrees and published images; [dclaude](https://github.com/stanislavkozlovski/dclaude) for warm project containers and read-only references; [DevPod](https://github.com/loft-sh/devpod) for editor/devcontainer workflows; [devc](https://github.com/grahambrooks/ai-dev-container) for session-aware lifecycle. Borrow behavior after verification rather than importing their configuration wholesale.
+## Slice 0 Desktop SSH and workflow test
 
-## Validation matrix
+Official [Claude Desktop documentation](https://code.claude.com/docs/en/desktop#ssh-sessions) supports SSH targets and project links. It also says Desktop installs Claude Code on the target. The link starts a new-session page; it does not itself prove resume works. First test installation and lifecycle against the container's native Claude installation and updater.
+
+- [ ] Use a uniquely named disposable Compose project, synthetic/non-sensitive workspace and test credentials. Do not connect Desktop to the user's live container first.
+- [ ] Add a dedicated pilot SSH mapping such as `127.0.0.1:2222:2222`, with no Mosh ports and no change to mobile-access defaults. Validate the actual listening interface from Windows and ensure another host cannot reach it. Handle a busy port explicitly.
+- [ ] Use key authentication and verified host keys. Confirm SSH user, UID, HOME, working directory, PATH, native config locations, sudo access and credential visibility. SSH forwarding is disabled today: test Desktop requirements and avoid enabling it broadly to hide a failure.
+- [ ] Record Claude executable paths/versions and non-secret configuration checksums before and after first connect, reconnect, container recreation and update. Establish who owns installation and updates; block adoption if Desktop silently replaces tools or loses config/session persistence.
+- [ ] Confirm which account authenticates inference and which config/MCP/hooks/skills apply. Desktop login, remote SSH identity and persisted CLI login are separate concerns until demonstrated otherwise.
+- [ ] Generate correctly URL-encoded links with an explicit user, loopback host, port and remote folder. Check installed Desktop version/account policy; do not include secrets or sensitive prompts in links. Test a plain non-Git folder as well as a repository.
+- [ ] Test a new session, native continuation of yesterday's work, closing/reopening Desktop, missing folder, stopped container and failed authentication. Retain the terminal route for Codex and for Desktop failure.
+- [ ] Before using company data, test source access and writable scope. The shared home exposes stored credentials and passwordless sudo; a selected folder is not an enforced boundary.
+- [ ] Compare real tasks using 1.6 and the pilot: time to first useful work, assistance required, source/output mistakes and next-day continuation. Provisional pass: a non-developer completes the agreed task and returns to it without maintainer intervention; inspect quality and source/version correctness too.
+
+Time-box technical feasibility to two working days. If blocked, record the specific unsupported behavior and keep terminal access; do not expand into a browser product. Gather weekly active use and support categories manually over two weeks, without collecting prompts, tokens or document contents. Native Desktop may serve Claude well and still leave a distinct Codex/folder-navigation need.
+
+## Slice 1 Health and connections
+
+### Minimal contract and compatibility
+
+- [ ] Define a small fixed adapter set for Claude and Codex. Other tools retain existing terminal/configuration routes; missing optional tools are not release blockers.
+- [ ] Add a versioned capabilities operation and reject unknown arguments before taking any action. Use the inspected image product version/labels and a known feature-version table to decide whether it is safe to call that operation. Missing/unknown/1.6 capability support falls back to documented existing commands only, with timeouts and no guessed flags.
+- [ ] Extend existing KEY=VALUE status/diagnostic records with explicit schema version, timestamps, supported actions and classified results. Keep human output and legacy consumers compatible. A future JSON option is unnecessary for the first slice.
+- [ ] Read update-status as the update-health source of truth. status --brief is cheap and file-based; doctor runs network probes and must be an explicit action. Detailed checks run off the UI thread with bounded output/timeouts.
+- [ ] Support Windows PowerShell 5.1 in the actual compiled EXE under Restricted policy. Load helper content from embedded Base64 through the existing ScriptBlock mechanism, not by dot-sourcing extracted files. Keep child scripts at -NoProfile and the existing explicit execution-policy invocation.
+- [ ] Reduce AI_Docker_Launcher.ps1 to a documented developer wrapper for the one product implementation, after auditing references. Update version gates, tests and docs; do not silently break a script caller or delete a working alternate route without replacement.
+
+### Beginner flow and native sign-in
+
+Show one configured/default agent and a main Open action. Put other agents and detailed versions/resource figures behind Advanced/Details. Summarise actionability in plain language; do not claim Ready from credential-file presence alone. Keep installation, authentication evidence, connection outcome and freshness separate internally.
+
+- [ ] Start native Claude authentication/interactive onboarding and `codex login` directly according to verified installed-version support. Do not call legacy configure-tools --codex/--openai as a sign-in shortcut or rewrite models, permissions, environment exports, MCP, hooks or instructions.
+- [ ] Prefer native status interfaces. Support Codex credential-store modes; missing auth.json does not prove sign-out. Do not copy, inspect or reset token values. [Codex authentication](https://learn.chatgpt.com/docs/auth) documents file/keyring storage and beta device-code login requiring account/workspace enablement.
+- [ ] Explain supported browser/device/manual flows and account prerequisites. Real Windows/container tests must prove callbacks or fallbacks work. Recheck when the user returns; process launch or terminal closure is not login success.
+- [ ] Classify expired/rejected authentication versus network/TLS failure only when a native check gives that evidence. Otherwise report Unable to verify and a concrete next step. No implicit billable prompt for a status badge.
+- [ ] Give Docker-not-running, WSL, proxy/CA and VPN failures appropriate guidance; a package reinstall is not their fix. Offer previewed, sanitised copyable support details, with no automatic message/upload.
+- [ ] Give async operations IDs and tool/context ownership. Ignore stale/superseded results, avoid duplicate actions, and distinguish read-only cancellation from stopping package mutation. Closing a window does not silently kill an installer.
+
+### Launch and environment
+
+- [ ] Replace string-built launches through cmd/Windows Terminal with a PS5.1-compatible child launch contract. Allow only fixed actions and validated local identifiers; resolve any folder inside the child, never interpolate user text into executable shell code.
+- [ ] Read actual container mounts/user from docker inspect; .env expresses requested state and can differ from a running container. Check expected image/container identity and missing or mismatched mounts before acting.
+- [ ] Native interactive launch must match the plain terminal environment; use an interactive login shell (`bash -li`) with safe fixed argument passing, and test .bashrc/.profile behavior. Use explicit noninteractive environments for status probes rather than assuming bash -lc loads interactive exports/wrappers.
+- [ ] Test spaces, Unicode, apostrophes, dollar signs, semicolons, percent signs, carets, exclamation marks, double quotes, ampersands and pipes. No input can become a command, redirect, environment expansion or extra terminal tab.
+- [ ] Keep native prompts/trust decisions visible. Do not bypass permissions or automatically accept repository trust. Resume uses vendor interfaces, not a new transcript store.
+
+### Selected repair and maintenance coordination
+
+- [ ] Introduce one maintenance contract across installer --repair/--force/--update, updater startup/cron/manual paths and Vibe Kanban's npm installation. Make lock absence a reported unsupported/failure state, not permission to mutate unlocked. Plan a documented lock order if multiple locks are needed.
+- [ ] Return explicit success, failure, busy/skipped and unsupported outcomes. Existing exit-0 consumers must not turn busy into a successful update; preserve documented legacy command behavior or provide versioned new entry points.
+- [ ] Add a validated selected-tool mode with bounded execution health probes and an explicit reinstall action for an executable that exists but fails. Preserve other tools, credentials/config and aggregate install-marker truth. Existing cleanup/ownership behavior must be audited before claiming a narrowly scoped repair.
+- [ ] Coordinate launch admission with maintenance admission and active-session accounting; test a new launch arriving after the session check. Detect manually launched CLI/Desktop sessions where possible and report uncertainty. Shared maintenance locks cannot stop vendor self-updaters: account for them explicitly, especially in the Desktop pilot.
+- [ ] Define interruption/recovery behavior, install-marker writes, package-stage handling and safe UI-close semantics. Never remove a working binary before validating its replacement. Show progress and actionable failure without logging secrets.
+- [ ] Keep rescue checks on recreate/uninstall, volumes intact, and repositories/virtualenvs/scratch dependencies report-only. No generic reset or clean-everything action.
+
+A repair control is enabled only after its coordination/recovery tests pass. If repair prevents timely delivery, release the smaller health/native-connections slice with an accurate existing recovery route and track repair separately; do not label a full repair as selected-tool repair.
+
+## Read-only inputs and future folder screen
+
+Move the reference-access decision before any company-data pilot. Do not mount entire SharePoint/sync trees. Verify a narrowly scoped read-only source mount or approved working-copy process. Existing writable mounts must not expose the same source through another path. A read-only bind protects that path, not all company data or shared credentials; stronger isolation needs separate container/identity design and must account for sudo. No staff release may claim project isolation while retaining one shared workspace/home.
+
+Build a custom folder picker only if the pilot shows a remaining need. If approved:
+
+- [ ] Keep ordinary folders first; Clone is secondary and never followed by automatic Open. Repository hooks, local MCP/config and instructions may affect an agent with access to the shared home; trust approval remains explicit.
+- [ ] Keep preferences outside extracted docker-files, e.g. `%LOCALAPPDATA%\AI-Docker-CLI\projects.json`. Validate schema, size, depth, tool IDs and containment on every load; IDs are identifiers, not an authority to execute commands. Reject symlink/junction escapes and arbitrary commands.
+- [ ] Use explicit JSON depth and a proven replacement/locking protocol for saves; ConvertTo-Json defaults and Move-Item -Force are not a persistence guarantee. Preserve malformed data for recovery and handle concurrent writers.
+- [ ] Document that -RemoveAppData removes local preferences. Provide a deliberate preference export/recovery route if needed; no automatic backup or credential export.
+- [ ] Offer Open in Explorer and native resume; removing a shortcut never deletes a folder. Check keyboard/high-DPI use. Do not create business project records.
+
+A later New project option may carry approved folder structure, naming guidance, project instructions and skills. Validate against a real Cainmani task and the authoritative policy first; do not invent a project code, template engine or duplicate source store.
+
+## Validation and acceptance
 
 | Area | Required evidence |
 | --- | --- |
-| Project launch | Windows PowerShell 5.1 and 7 helper tests; both terminal hosts; paths with spaces, Unicode and shell metacharacters; invalid/outside/missing paths; correct container user and working directory |
-| Preferences | Atomic saves, concurrent instances, malformed file recovery, stale folders and pin/recent ordering; no folder deletion from removing a listing |
-| Tool integrations | Supported installed versions plus unsupported-command fallback; healthy, absent and broken binaries; native status/login behavior; custom MCP, hooks, instructions and settings remain intact |
-| Authentication | User-observed real login for each supported interactive tool; supported account modes; failed/canceled login; expired credentials; offline/proxy/TLS conditions; no secret leakage |
-| Maintenance | Lock contention with startup/cron, partial selected-tool repair, active-session handling, interrupted operation, preserved working tools and accurate durable records |
-| Persistence | Existing 1.6 upgrade plus disposable fresh-install/recreate flows; credentials, conversations, user config and work survive; old-container fallback works |
-| Packaging | PowerShell parsers, Pester matrix, focused behavioral Bash tests, required lint, embedding consistency, version consistency, compiled EXE Restricted-policy smoke and disposable Docker smoke |
-| Usability | Real Windows screenshots and walkthrough: fresh user reaches a working agent; existing user opens a recent project; failing tool is diagnosed/repaired; keyboard and high-DPI checks |
+| Legacy support | Real 1.6/unknown-version container never receives guessed flags; no interactive menu in a background probe; explicit unknown/busy/failure outcomes |
+| Native compatibility | Claude/Codex supported-version table for launch/login/status/resume, native account modes, preserved custom settings/MCP/hooks, conditional authentication classification |
+| Mutation safety | Updater/installer/Vibe contention, missing flock, broken-but-present binaries, launch-versus-repair race, interrupted repair, active/manual/Desktop sessions and vendor self-update limits |
+| Windows execution | PS5.1 plus applicable PS7 helper tests; both terminal hosts; hostile path characters; interactive environment parity; async stale results and cancellation |
+| Desktop pilot | Localhost-only SSH, actual user/home/auth/tool ownership, before/after installation checks, reconnect/recreate/resume, non-Git folder, approved data handling |
+| Persistence/migration | Existing 1.6 install retains work/volumes/config; mount drift detected; old-container terminal fallback; preference schema/recovery if picker is approved |
+| Packaging/runtime | Pester, focused behavioral Bash, required lint, embedding/version checks; compiled EXE opens the new screen and exercises representative worker success/failure under Restricted policy; disposable Docker smoke on final relevant commit |
+| Business usefulness | A non-developer completes the agreed source-backed task, locates a correctly named/versioned output and continues next day without maintainer help; compare time/errors/support with baseline |
 
-Use mock tools for repeatable error/timeout/argument tests and uniquely named disposable Docker resources for persistence tests. Mocks cannot certify real OAuth/browser behavior. Never point destructive integration tests at the user's live workspace or volumes.
+Mock tools certify argument/error ordering, not real login or Desktop behavior. Use disposable Docker resources for destructive checks. Docker Smoke evidence is a merge gate even when path filters do not trigger it: dispatch/extend triggers as needed. Do not claim it is branch-protection-required without checking repository settings; changing those settings is separate work.
 
-## Draft PR review and merge gates
+## Release and review gates
 
-- [ ] Agree initial scope and review the home-screen layout before substantial UI implementation.
-- [ ] Land phases as focused commits on this branch; keep this checklist and PR description current with implementation and observed evidence.
-- [ ] Review config preservation, path/argument handling, auth boundaries, maintenance locking and rescue behavior after each affected phase.
-- [ ] All required CI checks pass on the final commit; record Windows and real-login evidence separately from mocked CI evidence.
-- [ ] User tests the compiled candidate against an existing 1.6 workspace and approves the final behavior.
-- [ ] Resolve material review findings, confirm documentation and version metadata, and check the final diff against main.
-- [ ] Mark ready and merge only after the user's explicit go-ahead. Release tagging/publishing remains a separate action.
+- [ ] Tracking issue records agreed first-slice scope and later items; initial UI review covers simple Open and recovery, not a full dashboard.
+- [ ] Desktop feasibility result is recorded before approving a custom folder UI; record unsupported behavior rather than work around it with silent config changes.
+- [ ] Implementation commits/PRs remain focused; description and evidence match the actual slice. Later items do not block a completed smaller slice.
+- [ ] Maintenance ownership, supported CLI versions and a bounded support budget are agreed; add adapters only after observed need.
+- [ ] Required CI plus runtime/Windows/native-login/colleague evidence pass on the final candidate commit. Keep evidence of mock, automated runtime and real-user checks distinct.
+- [ ] Update migration, troubleshooting and truthful credential/folder boundaries. For the proposed container-side 1.7 changes, bump ContainerBaselineVersion to that release together with VERSION and required metadata. No bump in this planning revision.
+- [ ] User approves final scope and candidate behavior before ready/merge; release tag/publication remains separate.
 
-## Working handoff
+## Later alternatives and source discipline
 
-Planning branch: `feature/usability-plan`. Persistent worktree: `/workspace/_wt/ai-docker-usability`, created to isolate this work from local edits and `dist/` in the original checkout. Keep it for implementation and review; do not remove existing worktrees or artifacts as part of this task. The original checkout remains untouched.
+Evaluate vendor Desktop/remote workflows before building browser chat or transcript management. CloudCLI licensing and native configuration writes need review before integration; compare DevPod for editor/container workflows. Do not select competitors by stars alone or assume their platforms, release freshness or licences from old snippets.
 
-At creation, only this plan is implemented. No runtime behavior, release metadata or published assets are changed. Next action: review initial scope/layout, then implement Phase 1 on this draft PR.
+Keep UI actions behind a small backend boundary. [Docker Sandboxes installation](https://docs.docker.com/ai/sandboxes/install/) documents Windows 11/hypervisor requirements, and its [isolation model](https://docs.docker.com/ai/sandboxes/security/isolation/) differs from this shared container. Treat it as a later comparison, not a drop-in swap, support promise or reason to break existing Windows 10 users. Validate persistence, mounts, tools and credential behavior before choosing another backend.
+
+Defer new browser UI, cross-provider sessions, isolated account profiles, published images and worktree/editor UI until a specific task justifies them. The next action is Slice 0 feasibility and the minimal first-slice design, followed by focused implementation; none of these checks is complete merely because it appears in this plan.
