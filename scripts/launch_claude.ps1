@@ -45,7 +45,13 @@ try {
         $process.WaitForExit()
         $exitCode = $process.ExitCode
     } finally { $process.Dispose() }
-    if ($exitCode -ne 0) { throw "The container session ended with exit code $exitCode. Check Docker Desktop and try again." }
+    if ($exitCode -ne 0) {
+        # docker exec returns the shell's last command status too. A nonzero
+        # session exit alone does not mean Docker failed; recheck availability.
+        try { $afterSession = Get-AgentContainer $dockerPath }
+        catch { throw 'Unable to verify the workspace after the session. Check Docker Desktop and try again.' }
+        if (-not $afterSession.Running) { throw 'The workspace stopped during the session. Start it again using the manager.' }
+    }
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Yellow
     [void](Read-Host 'Press Enter to close this window')

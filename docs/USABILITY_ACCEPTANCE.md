@@ -20,6 +20,7 @@ Download the `release-candidate-exe` artifact from the latest successful PR CI r
 | Interrupted repair | Close the screen during repair. The detached container job continues. Reopen and check health before retrying; a restart may interrupt the job, and an unverified result is never shown as success. Never remove a working installation to recover. |
 | Stale results | Change tool while checking: results for the old tool are discarded. Editing the folder preserves a running health check, because health is independent of the folder. Recreating/stopping a container during a check gives a retry message. |
 | Copy support | Review the status first. Clipboard text contains no credentials, account identifiers, workspace paths or raw vendor output. Nothing is uploaded or sent. |
+| Session exit | Run `false`, a grep with no matches, or interrupt a command; then use plain `exit` or Ctrl-D. If the workspace is still running, the console closes quietly. Stop the workspace during a session: a readable message waits for acknowledgement. |
 | Existing functions | Setup, terminal, Vibe Kanban, resource settings, updates and rescue/uninstall routes still work. The developer alternate launcher bundles and runs the same source implementation without requiring ps2exe or a compiled EXE. |
 
 The application opens its native console directly with PowerShell; Windows Terminal may be the configured Windows terminal host. It does not construct cmd.exe or wt.exe command strings. Native repository trust prompts remain visible.

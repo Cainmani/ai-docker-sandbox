@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native sign-in guidance replaces the blanket API-key configuration recommendation. Container changes require recreation; version 1.7.0 is a candidate, not a published release.
 
 ### Fixed
+- Nonzero interactive-shell exit status no longer produces a false Docker error. The launcher rechecks the workspace and waits for acknowledgement only when it is stopped or unreachable.
 - Interactive terminals retain the selected folder, aliases, router wrappers and the status line, including after an agent exits. Vendor descendants do not inherit the session admission lock.
 - Bare updater invocation runs its interval check; scheduled updates retry briefly and record busy skips without overwriting update progress; successful checks clear the busy notice.
 - The health button no longer overlaps the version/issue footer; folder edits retain independent health results and finished repair result files are consumed, and abandoned 32-hex job IDs are correctly recognised for age-limited cleanup.
