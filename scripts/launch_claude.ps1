@@ -24,6 +24,7 @@ try {
         Write-Host 'This older container has no coordinated maintenance. Avoid repairs or updates while agents are running.'
         # Works with 1.6 startup files that cd /workspace. Reject symlink escapes.
         $command = 'p=$(realpath -e -- "$1" 2>/dev/null); if { [ "$p" != /workspace ] && [[ "$p" != /workspace/* ]]; } || ! cd -- "$1"; then echo "Selected folder is missing, inaccessible or outside the workspace. No agent started."; exec bash -i; fi; '
+        $shellCommand = 'export AI_DOCKER_SESSION_FOLDER="$1"; exec bash --rcfile <(printf "%s\n" ''source "$HOME/.bashrc"'' ''cd -- "$AI_DOCKER_SESSION_FOLDER" || echo "Selected folder is no longer accessible."'' ''unset AI_DOCKER_SESSION_FOLDER'') -i'
         $command += switch ($Action) {
             'claude' { 'claude' }
             'codex' { 'codex' }
@@ -32,16 +33,19 @@ try {
             'codex-device' { 'codex login --device-auth' }
             'claude-resume' { 'claude --resume' }
             'codex-resume' { 'codex resume' }
-            default { 'exec bash -i' }
+            default { $shellCommand }
         }
-        $command += '; echo "Session finished. Terminal remains open."; export AI_DOCKER_SESSION_FOLDER="$1"; exec bash --rcfile <(printf "%s\n" ''source "$HOME/.bashrc"'' ''cd -- "$AI_DOCKER_SESSION_FOLDER" || echo "Selected folder is no longer accessible."'' ''unset AI_DOCKER_SESSION_FOLDER'') -i'
+        $command += '; echo "Session finished. Terminal remains open."; ' + $shellCommand
         $arguments += @($command,'bash',$folder)
     }
     # Invoke the native executable directly in this console. PowerShell's native
     # argument marshalling on 5.1 is bypassed using the explicit Windows encoder.
     $process = New-AgentProcess $dockerPath $arguments
-    $process.WaitForExit()
-    $process.Dispose()
+    try {
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
+    } finally { $process.Dispose() }
+    if ($exitCode -ne 0) { throw "The container session ended with exit code $exitCode. Check Docker Desktop and try again." }
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Yellow
     [void](Read-Host 'Press Enter to close this window')

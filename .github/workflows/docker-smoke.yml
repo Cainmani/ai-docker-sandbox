@@ -154,10 +154,13 @@ jobs:
             wait "$holder" || true
             trap - EXIT
             /usr/local/bin/auto_update.sh --scheduled
+            test ! -e "$HOME/.ai-docker/update-skipped"
+            mkdir -p "/workspace/session smoke %"
             # The actual session shell must read the production bashrc.
-            printf "alias check-updates\ntype 9router\nexit\n" | /usr/local/bin/agent_session.sh terminal /workspace > /tmp/terminal-smoke.txt 2>&1
+            printf "alias check-updates\ntype 9router\nprintf TERMINAL_PWD=; pwd\nexit\n" | /usr/local/bin/agent_session.sh terminal "/workspace/session smoke %" > /tmp/terminal-smoke.txt 2>&1
             grep -q "auto_update.sh" /tmp/terminal-smoke.txt
             grep -q "9router is a function" /tmp/terminal-smoke.txt
+            grep -q "TERMINAL_PWD=/workspace/session smoke %" /tmp/terminal-smoke.txt
             mkdir -p "/workspace/session smoke %"
             claude() { printf "AGENT_PWD=%s\n" "$PWD"; }
             export -f claude

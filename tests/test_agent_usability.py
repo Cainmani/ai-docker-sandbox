@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Behavioral contracts, isolated from live tools/auth and process admission."""
 import os
+import re
+import signal
+import time
 import json
 import shutil
 import subprocess
@@ -94,7 +97,7 @@ class AgentContracts(unittest.TestCase):
         self.assertIn('AUTH_codex=unable-to-verify',result.stdout)
         self.assertNotIn('expired',result.stdout)
 
-    def repair_fixture(self, fail=False):
+    def repair_fixture(self, fail=False, missing=False, publish_fail=False):
         for name in ('claude','gh','node','python3'):
             self.tool(name,'echo "version 1.0.0"; exit 0')
         self.tool('pip3','exit 0')
@@ -111,8 +114,11 @@ exit 0''')
         directory=self.home/'.npm-global/bin'
         directory.mkdir(parents=True)
         original=directory/'codex'
-        original.write_text('#!/bin/bash\nexit 1\n' if not fail else '#!/bin/bash\necho "old codex"\nexit 0\n')
-        original.chmod(0o755)
+        if not missing:
+            original.write_text('#!/bin/bash\nexit 1\n' if not fail else '#!/bin/bash\necho "old codex"\nexit 0\n')
+            original.chmod(0o755)
+        if publish_fail:
+            self.tool('timeout', 'if [ "${2:-}" = "$HOME/.npm-global/bin/codex" ]; then exit 1; fi; exec /usr/bin/timeout "$@"')
         settings=self.home/'.codex/config.toml'
         settings.parent.mkdir()
         settings.write_text('model = "user-choice"\n')
@@ -134,6 +140,59 @@ exit 0''')
         self.assertEqual(result.returncode,1)
         self.assertFalse(launcher.is_symlink())
         self.assertIn('old codex',launcher.read_text())
+
+    def test_failed_first_publication_removes_new_package_and_launcher(self):
+        result, launcher=self.repair_fixture(missing=True,publish_fail=True)
+        self.assertEqual(result.returncode,1)
+        self.assertFalse(launcher.exists())
+        self.assertFalse(launcher.is_symlink())
+        self.assertFalse((self.home/'.npm-global/lib/node_modules/@openai/codex').exists())
+        self.assertFalse((self.home/'.ai-docker/codex-recovery').exists())
+        self.assertFalse(list((self.home/'.npm-global').glob('.codex-repair.*')))
+
+    def test_abandoned_repair_results_match_the_actual_hex_job_ids(self):
+        state=self.home/'.ai-docker'
+        state.mkdir()
+        old=state/('repair-'+'a'*32)
+        recent=state/('repair-'+'b'*32)
+        unrelated=state/('repair-'+'z'*32)
+        unfinished=state/('repair-'+'c'*32+'.tmp')
+        for path in (old,recent,unrelated,unfinished): path.write_text('0\n')
+        for path in (old,unrelated,unfinished): os.utime(path,(time.time()-10*86400,)*2)
+        text=(ROOT/'scripts/agent_worker.ps1').read_text()
+        command=re.search(r"\$command = '([^']*)'",text).group(1).split('/usr/local/bin/install_cli_tools.sh')[0]
+        result=self.run_bash(command)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse(old.exists())
+        self.assertTrue(recent.exists())
+        self.assertTrue(unrelated.exists())
+        self.assertTrue(unfinished.exists())
+
+    def test_vendor_descendants_do_not_inherit_session_lock(self):
+        # Kill only the managed shell, leaving the fake vendor and its child
+        # alive. Their existence must not keep its admission lock held.
+        pid_file=self.root/'vendor-pids'
+        self.tool('claude','sleep 30 >/dev/null 2>&1 < /dev/null & child=$!; printf "%s %s\\n" "$$" "$child" > "'+str(pid_file)+'"; wait')
+        (self.home/'.bashrc').write_text('')
+        script=self.root/'session.sh'
+        script.write_text((ROOT/'docker/agent_session.sh').read_text().replace('/workspace',str(ROOT)).replace('/usr/local/lib/maintenance.sh',str(ROOT/'docker/lib/maintenance.sh')))
+        managed=subprocess.Popen(['/bin/bash',str(script),'claude',str(ROOT)],env=self.env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        pids=[]
+        try:
+            deadline=time.monotonic()+5
+            while not pid_file.exists() and time.monotonic()<deadline: time.sleep(0.02)
+            self.assertTrue(pid_file.exists(),'vendor did not start')
+            pids=[int(pid) for pid in pid_file.read_text().split()]
+            self.assertEqual(self.lock('exclusive').returncode,75)
+            managed.kill()
+            managed.wait(timeout=5)
+            for pid in pids: os.kill(pid,0)
+            self.assertEqual(self.lock('exclusive').returncode,0)
+        finally:
+            if managed.poll() is None: managed.kill(); managed.wait(timeout=5)
+            for pid in pids:
+                try: os.kill(pid,signal.SIGTERM)
+                except ProcessLookupError: pass
 
     def test_repair_remains_owned_and_replaceable_by_real_npm(self):
         npm = shutil.which('npm')
@@ -191,7 +250,17 @@ exit 0''')
                 self.assertIn('CHECK_ALIAS',result.stdout)
                 self.assertIn('ROUTER_WRAPPER',result.stdout)
                 self.assertIn('STATUS_LINE',result.stdout)
-                self.assertIn('SHELL_PWD='+str(ROOT if action=='terminal' else selected),result.stdout)
+                self.assertIn('SHELL_PWD='+str(selected),result.stdout)
+
+    def test_legacy_terminal_shell_restores_selected_folder_after_startup(self):
+        (self.home/'.bashrc').write_text('cd "'+str(ROOT)+'"\nalias check-updates="echo CHECK_ALIAS"\n')
+        text=(ROOT/'scripts/launch_claude.ps1').read_text()
+        shell=re.search(r"\$shellCommand = '(.*)'",text).group(1).replace("''", "'")
+        with tempfile.TemporaryDirectory(prefix='.legacy-terminal-',dir=ROOT) as selected:
+            result=subprocess.run(['/bin/bash','-c',shell,'bash',selected],env=self.env,input='check-updates\npwd\nexit\n',capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn(selected,result.stdout)
+            self.assertIn('CHECK_ALIAS',result.stdout)
 
     def test_directory_selected_after_legacy_startup_and_metacharacters_are_data(self):
         # Use a public fixture under /workspace so the real containment check runs.

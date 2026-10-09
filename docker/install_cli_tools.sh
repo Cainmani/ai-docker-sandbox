@@ -756,18 +756,23 @@ if [ -n "$SELECTED_TOOL" ]; then
             mkdir -p "${package%/*}" "${launcher%/*}" || { rm -rf -- "$stage"; exit 1; }
             # A recovery record survives interruption between the two renames.
             printf '%s\n' "$stage" > "${HOME}/.ai-docker/codex-recovery" || { rm -rf -- "$stage"; exit 1; }
-            if { [ ! -e "$package" ] || mv -- "$package" "$stage/old-package"; } \
+            package_published=0 launcher_published=0
+            if { { [ ! -e "$package" ] && [ ! -L "$package" ]; } || mv -- "$package" "$stage/old-package"; } \
                 && { { [ ! -e "$launcher" ] && [ ! -L "$launcher" ]; } || mv -- "$launcher" "$stage/old-launcher"; } \
                 && mv -- "$stage/new/lib/node_modules/@openai/codex" "$package" \
+                && package_published=1 \
                 && ln -s ../lib/node_modules/@openai/codex/bin/codex.js "$launcher" \
+                && launcher_published=1 \
                 && timeout 12 "$launcher" --version >/dev/null 2>&1; then
                 rm -f -- "${HOME}/.ai-docker/codex-recovery"
             else
-                # Restore only paths moved by this transaction.
-                if [ -e "$stage/old-package" ]; then rm -rf -- "$package"; mv -- "$stage/old-package" "$package"; fi
-                if [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then rm -f -- "$launcher"; mv -- "$stage/old-launcher" "$launcher"; fi
+                # Undo only paths actually published, including first installs.
+                [ "$launcher_published" -eq 0 ] || rm -f -- "$launcher"
+                [ "$package_published" -eq 0 ] || rm -rf -- "$package"
+                if [ -e "$stage/old-package" ] || [ -L "$stage/old-package" ]; then mv -- "$stage/old-package" "$package"; fi
+                if [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then mv -- "$stage/old-launcher" "$launcher"; fi
                 INSTALL_RESULT=1
-                if [ -e "$stage/old-package" ] || [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then
+                if [ -e "$stage/old-package" ] || [ -L "$stage/old-package" ] || [ -e "$stage/old-launcher" ] || [ -L "$stage/old-launcher" ]; then
                     print_warning "Recovery incomplete; retained backup and recovery record"
                 else rm -f -- "${HOME}/.ai-docker/codex-recovery"; fi
             fi

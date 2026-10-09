@@ -93,6 +93,7 @@ public class AgentFakeDocker {
             output.WriteLine("CALL");
             foreach (var value in args) output.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(value)));
         }
+        if (args.Length > 0 && args[0] == "exec" && Environment.GetEnvironmentVariable("AI_DOCKER_TEST_EXEC_FAILURE") == "1") Environment.Exit(42);
         if (args.Length > 0 && args[0] == "inspect") Console.Write(Environment.GetEnvironmentVariable("AI_DOCKER_TEST_INSPECT"));
     }
 }
@@ -100,7 +101,9 @@ public class AgentFakeDocker {
         $previousPath = $env:PATH
         $previousArgs = $env:AI_DOCKER_TEST_ARGS
         $previousInspect = $env:AI_DOCKER_TEST_INSPECT
+        $previousFailure = $env:AI_DOCKER_TEST_EXEC_FAILURE
         try {
+            $env:AI_DOCKER_TEST_EXEC_FAILURE=$null
             $env:PATH = $fakeDirectory + ';' + $previousPath
             $env:AI_DOCKER_TEST_ARGS = Join-Path $TestDrive 'docker-arguments.txt'
             $folder = '/workspace/λ spaces '' $ ; % ^ ! " & |'
@@ -119,7 +122,12 @@ public class AgentFakeDocker {
                 if ($version -eq '1.7.0') { $decoded | Should -Contain 'exec /usr/local/bin/agent_session.sh "$1" "$2"' }
                 else { ($decoded -join "`n") | Should -Match 'source "\$HOME/\.bashrc"' }
             }
+            $env:AI_DOCKER_TEST_EXEC_FAILURE='1'
+            Mock Read-Host { 'acknowledged' }
+            & "$PSScriptRoot/../scripts/launch_claude.ps1" -Action terminal -FolderBase64 ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($folder)))
+            Should -Invoke Read-Host -Times 1 -Exactly -Scope It -ParameterFilter { $Prompt -eq 'Press Enter to close this window' }
         } finally {
+            $env:AI_DOCKER_TEST_EXEC_FAILURE=$previousFailure
             $env:PATH=$previousPath
             $env:AI_DOCKER_TEST_ARGS=$previousArgs
             $env:AI_DOCKER_TEST_INSPECT=$previousInspect

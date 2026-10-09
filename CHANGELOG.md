@@ -17,9 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native sign-in guidance replaces the blanket API-key configuration recommendation. Container changes require recreation; version 1.7.0 is a candidate, not a published release.
 
 ### Fixed
-- Normal interactive terminals retain aliases, router wrappers and the status line, including after an agent exits.
-- Bare updater invocation runs its interval check; scheduled updates retry briefly and record busy skips without overwriting update progress.
-- The health button no longer overlaps the version/issue footer; folder edits retain independent health results and finished repair result files are consumed.
+- Interactive terminals retain the selected folder, aliases, router wrappers and the status line, including after an agent exits. Vendor descendants do not inherit the session admission lock.
+- Bare updater invocation runs its interval check; scheduled updates retry briefly and record busy skips without overwriting update progress; successful checks clear the busy notice.
+- The health button no longer overlaps the version/issue footer; folder edits retain independent health results and finished repair result files are consumed, and abandoned 32-hex job IDs are correctly recognised for age-limited cleanup.
 - Codex selected repair retains npm ownership and cleans its temporary staging directory. Claude remains a native latest-installer repair, with that limit stated explicitly.
 
 ## [1.6.0] - 2026-10-08

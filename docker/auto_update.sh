@@ -122,7 +122,8 @@ write_update_status() {
         echo "LAST_CHECK_OK=$last_check_ok"
         echo "LAST_UPDATE_OK=$last_update_ok"
         echo "FAILED_STAGES=$FAILED_STAGES"
-    } > "$tmp" && mv "$tmp" "$STATUS_FILE"
+    } > "$tmp" && mv "$tmp" "$STATUS_FILE" || return 1
+    case "$result" in up_to_date|updated) rm -f -- "${STATE_DIR}/update-skipped" ;; esac
 }
 
 # Only one updater at a time (startup trigger, cron and manual runs can overlap).
@@ -517,6 +518,7 @@ run_auto_update() {
         update_log "${BLUE}[INFO]${NC} Skipping update check (last check: $last_check_date)"
         update_log "  Next check in $((UPDATE_INTERVAL_DAYS - $(( ($(date +%s) - $(stat -c %Y "$UPDATE_CHECK_FILE")) / 86400 )))) days"
         update_log "  Use --force to check now"
+        rm -f -- "${STATE_DIR}/update-skipped"
         return 0
     fi
 
@@ -597,8 +599,8 @@ case "${1:-}" in
     --check|-c)
         check_updates
         case $? in
-            0) echo "Updates are available. Run with --apply to install them." ;;
-            1) echo "No updates available" ;;
+            0) rm -f -- "${STATE_DIR}/update-skipped"; echo "Updates are available. Run with --apply to install them." ;;
+            1) rm -f -- "${STATE_DIR}/update-skipped"; echo "No updates available" ;;
             *) echo "Update check FAILED - could not determine update status." >&2; exit 2 ;;
         esac
         ;;

@@ -302,6 +302,26 @@ rm "$AI_MAINTENANCE_PROC_ROOT/123/cmdline"
 run_updater --scheduled
 assert_eq "scheduled updater runs once the process exits" 0 "$RUN_RC"
 
+assert_eq "successful scheduled run clears the busy notice" false "$(test -e "$HOME/.ai-docker/update-skipped" && echo true || echo false)"
+printf 'RESULT=skipped_busy\n' > "$HOME/.ai-docker/update-skipped"
+run_updater --scheduled
+assert_eq "interval-only scheduled success clears stale busy notice" false "$(test -e "$HOME/.ai-docker/update-skipped" && echo true || echo false)"
+
+# Successful manual check/apply clears busy state; failed maintenance keeps it.
+for action in --check --apply --force; do
+    setup_case
+    mkdir -p "$HOME/.ai-docker"
+    printf 'RESULT=skipped_busy\n' > "$HOME/.ai-docker/update-skipped"
+    run_updater "$action"
+    assert_eq "$action clears busy notice after success" false "$(test -e "$HOME/.ai-docker/update-skipped" && echo true || echo false)"
+done
+setup_case
+mkdir -p "$HOME/.ai-docker"
+printf 'RESULT=skipped_busy\n' > "$HOME/.ai-docker/update-skipped"
+export FAKE_NPM_OUTDATED_RC=2
+run_updater --force
+assert_eq "failed run preserves busy attempt evidence" true "$(test -e "$HOME/.ai-docker/update-skipped" && echo true || echo false)"
+
 # Scheduled retry admits after a transient holder exits instead of failing.
 setup_case
 mkdir -p "$HOME/.ai-docker"
