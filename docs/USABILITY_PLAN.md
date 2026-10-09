@@ -1,6 +1,6 @@
 # AI Docker usability implementation plan
 
-Draft revision 0.05, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
+Draft revision 0.06, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
 
 Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The 1.7 candidate includes health, native Claude/Codex connections, actionable diagnostics and selected repair with shared maintenance admission (Codex staged; Claude native/latest). Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
@@ -20,7 +20,7 @@ A separate PR in `cainmani-skills` should add ai-docker-sandbox to ECOSYSTEM.md 
 
 | Slice | Scope | Gate |
 | --- | --- | --- |
-| 0 | Desktop SSH feasibility and task baseline using synthetic/public material only | Prove exposure/access boundaries, installation/config preservation, native resume and non-developer usability on a disposable environment |
+| 0, after launcher merge | Desktop SSH feasibility and task baseline using synthetic/public material only | Prove exposure/access boundaries, installation/config preservation, native resume and non-developer usability on a disposable environment |
 | 1a, proposed 1.7 | Minimal capabilities/status contract, compact health and Claude/Codex native connections; no new install/update/repair actions | Correct legacy fallback, preserved settings, real Windows and colleague acceptance |
 | 1b | Shared maintenance coordination and selected-tool repair | Same draft PR by user instruction; race, lock, interruption and recovery tests pass before enabling new mutation actions |
 | 2 | Optional Desktop handoff and read-only reference access | Slice 0 result and verified data-access requirements; separate focused implementation PR |
@@ -29,7 +29,7 @@ A separate PR in `cainmani-skills` should add ai-docker-sandbox to ECOSYSTEM.md 
 
 Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). On 9 October the user explicitly requested implementation in draft #97, followed by local testing before merge/release. That supersedes the previous docs-only/separate-PR packaging decision. #97 now contains pilot tooling, 1a and 1b together and remains draft. Conditional later features still require pilot evidence and a specific need; they are not silently promoted into this release.
 
-Implementation: [local acceptance checklist](USABILITY_ACCEPTANCE.md). The candidate implements health/native sign-in, safe fixed-action launch and vendor resume, older-container fallback, selected Claude/Codex repair, shared maintenance admission and disposable localhost SSH pilot tooling. Automated checks certify these contracts; real Windows sign-in, Desktop installation ownership and colleague acceptance remain local gates. No merge, release, live pilot or company-data approval is implied.
+Implementation: [local acceptance checklist](USABILITY_ACCEPTANCE.md). The candidate implements health/native sign-in, safe fixed-action launch and vendor resume, older-container fallback, selected Claude/Codex repair, shared maintenance admission and disposable localhost SSH pilot tooling. Automated checks certify these contracts; real Windows sign-in, upgrade/downgrade and a colleague using the launcher remain local merge gates. Desktop installation ownership is a separate post-merge experiment. No merge, release, live pilot or company-data approval is implied.
 
 ## Verified baseline corrections (1.6, before implementation)
 
@@ -46,6 +46,8 @@ Implementation: [local acceptance checklist](USABILITY_ACCEPTANCE.md). The candi
 | CI | Docker Smoke is path-filtered; EXE smoke recognises startup log lines | Require runtime smoke evidence explicitly and exercise the new screen/background behavior in the compiled artifact |
 
 ## Slice 0 Desktop SSH and workflow test
+
+The latest acceptance order is native sign-in through the launcher, 1.6 upgrade, 1.6 downgrade, colleague launcher task and next-day resume, then the user’s merge decision. Run this Desktop experiment afterward; its result still gates any later Desktop integration or custom folder picker. Source-only pilot tooling in this PR is not a tested integration.
 
 Official [Claude Desktop documentation](https://code.claude.com/docs/en/desktop#ssh-sessions) supports SSH targets and project links. It also says Desktop installs Claude Code on the target. The link starts a new-session page; it does not itself prove resume works. First test installation and lifecycle against the container's native Claude installation and updater.
 
@@ -80,10 +82,10 @@ This slice adds observation, native authentication and safe launch only. Native 
 
 Show one configured/default agent and a main Open action. Put other agents and detailed versions/resource figures behind Advanced/Details. Summarise actionability in plain language; do not claim Ready from credential-file presence alone. Keep installation, authentication evidence, connection outcome and freshness separate internally.
 
-- [ ] Start native Claude authentication/interactive onboarding and `codex login` directly according to verified installed-version support. Do not call legacy configure-tools --codex/--openai as a sign-in shortcut or rewrite models, permissions, environment exports, MCP, hooks or instructions.
+- [ ] Start native Claude authentication/interactive onboarding and `codex login --device-auth` directly according to verified installed-version support. Do not call legacy configure-tools --codex/--openai as a sign-in shortcut or rewrite models, permissions, environment exports, MCP, hooks or instructions.
 - [ ] Replace the generated shell banner's blanket API-key/configure-tools recommendation with native sign-in guidance that matches the new flow, while retaining legacy configuration access for users who choose it. Update the applicable managed-block/template migration and container baseline metadata; verify existing installs after recreation.
 - [ ] Prefer native status interfaces. Support Codex credential-store modes; missing auth.json does not prove sign-out. Do not copy, inspect or reset token values. [Codex authentication](https://learn.chatgpt.com/docs/auth) documents file/keyring storage and beta device-code login requiring account/workspace enablement.
-- [ ] Explain supported browser/device/manual flows and account prerequisites. Real Windows/container tests must prove callbacks or fallbacks work. Recheck when the user returns; process launch or terminal closure is not login success.
+- [ ] Make device-code login the default Codex Sign in action under Advanced. Show its account-security/workspace-admin prerequisite before launch; unavailable device login needs an assisted route. Keep plain browser login available as a native terminal command, without claiming its container callback works or publishing a relay port. Explain supported browser/device/manual flows and account prerequisites. Real Windows/container tests must prove callbacks or fallbacks work. Recheck when the user returns; process launch or terminal closure is not login success.
 - [ ] Classify expired/rejected authentication versus network/TLS failure only when a native check gives that evidence. Otherwise report Unable to verify and a concrete next step. No implicit billable prompt for a status badge.
 - [ ] Give Docker-not-running, WSL, proxy/CA and VPN failures appropriate guidance; a package reinstall is not their fix. Offer previewed, sanitised copyable support details, with no automatic message/upload.
 - [ ] Give async operations IDs and tool/context ownership. Ignore stale/superseded results and avoid duplicate actions. Define cancellation for status/login separately; package-mutation cancellation belongs to Slice 1b. Closing the 1a window must not terminate existing background maintenance.
@@ -142,7 +144,7 @@ Mock tools certify argument/error ordering, not real login or Desktop behavior. 
 
 - [ ] Reconcile review findings and ensure the plan has no contradictory pilot, directory or release requirements.
 - [ ] Documentation checks and applicable existing CI pass on the final planning commit; no claim of runtime/pilot completion from docs CI.
-- [ ] User completes local acceptance and approves merging draft PR #97, including its implementation. Pilot/native sign-in/company-data gates stay explicit; no release is published automatically.
+- [ ] User completes local acceptance and approves merging draft PR #97, including its implementation. Native sign-in, upgrade/downgrade and launcher colleague gates stay explicit; the Desktop experiment follows merge, and company-data approval remains separate; no release is published automatically.
 
 ## Implementation release and review gates
 
@@ -160,4 +162,4 @@ Evaluate vendor Desktop/remote workflows before building browser chat or transcr
 
 Keep UI actions behind a small backend boundary. [Docker Sandboxes installation](https://docs.docker.com/ai/sandboxes/install/) documents Windows 11/hypervisor requirements, and its [isolation model](https://docs.docker.com/ai/sandboxes/security/isolation/) differs from this shared container. Treat it as a later comparison, not a drop-in swap, support promise or reason to break existing Windows 10 users. Validate persistence, mounts, tools and credential behavior before choosing another backend.
 
-Defer new browser UI, cross-provider sessions, isolated account profiles, published images and worktree/editor UI until a specific task justifies them. The next action is Slice 0 feasibility and the minimal first-slice design, followed by focused implementation; none of these checks is complete merely because it appears in this plan.
+Defer new browser UI, cross-provider sessions, isolated account profiles, published images and worktree/editor UI until a specific task justifies them. The next action is the ordered launcher acceptance in USABILITY_ACCEPTANCE.md, followed by the user’s merge decision and then Slice 0 feasibility; none of these checks is complete merely because it appears in this plan.

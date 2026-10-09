@@ -1,6 +1,6 @@
 # Usability candidate: local acceptance
 
-Revision 0.01, 9 October 2026. Draft PR #97 targets 1.7.0; no release is published by this work. CI evidence and local acceptance are separate. Keep account identifiers and raw auth/log output out of the public PR.
+Revision 0.02, 9 October 2026. Draft PR #97 targets 1.7.0; no release is published by this work. CI evidence and local acceptance are separate. Keep account identifiers and raw auth/log output out of the public PR.
 
 Download the `release-candidate-exe` artifact from the latest successful PR CI run. Extract and run `AI_Docker_Manager_v1.7.0.exe`. First try the health/connections screen with your existing 1.6 container. For new container functionality, use setup to recreate it after the existing rescue check; retain named volumes. Do not remove volumes to upgrade.
 
@@ -9,7 +9,7 @@ Download the `release-candidate-exe` artifact from the latest successful PR CI r
 | Existing 1.6 / unlabelled image | Tool-start checks and direct terminals work. Authentication is unverified; selected repair requests recreation. No guessed container commands run. |
 | Docker Desktop stopped or unavailable | The screen stays responsive and provides a plain next step and copyable support text. A repair is not presented as a Docker/WSL/network fix. |
 | New connections screen | Claude is the initial choice; Codex is under Advanced. Check health, Sign in, Open, Resume and Open terminal work with keyboard navigation and your display scaling. |
-| Native sign-in | Claude uses `claude auth login`; Codex uses `codex login`. If browser callback cannot complete, use the vendor terminal's manual instructions; Codex device-code flow requires enabling it in account security/admin settings. No model/permission/MCP settings change. |
+| Native sign-in | Claude uses `claude auth login`; test opening the printed URL in the Windows browser and pasting the returned code when the callback is unavailable. Codex Sign in uses `codex login --device-auth`; enable device-code login in ChatGPT security settings or through the workspace admin **before** testing. If not permitted, record Codex as an assisted Advanced step. No port 1455 or relay is added. No model/permission/MCP settings change. |
 | Status accuracy | A starting binary alone is “Tool ready”, not authenticated. A successful native auth status is “Ready” with a local check time; failed/offline/unsupported checks are “Unable to verify”. This does not prove credits, network/model access or company-data approval. Keyring login works without auth.json. |
 | Folder selection | Open terminal as well as Open/Resume must retain the selected subfolder after startup on both new and 1.6 containers. Enter `/workspace/<folder>`. On new and real 1.6 containers the agent starts there even if .bashrc runs `cd /workspace`. Test spaces, Unicode, apostrophes, `$ ; % ^ ! " & |`. No extra commands or tabs run. |
 | Missing or moved folder | A readable message appears, no agent starts elsewhere, and the terminal stays open. A symlink escaping /workspace is rejected. |
@@ -25,7 +25,30 @@ Download the `release-candidate-exe` artifact from the latest successful PR CI r
 
 The application opens its native console directly with PowerShell; Windows Terminal may be the configured Windows terminal host. It does not construct cmd.exe or wt.exe command strings. Native repository trust prompts remain visible.
 
+## Launcher acceptance, upgrade and downgrade gates
+
+Complete these in order on Windows. All are **pending** until private evidence is recorded; green CI does not certify them. Use synthetic/public inputs and authorised accounts, without logging credentials or account identifiers in the PR. The Desktop experiment follows merge and is not a gate for this launcher release.
+
+1. **Sign in through the launcher first.** Test Claude's browser/paste-code route and Codex's enabled device-code route on the existing 1.6 container. Check native status, then perform one agreed synthetic task with each tool to prove actual model access. Record custom model/permission/MCP settings before and after locally. Do not log out shared accounts or reset vendor configuration to make a test pass. If device login is unavailable, record the admin/assisted requirement and resolve the supported route before accepting Codex sign-in.
+2. **Record the 1.6 baseline.** Keep the verified released 1.6 EXE and the candidate in separate folders. Record container image/version, `USER_NAME`, workspace source, Compose project and exact named-volume identities from `docker inspect ai-cli`. Create a synthetic workspace result and a harmless marker in a mounted settings directory; record their checksums privately. Record native sign-in status, settings and `crontab -l`. Keep the same user, workspace path and Compose identity throughout. An overridden project name can change volume names even though the fixed image name is unchanged.
+3. **Upgrade using the candidate and Force Rebuild.** Review the retention message before proceeding. Keep named volumes; never use uninstall/remove-volumes or `docker compose down -v`. Accept the existing rescue check for any container-only work. Confirm the actual mounts still point to the recorded workspace/volumes, both synthetic markers and custom settings survive, both tools remain signed in and can complete the task, and folder/terminal/resume routes work. The 1.7 scheduled cron command should use `--scheduled` and remain valid. Record whether the prompt correctly described the outcome.
+4. **Try the downgrade once.** Close sessions and stop long-running tool servers, then run the verified released **1.6 EXE** with Force Rebuild, keeping the same user, workspace, Compose identity and volumes. Decline launcher self-update during this test. Complete the rescue check; do not delete persistent state as a troubleshooting shortcut. Verify the image/version actually returned to 1.6, then check every row below. Stop and investigate any mismatch; restoring an old EXE does not revert saved vendor configuration or guarantee an older vendor binary. After recording the result, rebuild with the candidate and recheck the same files, settings and sign-ins.
+5. **A colleague tests the launcher itself.** A non-developer installs/opens the manager, signs in to the agreed default tool, opens the agreed synthetic project, produces and locates a useful result, and resumes it the next day without maintainer intervention. Use a non-Git folder if it matches their work. Record assistance, mistakes, task quality and next-day continuation privately. This is separate from the later Desktop trial; a developer's checks are not substitute evidence.
+6. **Merge decision.** Only after automated checks, the full local checklist and these gates pass does the user approve merging draft #97. Release publication is separate. Run the Desktop experiment afterward before claiming Desktop support or approving a custom project picker.
+
+| Downgrade check | Required evidence on recreated 1.6 |
+| --- | --- |
+| Files, mounts and settings | Exact workspace/volume identities match the baseline; synthetic files/markers and chosen custom settings remain. The whole home directory is not a volume: files outside mounted directories require rescue. |
+| Sign-in | Native Claude/Codex status and an agreed synthetic model task succeed using the retained login. Account keyring and environment-based credentials need their own verification; do not assume every credential store is mounted. |
+| Cron | `crontab -l` contains the valid 1.6 updater command, not the 1.7-only `--scheduled` option. Confirm the cron service runs and the updater accepts its installed command; retain non-secret outcome evidence. |
+| Update records | Read `ai-docker status` with the existing `~/.ai-docker/update-status` and, if present, `update-skipped` from 1.7. No misleading success, broken parsing or phantom error. Retain a synthetic copy privately before deliberately creating any busy case; do not overwrite real update state. |
+| Folder and terminal | The 1.6 manager's normal terminal opens correctly. Also run the candidate against this real 1.6 container: Open terminal, Open and Resume retain a selected subfolder containing spaces/%, and missing-folder/session-exit behavior matches the table above. |
+
+The supported managed image is `ai-docker-cli:latest` (with recognised legacy aliases). A custom Compose project name alone does not change this explicit image, but a custom **image** override is unsupported by the connections screen; use the managed image rather than bypassing its identity check.
+
 ## Disposable Desktop SSH experiment
+
+This is a post-merge feasibility experiment, not evidence required to merge the launcher candidate.
 
 Use synthetic or public material only. Decide privately which authorised seat will run the pilot, ideally a dedicated seat. The pilot uses a separate `ai-desktop-pilot` container and home volume; it does not mount ai-cli's credentials. Never point its workspace at confidential projects or an entire SharePoint tree.
 
@@ -74,7 +97,7 @@ The follow-up to the October 9 Claude review keeps implementation and experiment
 | Python contracts | Real interactive Bash startup, aliases/wrappers/status after exit, folder containment, managed admission, native status filtering, and staged Codex repair using real npm with a local package/dependency and later replacement | Actual vendor binaries and authentication; interrupted container recovery |
 | Updater Bash suite | Bare default dispatch, interval checks, busy history preserving running/success records, visible long-running CLI skips, bounded scheduled retry, and existing update failures/verification | Behavior with the user's running tools and network |
 | Windows PowerShell 5.1 launch boundary | Source launcher actually invokes inspect/exec through a compiled fake Docker executable with hostile folder characters and old/new container routing | Real Docker terminal, keyboard behavior and vendor prompts |
-| Compiled EXE smoke | Production menu bounds and embedded connections UI ready/error/busy dispatch, under Restricted policy | High-DPI layout and live Docker/launch operations |
+| Compiled EXE smoke | Production menu bounds, actual Claude/device-login button routing and prerequisite help, and embedded connections UI ready/error/busy dispatch, under Restricted policy | High-DPI layout and live Docker/launch operations |
 | Docker Smoke | Actual image health/readiness, bare/scheduled updater, live named-process admission, production terminal aliases/wrappers, and post-agent folder/environment using a mock agent | Native sign-in, paid-model access, and Desktop SSH experiment |
 
 Use the final PR commit's CI artifact, not a previous downloaded candidate. PR #97 remains draft pending the user's local checks; version 1.7.0 is unreleased.

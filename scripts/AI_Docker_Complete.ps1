@@ -935,7 +935,7 @@ $btnLaunch.Add_Click({
                 $containerVersionText = if ($versionSkew.ContainerVersion) { "v$($versionSkew.ContainerVersion)" } else { 'a legacy version' }
                 [System.Windows.Forms.MessageBox]::Show(
                     "The running container uses $containerVersionText, but the newest container-side changes shipped in v$script:ContainerBaselineVersion.`n`n" +
-                    "The workspace can still open, but Force Rebuild is recommended so the container receives the latest fixes.",
+                    "The workspace can still open. Force Rebuild installs these fixes and keeps your workspace files and saved sign-ins/settings in the existing mounted folders.`n`nKeep the same workspace and user. Other container-only files need the setup rescue step; the entire home folder is not preserved.",
                     'Container Update Recommended',
                     [System.Windows.Forms.MessageBoxButtons]::OK,
                     [System.Windows.Forms.MessageBoxIcon]::Warning

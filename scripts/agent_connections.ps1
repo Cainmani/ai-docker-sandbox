@@ -42,7 +42,7 @@ $status.SetBounds(20,130,600,180)
 $status.Text = 'Check health to see whether Docker, tools and sign-in are ready.'
 $screen.Controls.AddRange(@($tool,$advanced,$folderLabel,$folder,$status))
 $buttons = @{}
-foreach ($spec in @(@('Check health',20,330),@('Sign in',170,330),@('Open',320,330),@('Resume',470,330),@('Repair this tool',20,375),@('Open terminal',170,375),@('Copy support',320,375),@('Device sign-in',470,375))) {
+foreach ($spec in @(@('Check health',20,330),@('Sign in',170,330),@('Open',320,330),@('Resume',470,330),@('Repair this tool',20,375),@('Open terminal',170,375),@('Copy support',320,375),@('Sign-in help',470,375))) {
     $button = New-Object Windows.Forms.Button
     $button.Text = $spec[0]
     $button.SetBounds($spec[1],$spec[2],140,32)
@@ -125,7 +125,18 @@ $timer.Add_Tick({
     }
 })
 $buttons['Check health'].Add_Click({ Begin-AgentHealth })
-$buttons['Sign in'].Add_Click({ Open-AgentAction ($tool.Text.ToLowerInvariant()+'-login') })
+function Get-SignInHelp {
+    if ($tool.Text -eq 'Codex') {
+        return 'Codex uses device login. First enable device-code login in ChatGPT security settings, or ask your workspace admin. Then open the terminal URL in your Windows browser and enter its code. If unavailable, ask for help enabling or completing sign-in.'
+    }
+    return 'Claude opens native sign-in. Open the terminal URL in your Windows browser. If the callback cannot reach the container, paste the returned code into the terminal as instructed. Then check health and open a session.'
+}
+$tool.Add_SelectedIndexChanged({ $status.Text = Get-SignInHelp })
+$buttons['Sign in'].Add_Click({
+    $action = if ($tool.Text -eq 'Codex') { 'codex-device' } else { 'claude-login' }
+    Open-AgentAction $action
+    if ($status.Text -like 'Terminal opened.*') { $status.AppendText("`r`n" + (Get-SignInHelp)) }
+})
 $buttons['Open'].Add_Click({ Open-AgentAction $tool.Text.ToLowerInvariant() })
 $buttons['Resume'].Add_Click({ Open-AgentAction ($tool.Text.ToLowerInvariant()+'-resume') })
 $buttons['Open terminal'].Add_Click({ Open-AgentAction 'terminal' })
@@ -134,19 +145,33 @@ $buttons['Copy support'].Add_Click({
         [Windows.Forms.Clipboard]::SetText($script:Support)
     }
 })
-$buttons['Device sign-in'].Add_Click({
-    if ($tool.Text -ne 'Codex') { $status.Text = 'Device sign-in is available for Codex. Choose it under Advanced.'; return }
-    Open-AgentAction 'codex-device'
-    $status.AppendText("`r`nEnable device-code login in ChatGPT security settings (or ask your workspace admin) before using this beta flow.")
-})
+$buttons['Sign-in help'].Add_Click({ $status.Text = Get-SignInHelp })
 $buttons['Repair this tool'].Add_Click({
     if ([Windows.Forms.MessageBox]::Show('Reinstall only the selected tool? Close agent sessions first. Saved sign-in and vendor settings are preserved.','Repair this tool','YesNo','Question') -eq 'Yes') { Begin-AgentHealth -Repair }
 })
 $screen.Add_FormClosed({ $timer.Stop(); $timer.Dispose(); if ($script:Work) { $script:Work.Process.Dispose() } })
 $timer.Start()
 if ($SmokeTest) {
-    # Exercise real form creation, event wiring, and timer dispatch without Docker.
-    $screen.Add_Shown({ $script:SmokePhase=1; Begin-AgentHealth })
+    # Exercise real sign-in button routing and help, then worker/timer dispatch.
+    # Substitute only console creation: CI must never open an account login.
+    function Start-AgentConsole {
+        param([string]$ScriptPath, [string]$Action, [string]$Folder)
+        $script:SmokeAction = $Action
+    }
+    $screen.Add_Shown({
+        $buttons['Sign in'].PerformClick()
+        if ($script:SmokeAction -ne 'claude-login') { $script:SmokeExit=1; $screen.Close(); return }
+        $advanced.Checked = $true
+        $tool.SelectedIndex = 1
+        if ($status.Text -notlike '*First enable device-code login*') { $script:SmokeExit=1; $screen.Close(); return }
+        $buttons['Sign in'].PerformClick()
+        if ($script:SmokeAction -ne 'codex-device') { $script:SmokeExit=1; $screen.Close(); return }
+        $buttons['Sign-in help'].PerformClick()
+        if ($status.Text -notlike '*workspace admin*') { $script:SmokeExit=1; $screen.Close(); return }
+        $advanced.Checked = $false
+        $script:SmokePhase=1
+        Begin-AgentHealth
+    })
 }
 [void]$screen.ShowDialog()
 

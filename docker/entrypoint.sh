@@ -375,7 +375,8 @@ elif [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|       To update the launcher app, download from GitHub.     |"
   echo "+==============================================================+"
   echo ""
-  echo "First time? Sign in with 'claude auth login' or 'codex login'."
+  echo "Codex device login must be enabled in ChatGPT security settings or by your admin."
+  echo "First time? Use 'claude auth login' or 'codex login --device-auth'."
   echo "Phone access? Run 'setup-remote-connection' for guided setup!"
   echo ""
 fi
