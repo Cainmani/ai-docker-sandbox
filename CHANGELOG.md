@@ -5,6 +5,17 @@ All notable changes to AI Docker CLI Manager will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - Unreleased
+
+### Added
+- Health and native sign-in for Claude and Codex, safe workspace launch and vendor resume, and a sanitised copyable support summary.
+- Shared maintenance admission for updates, installations, selected repair and managed agent sessions. Busy returns 75; unavailable coordination returns 69.
+- Localhost-only disposable Claude Desktop SSH pilot tooling and a local acceptance checklist.
+
+### Changed
+- The alternate launcher is a developer wrapper for the compiled manager. Older containers retain a limited native-terminal route.
+- Native sign-in guidance replaces the blanket API-key configuration recommendation. Container changes require recreation; version 1.7.0 is a candidate, not a published release.
+
 ## [1.6.0] - 2026-10-08
 
 Container rebuild/recreate required for the updater fixes to take effect.

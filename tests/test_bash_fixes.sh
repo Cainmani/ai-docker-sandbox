@@ -260,10 +260,10 @@ else
 fi
 
 # UX-024: $userName quoted in docker exec
-if grep -q '"\$userName"' scripts/launch_claude.ps1 2>/dev/null || grep -q 'userName`"' scripts/launch_claude.ps1 2>/dev/null; then
-    pass "launch_claude.ps1 quotes \$userName in docker exec (UX-024)"
+if grep -q 'New-AgentProcess $dockerPath $arguments' scripts/launch_claude.ps1 && grep -q 'ConvertTo-NativeArgument' scripts/agent_helpers.ps1; then
+    pass "launch_claude.ps1 uses the native argument encoder (UX-024)"
 else
-    fail "launch_claude.ps1 has unquoted \$userName"
+    fail "launch_claude.ps1 bypasses the native argument encoder"
 fi
 
 echo ""

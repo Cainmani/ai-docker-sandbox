@@ -121,11 +121,11 @@ Write-AppLog "Files directory: $filesDir" "INFO"
 # ============================================================
 # CONFIGURATION - Edit these values if forking/moving the repo
 # ============================================================
-$script:AppVersion = "1.6.0"  # Keep in sync with root VERSION file
+$script:AppVersion = "1.7.0"  # Keep in sync with root VERSION file
 # Newest release that changed container-side files (anything under docker/).
 # Bump this ONLY in releases that require a container rebuild; launcher-only
 # releases leave it alone so users are not nagged into a pointless rebuild.
-$script:ContainerBaselineVersion = "1.6.0"
+$script:ContainerBaselineVersion = "1.7.0"
 $script:GitHubRepo = "Cainmani/ai-docker-sandbox"
 $script:DockerDesktopPath = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
@@ -266,6 +266,15 @@ $script:EmbeddedFiles = @{
     'wsl_config.ps1' = 'WSL_CONFIG_PS1_BASE64_HERE'
     'resource_settings.ps1' = 'RESOURCE_SETTINGS_PS1_BASE64_HERE'
     'launch_claude.ps1' = 'LAUNCH_CLAUDE_PS1_BASE64_HERE'
+    'agent_session.sh' = 'AGENT_SESSION_SH_BASE64_HERE'
+    'agent_health.sh' = 'AGENT_HEALTH_SH_BASE64_HERE'
+    'lib/maintenance.sh' = 'MAINTENANCE_SH_BASE64_HERE'
+    'setup_desktop_pilot.sh' = 'SETUP_DESKTOP_PILOT_SH_BASE64_HERE'
+    'docker-compose.desktop-pilot.yml' = 'DOCKER_COMPOSE_DESKTOP_PILOT_YML_BASE64_HERE'
+    'desktop_pilot.ps1' = 'DESKTOP_PILOT_PS1_BASE64_HERE'
+    'agent_helpers.ps1' = 'AGENT_HELPERS_PS1_BASE64_HERE'
+    'agent_worker.ps1' = 'AGENT_WORKER_PS1_BASE64_HERE'
+    'agent_connections.ps1' = 'AGENT_CONNECTIONS_PS1_BASE64_HERE'
     'launch_vibe_kanban.ps1' = 'LAUNCH_VIBE_KANBAN_PS1_BASE64_HERE'
     'log_utils.ps1' = 'LOG_UTILS_PS1_BASE64_HERE'
     'docker_helpers.ps1' = 'DOCKER_HELPERS_PS1_BASE64_HERE'
@@ -377,7 +386,7 @@ function Export-EmbeddedHelpers {
 function Extract-DockerFiles {
     param([bool]$silent = $true)
 
-    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', 'docker_helpers.ps1', 'log_utils.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
+    $dockerFiles = @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', '.dockerignore', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'setup_desktop_pilot.sh', 'docker-compose.desktop-pilot.yml', 'desktop_pilot.ps1', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh', 'uninstall.ps1', 'docker_helpers.ps1', 'log_utils.ps1', '.gitattributes', 'README.md', 'USER_MANUAL.md', 'QUICK_REFERENCE.md', 'CLI_TOOLS_GUIDE.md', 'REMOTE_ACCESS.md', 'TESTING_CHECKLIST.md')
 
     # Version tracking to detect when embedded files have been updated
     $versionFile = Join-Path $filesDir ".version"
@@ -385,7 +394,7 @@ function Extract-DockerFiles {
 
     # Calculate hash of all embedded docker files to detect changes
     $hashBuilder = New-Object System.Text.StringBuilder
-    foreach ($fileName in @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh')) {
+    foreach ($fileName in @('docker-compose.yml', 'docker-compose.mobile.yml', 'docker-compose.ca.yml', 'Dockerfile', 'entrypoint.sh', 'install_cli_tools.sh', 'auto_update.sh', 'configure_tools.sh', 'ai_docker.sh', 'agent_session.sh', 'setup_desktop_pilot.sh', 'docker-compose.desktop-pilot.yml', 'desktop_pilot.ps1', 'agent_health.sh', 'lib/maintenance.sh', 'setup_mobile_access.sh', 'add_ssh_key.sh', 'setup_remote_connection.sh', 'tmux.conf', 'fail2ban-jail.local', 'lib/logging.sh', 'lib/router_utils.sh', 'lib/entrypoint_helpers.sh')) {
         $content = Get-EmbeddedFileContent $fileName
         if ($content) {
             $hashBuilder.Append($content) | Out-Null
@@ -509,6 +518,17 @@ $lblDesc.BackColor = 'Transparent'
 $lblDesc.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($lblDesc)
 
+if ($env:AI_DOCKER_CONNECTIONS_SMOKE -eq '1') {
+    Extract-DockerFiles
+    Export-EmbeddedHelpers @('log_utils.ps1','docker_helpers.ps1','agent_helpers.ps1','agent_connections.ps1','agent_worker.ps1') | Out-Null
+    . ([ScriptBlock]::Create((Get-EmbeddedFileContent 'agent_helpers.ps1')))
+    $child = New-AgentProcess powershell.exe @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $filesDir 'agent_connections.ps1'),'-SmokeTest')
+    $child.WaitForExit()
+    if ($child.ExitCode -ne 0) { Write-AppLog 'Connections smoke failed' 'ERROR'; exit 1 }
+    Write-AppLog 'Connections smoke passed' 'INFO'
+    exit 0
+}
+
 # Button 1: First Time Setup
 $btnSetup = New-Object System.Windows.Forms.Button
 $btnSetup.Text = "1. FIRST TIME SETUP"
@@ -596,6 +616,21 @@ $lblAppData.ForeColor = $script:MatrixAccent
 $lblAppData.BackColor = 'Transparent'
 $lblAppData.Font = New-Object System.Drawing.Font('Consolas', 7)
 $form.Controls.Add($lblAppData)
+
+$btnConnections = New-Object System.Windows.Forms.Button
+$btnConnections.Text = 'Health / Sign in / Open agent'
+$btnConnections.SetBounds(50, 600, 500, 40)
+$form.Height = 700
+$form.Controls.Add($btnConnections)
+$btnConnections.Add_Click({
+    try {
+        Extract-DockerFiles
+        Export-EmbeddedHelpers @('log_utils.ps1','docker_helpers.ps1','agent_helpers.ps1','agent_connections.ps1','agent_worker.ps1','launch_claude.ps1') | Out-Null
+        . ([ScriptBlock]::Create((Get-EmbeddedFileContent 'agent_helpers.ps1')))
+        $child = Join-Path $filesDir 'agent_connections.ps1'
+        New-AgentProcess powershell.exe @('-NoProfile','-ExecutionPolicy','Bypass','-File',$child) | Out-Null
+    } catch { [System.Windows.Forms.MessageBox]::Show('Could not open connections. Check the application log.', 'AI Docker') | Out-Null }
+})
 
 # Button 4: Exit
 $btnExit = New-Object System.Windows.Forms.Button
@@ -923,14 +958,15 @@ $btnLaunch.Add_Click({
             [System.IO.File]::WriteAllText($launchScript, $launchContent, [System.Text.UTF8Encoding]::new($false))
 
             # Extract the launch script's dot-sourced dependencies
-            Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1') | Out-Null
+            Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1', 'agent_helpers.ps1') | Out-Null
             Write-AppLog "Launch script written successfully" "DEBUG"
 
             $form.Hide()
             # Run the launch script from subfolder with hidden console (no debug output visible to user)
             # Use -WindowStyle parameter of Start-Process, not in ArgumentList
             Write-AppLog "Starting launch_claude.ps1 process..." "INFO"
-            Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$launchScript`"" -WindowStyle Hidden
+            . ([ScriptBlock]::Create((Get-EmbeddedFileContent 'agent_helpers.ps1')))
+            Start-AgentConsole $launchScript 'terminal' '/workspace' | Out-Null
             Write-AppLog "Workspace launch process started successfully" "INFO"
 
             # Wait a moment, then close the main form
@@ -1031,7 +1067,7 @@ $btnVibeKanban.Add_Click({
                 [System.IO.File]::WriteAllText($vibeScript, $vibeContent, [System.Text.UTF8Encoding]::new($false))
 
                 # Extract the launch script's dot-sourced dependencies
-                Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1') | Out-Null
+                Export-EmbeddedHelpers @('log_utils.ps1', 'docker_helpers.ps1', 'env_utils.ps1', 'agent_helpers.ps1') | Out-Null
                 Write-AppLog "Vibe Kanban launch script written successfully" "DEBUG"
 
                 $form.Hide()

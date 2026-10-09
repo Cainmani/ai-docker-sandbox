@@ -375,7 +375,7 @@ elif [ -f "$HOME/.cli_tools_installed" ]; then
   echo "|       To update the launcher app, download from GitHub.     |"
   echo "+==============================================================+"
   echo ""
-  echo "First time? Run 'configure-tools' to set up your API keys!"
+  echo "First time? Sign in with 'claude auth login' or 'codex login'."
   echo "Phone access? Run 'setup-remote-connection' for guided setup!"
   echo ""
 fi
@@ -471,8 +471,13 @@ fi
 # Setup and start the scheduled updater. Failures remain non-fatal because
 # interactive updates are still available, but the helper logs an actionable
 # warning and behavioral tests cover registration and daemon liveness.
-setup_auto_update_cron "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
-ensure_cron_daemon_running 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+if [ "${ENABLE_DESKTOP_PILOT:-0}" != 1 ]; then
+    setup_auto_update_cron "$USER_NAME" 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+    ensure_cron_daemon_running 2>&1 | tee -a "${LOG_FILE:-/dev/null}" || true
+fi
+if [ "${ENABLE_DESKTOP_PILOT:-0}" = 1 ]; then
+    /usr/local/bin/setup_desktop_pilot.sh
+fi
 
 # Mobile Access Setup (optional - enabled via ENABLE_MOBILE_ACCESS=1)
 if [ "${ENABLE_MOBILE_ACCESS:-0}" = "1" ]; then

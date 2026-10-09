@@ -1164,6 +1164,12 @@ EOF
 }
 
 case "${1:-help}" in
+    capabilities)
+        printf 'PROTOCOL=1\nHEALTH=1\nSESSION=1\nSELECTED_REPAIR=1\nMAINTENANCE=1\n'
+        ;;
+    health)
+        exec /usr/local/bin/agent_health.sh
+        ;;
     status)
         if [ "${2:-}" = "--brief" ]; then cmd_brief; else cmd_status; fi
         ;;

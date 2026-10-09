@@ -67,6 +67,7 @@ jobs:
       - name: Validate base and mobile Compose configuration
         working-directory: docker
         run: |
+          PILOT_WORKSPACE="$WORKSPACE_PATH" PILOT_PUBLIC_KEY="${{ github.workspace }}/docker/.secrets/password.txt" PILOT_PASSWORD_FILE="${{ github.workspace }}/docker/.secrets/password.txt" docker compose -f docker-compose.desktop-pilot.yml config --quiet
           docker compose -p "$COMPOSE_PROJECT_NAME" config --quiet
           docker compose -p "$COMPOSE_PROJECT_NAME" -f docker-compose.yml -f docker-compose.mobile.yml config --quiet
 
@@ -113,6 +114,22 @@ jobs:
             test -L "$HOME/.codex"
             crontab -l | grep -q auto_update.sh
             pgrep -x cron
+          '
+
+      - name: Verify new agent health and maintenance contracts
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai bash -li -c '
+            /usr/local/bin/ai-docker capabilities | grep -q "^MAINTENANCE=1$"
+            /usr/local/bin/agent_health.sh | grep -q "^TOOL_codex=ready$"
+            source /usr/local/lib/maintenance.sh
+            ai_maintenance_acquire shared
+            set +e
+            /usr/local/bin/install_cli_tools.sh --repair-tool codex
+            rc=$?
+            set -e
+            test "$rc" -eq 75
           '
 
       - name: Verify diagnostics and proxy/CA env propagation

@@ -1,7 +1,7 @@
 # Claude AI Context File - AI Docker CLI Manager Project
 
 **Last Updated:** October 8, 2026
-**Project Version:** 1.6.0
+**Project Version:** 1.7.0 candidate
 
 ---
 
@@ -117,7 +117,7 @@ The EXE embeds a 5.1 host and every child process is `powershell.exe` (never `pw
 
 ### The update status record is the single source of truth for update health
 
-`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times. Only `auto_update.sh` takes `~/.ai-docker/update.lock` for its check/apply/force/default modes; installer repair/force/update and the Vibe Kanban install do not share that lock. Busy updater runs exit 0, and missing `flock` permits an unlocked run. Shared mutation coordination is planned in [the usability plan](USABILITY_PLAN.md#slice-1b-selected-repair-and-maintenance-coordination), not implemented.
+`auto_update.sh` writes `~/.ai-docker/update-status` (on the `ai-docker-state` named volume, so it survives container recreates) (`RESULT`, `LAST_ATTEMPT`, `LAST_CHECK_OK`, `LAST_UPDATE_OK`, `FAILED_STAGES`) via `write_update_status`, plus `versions-before`/`versions-after` snapshots. Anything that reports update health (status command, login banner) must read this record, never infer from `~/.last_update_check` (that file only gates the 7-day interval). A failed run must never overwrite the previous successful times. The candidate coordinates updater, installer modes, Vibe Kanban installation and router installation through `lib/maintenance.sh` using this same lock. Managed Claude/Codex sessions hold a shared lock; maintenance takes an exclusive lock. Busy returns 75, missing coordination returns 69. Visible manual agent processes are checked conservatively, but arbitrary external launches and vendor self-updaters remain outside this guarantee. Selected `--repair-tool claude|codex` preserves settings; Codex validates a staged replacement before switching the launcher. See [local acceptance](USABILITY_ACCEPTANCE.md).
 
 ### Release asset names are an API (self-update depends on them)
 
@@ -179,10 +179,13 @@ Scripts are mounted read-only. Only for local development.
 | File | Purpose |
 |------|---------|
 | `scripts/AI_Docker_Complete.ps1` | Main app template with embedded files |
-| `scripts/AI_Docker_Launcher.ps1` | Alternate script launcher that starts the separate setup wizard; not the released EXE |
+| `scripts/AI_Docker_Launcher.ps1` | Developer wrapper that opens the compiled manager; build the EXE first |
 | `scripts/setup_wizard.ps1` | WinForms setup wizard |
 | `scripts/wsl_config.ps1` | WSL detection functions (dot-sourced by wizard) |
-| `scripts/launch_claude.ps1` | Launches Docker exec terminal |
+| `scripts/launch_claude.ps1` | Fixed-action native console launcher, with post-startup folder validation |
+| `scripts/agent_connections.ps1` | Health/native sign-in UI; async worker results are filtered and context-owned |
+| `scripts/agent_worker.ps1` | Background health probes and detached selected repair monitoring |
+| `scripts/agent_helpers.ps1` | PS5.1 argument encoding, inspected container identity and protocol helpers |
 | `scripts/launch_vibe_kanban.ps1` | Launches Vibe Kanban web UI |
 | `scripts/build/build_complete_exe.ps1` | Builds the .exe from template |
 

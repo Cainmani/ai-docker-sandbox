@@ -166,7 +166,11 @@ if (-not $vibeKanbanCheck -or $vibeKanbanCheck -notmatch "vibe-kanban") {
         Write-AppLog "Installing Vibe Kanban..." "INFO"
         ShowMsg "Installing Vibe Kanban...`n`nThis may take a few minutes. Please wait." 'Information'
 
-        $installResult = & $dockerPath exec -u "$userName" ai-cli bash -c "npm install -g vibe-kanban@latest" 2>&1
+        $installResult = & $dockerPath exec -u "$userName" ai-cli bash -li -c 'test -f /usr/local/lib/maintenance.sh || exit 69; source /usr/local/lib/maintenance.sh; ai_maintenance_acquire exclusive || exit $?; npm install -g vibe-kanban@0.1.44' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            ShowMsg 'Installation could not start or failed. Close agent sessions and other maintenance tasks. Older containers need setup/recreate for safe installation.' 'Warning'
+            exit 1
+        }
         Write-AppLog "Install result: $installResult" "DEBUG"
 
         # Verify installation

@@ -13,12 +13,6 @@
 # We DO use set -uo pipefail to catch undefined variables and pipe failures.
 set -uo pipefail
 
-# Ensure npm is configured to use user-local directory (fixes permission issues)
-mkdir -p "${HOME}/.npm-global"
-npm config set prefix "${HOME}/.npm-global"
-# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
-export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
-
 # Source logging library
 if [ -f "/usr/local/lib/logging.sh" ]; then
     source "/usr/local/lib/logging.sh"
@@ -135,13 +129,12 @@ write_update_status() {
 # Only one updater at a time (startup trigger, cron and manual runs can overlap).
 # A second invocation backs off cleanly rather than racing npm/apt.
 acquire_update_lock() {
-    command -v flock >/dev/null 2>&1 || return 0
-    mkdir -p "$STATE_DIR"
-    exec 9> "$LOCK_FILE"
-    if ! flock -n 9; then
-        update_log "${YELLOW}[INFO]${NC} Another update is already running - skipping this one"
-        exit 0
+    if [ -f /usr/local/lib/maintenance.sh ]; then
+        source /usr/local/lib/maintenance.sh
+    else
+        source "$(dirname "$(readlink -f "$0")")/lib/maintenance.sh"
     fi
+    ai_maintenance_acquire exclusive || exit $?
 }
 
 # snapshot_versions <file>: one "tool<TAB>version" line per VERIFY_TOOLS entry,
@@ -571,7 +564,18 @@ setup_cron() {
 # Parse command line arguments
 case "${1:-}" in
     --check|-c|--apply|-a|--force|-f|'') acquire_update_lock ;;
+    --cron|--help|-h) ;;
+    *) echo 'Unknown update option.' >&2; exit 2 ;;
 esac
+
+# Ensure npm is configured to use user-local directory (fixes permission issues)
+case "${1:-}" in
+    --check|-c|--apply|-a|--force|-f|'')
+        mkdir -p "${HOME}/.npm-global"
+        npm config set prefix "${HOME}/.npm-global" ;;
+esac
+# Include: npm global and local bin paths (Claude native installer uses ~/.local/bin)
+export PATH="${HOME}/.npm-global/bin:${HOME}/.local/bin:${PATH}"
 
 case "${1:-}" in
     --check|-c)
@@ -617,6 +621,6 @@ case "${1:-}" in
         echo "  UPDATE_INTERVAL_DAYS  Days between update checks (default: 7)"
         ;;
     *)
-        run_auto_update
+        echo "Unknown update option" >&2; exit 2
         ;;
 esac

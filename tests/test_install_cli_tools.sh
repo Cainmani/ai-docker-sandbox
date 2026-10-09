@@ -32,6 +32,8 @@ setup_case() {
     export CLAUDE_INSTALL_RESULT=success
     mkdir -p "$HOME/.npm-global/bin" "$HOME/.local/bin" "$CASE_DIR/bin"
     : > "$FAKE_LOG"
+    export AI_MAINTENANCE_PROC_ROOT="$CASE_DIR/proc"
+    mkdir -p "$AI_MAINTENANCE_PROC_ROOT"
 
     for tool in gh codex gemini node python3; do make_tool "$tool"; done
 

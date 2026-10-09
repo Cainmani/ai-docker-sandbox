@@ -12,6 +12,7 @@ RUN printf '%s\n' "$AI_DOCKER_VERSION" > /etc/ai-docker-version
 # Install dependencies FIRST (without nodejs yet)
 RUN apt-get update && apt-get install -y \
     sudo \
+    util-linux \
     curl \
     wget \
     git \
@@ -89,6 +90,10 @@ COPY install_cli_tools.sh /usr/local/bin/install_cli_tools.sh
 COPY auto_update.sh /usr/local/bin/auto_update.sh
 COPY configure_tools.sh /usr/local/bin/configure_tools.sh
 COPY ai_docker.sh /usr/local/bin/ai-docker
+COPY setup_desktop_pilot.sh /usr/local/bin/setup_desktop_pilot.sh
+COPY agent_session.sh /usr/local/bin/agent_session.sh
+COPY agent_health.sh /usr/local/bin/agent_health.sh
+COPY lib/maintenance.sh /usr/local/lib/maintenance.sh
 
 # Copy mobile access scripts and configuration
 COPY setup_mobile_access.sh /usr/local/bin/setup_mobile_access.sh
@@ -105,6 +110,10 @@ RUN sed -i 's/\r$//' /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/auto_update.sh \
     /usr/local/bin/configure_tools.sh \
     /usr/local/bin/ai-docker \
+    /usr/local/bin/setup_desktop_pilot.sh \
+    /usr/local/bin/agent_session.sh \
+    /usr/local/bin/agent_health.sh \
+    /usr/local/lib/maintenance.sh \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \
@@ -119,6 +128,10 @@ RUN chmod +x /usr/local/bin/install_cli_tools.sh \
     /usr/local/bin/auto_update.sh \
     /usr/local/bin/configure_tools.sh \
     /usr/local/bin/ai-docker \
+    /usr/local/bin/setup_desktop_pilot.sh \
+    /usr/local/bin/agent_session.sh \
+    /usr/local/bin/agent_health.sh \
+    /usr/local/lib/maintenance.sh \
     /usr/local/bin/entrypoint.sh \
     /usr/local/bin/setup_mobile_access.sh \
     /usr/local/bin/add-ssh-key \

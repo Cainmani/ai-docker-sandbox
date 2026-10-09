@@ -201,7 +201,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=5
+MANAGED_BLOCK_VERSION=6
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -269,6 +269,8 @@ if [ -f /usr/local/lib/router_utils.sh ]; then
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
 fi
+# Native sign-in preserves vendor-selected models and permissions.
+case $- in *i*) echo "Sign in: claude auth login | codex login (configure-tools is legacy API configuration)." ;; esac
 # One-line health summary when an interactive shell starts (details:
 # `ai-docker status`). Reads small status files only; never runs the tools.
 case $- in

@@ -10,6 +10,24 @@
 # We DO use set -uo pipefail to catch undefined variables and pipe failures.
 set -uo pipefail
 
+# Validate before any mutation. Selected repair is deliberately Claude/Codex only.
+SELECTED_TOOL=""
+case "${1:-}" in
+    --repair-tool) case "${2:-}" in claude|codex) SELECTED_TOOL="$2" ;; *) echo 'Choose claude or codex.' >&2; exit 2 ;; esac
+        [ "$#" -eq 2 ] || exit 2 ;;
+    ''|--repair|-r|--force|-f|--update|-u) [ "$#" -le 1 ] || exit 2 ;;
+    *) echo 'Unknown installer option.' >&2; exit 2 ;;
+esac
+if [ "${1:-}" = --update ] || [ "${1:-}" = -u ]; then
+    exec "$(dirname "$(readlink -f "$0")")/auto_update.sh" --apply
+fi
+if [ -f /usr/local/lib/maintenance.sh ]; then
+        source /usr/local/lib/maintenance.sh
+    else
+        source "$(dirname "$(readlink -f "$0")")/lib/maintenance.sh"
+    fi
+ai_maintenance_acquire exclusive || exit $?
+
 # Ensure npm is configured to use user-local directory (fixes permission issues)
 mkdir -p "${HOME}/.npm-global"
 npm config set prefix "${HOME}/.npm-global"
@@ -103,10 +121,10 @@ command_exists() {
 tool_healthy() {
     local tool=$1
     case $tool in
-        claude)     claude --version >/dev/null 2>&1 ;;
-        gh)         command_exists gh ;;
+        claude)     timeout 12 claude --version >/dev/null 2>&1 ;;
+        gh)         timeout 12 gh --version >/dev/null 2>&1 ;;
         gemini)     command_exists gemini || pip3 show gemini-cli >/dev/null 2>&1 ;;
-        codex)      command_exists codex ;;
+        codex)      timeout 12 codex --version >/dev/null 2>&1 ;;
         vibe-kanban) npm list -g vibe-kanban >/dev/null 2>&1 ;;
         opencode)   npm list -g opencode-ai >/dev/null 2>&1 ;;
         9router)    npm list -g 9router >/dev/null 2>&1 ;;
@@ -597,7 +615,7 @@ install_cli_tools() {
 # Returns 0 when all REQUIRED_TOOLS work, 1 otherwise (so callers can
 # propagate a nonzero exit for a genuinely broken environment).
 create_marker_file() {
-    local failed_tools="" failed_required=0 tool
+    local failed_tools="" failed_required=0 tool marker_tmp="${INSTALL_MARKER}.tmp.$$"
     # Routers (9router/omniroute) are intentionally excluded - they are opt-in,
     # installed on demand by the `9router`/`omniroute` commands, so their absence
     # is never a "partial install" and must not trigger --repair reinstalls.
@@ -634,7 +652,7 @@ create_marker_file() {
                 echo "[ERROR] $tool: failed or broken"
             fi
         done
-    } > "$INSTALL_MARKER"
+    } > "$marker_tmp" && mv -f -- "$marker_tmp" "$INSTALL_MARKER" || return 1
 
     if [ -n "$failed_tools" ]; then
         print_warning "Installation is PARTIAL - failed tools: $failed_tools"
@@ -718,7 +736,34 @@ cleanup_old_installations() {
 # The marker is NOT deleted before reinstalling: the login banner/entrypoint
 # keep reporting the last honest status until the new run rewrites it.
 INSTALL_RESULT=0
-if [ "${1:-}" == "--update" ] || [ "${1:-}" == "-u" ]; then
+if [ -n "$SELECTED_TOOL" ]; then
+    # No broad cleanup, apt update, config writes, or unrelated installations.
+    if [ "$SELECTED_TOOL" = codex ]; then
+        stage="${HOME}/.npm-global/ai-docker-repairs/codex-$(date +%s)-$$"
+        mkdir -p "$stage" || exit 1
+        if npm install --prefix "$stage" "@openai/codex@0.146.0" \
+            && timeout 12 "$stage/node_modules/.bin/codex" --version >/dev/null 2>&1; then
+            mkdir -p "${HOME}/.npm-global/bin"
+            link="${HOME}/.npm-global/bin/.codex-repair-$$"
+            if ln -s "$stage/node_modules/.bin/codex" "$link"; then
+                mv -Tf -- "$link" "${HOME}/.npm-global/bin/codex" || INSTALL_RESULT=1
+            else INSTALL_RESULT=1; fi
+        else
+            print_warning "Replacement validation failed; the existing Codex launcher was preserved"
+            INSTALL_RESULT=1
+        fi
+    else
+        installer=$(mktemp) || exit 1
+        if curl -fsSL https://claude.ai/install.sh -o "$installer"; then
+            bash "$installer" || INSTALL_RESULT=1
+        else
+            INSTALL_RESULT=1
+        fi
+        rm -f -- "$installer"
+    fi
+    tool_healthy "$SELECTED_TOOL" || INSTALL_RESULT=1
+    create_marker_file || INSTALL_RESULT=1
+elif [ "${1:-}" == "--update" ] || [ "${1:-}" == "-u" ]; then
     update_cli_tools
 elif [ "${1:-}" == "--force" ] || [ "${1:-}" == "-f" ]; then
     INSTALL_MODE="force"
@@ -756,7 +801,7 @@ else
 fi
 
 # Set proper permissions (run regardless of success/failure)
-if [ -d "${HOME}" ]; then
+if [ -z "$SELECTED_TOOL" ] && [ -d "${HOME}" ]; then
     sudo chown -R "$(whoami)":"$(whoami)" "${HOME}/" 2>/dev/null || true
 fi
 

@@ -1,10 +1,10 @@
 # AI Docker usability implementation plan
 
-Draft revision 0.04, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
+Draft revision 0.05, 9 October 2026. Baseline: main at `e903677`, released as v1.6.0 on 8 October 2026. Earlier revisions are retained in Git history.
 
-Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The proposed 1.7 candidate focuses on health, native Claude/Codex connections and actionable diagnostics; coordinated repair follows separately. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
+Help Cainmani colleagues reach a working AI agent and return to useful work without maintainer assistance. The 1.7 candidate includes health, native Claude/Codex connections, actionable diagnostics and coordinated selected repair. Decide whether a custom project screen is needed after testing Claude Desktop over localhost SSH. Recent folders remain a useful option, not the starting assumption.
 
-PR #97 is documentation only; implementation belongs in separate focused PRs. No installation, SSH exposure, runtime change or staff trial has been performed. Keep this PR draft until the user approves merging the plan. Plan approval does not certify the pilot or implementation; their acceptance gates remain open. Release tagging is separate. Version 1.7 is a proposed target.
+PR #97 contains the implementation by the user’s latest instruction. Keep it draft until automated checks pass and the user tests locally before merge/release. Pilot tooling does not certify Desktop/native sign-in or colleague acceptance. Version 1.7.0 is an unreleased candidate; no live SSH/account/staff trial has been performed.
 
 ## Cainmani fit and boundaries
 
@@ -22,14 +22,16 @@ A separate PR in `cainmani-skills` should add ai-docker-sandbox to ECOSYSTEM.md 
 | --- | --- | --- |
 | 0 | Desktop SSH feasibility and task baseline using synthetic/public material only | Prove exposure/access boundaries, installation/config preservation, native resume and non-developer usability on a disposable environment |
 | 1a, proposed 1.7 | Minimal capabilities/status contract, compact health and Claude/Codex native connections; no new install/update/repair actions | Correct legacy fallback, preserved settings, real Windows and colleague acceptance |
-| 1b | Shared maintenance coordination and selected-tool repair | Independent focused PR; race, lock, interruption and recovery tests pass before enabling new mutation actions |
+| 1b | Shared maintenance coordination and selected-tool repair | Same draft PR by user instruction; race, lock, interruption and recovery tests pass before enabling new mutation actions |
 | 2 | Optional Desktop handoff and read-only reference access | Slice 0 result and verified data-access requirements; separate focused implementation PR |
 | 3 | Custom recent-folder screen only if still needed | Demonstrated friction that vendor UI/native resume does not solve; separate focused implementation PR |
 | Later | Templates, other tool adapters, published images, isolated profiles, editor/worktree UI or backend substitution | Specific observed need, owner and bounded maintenance effort |
 
-Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). Merge #97 as a docs PR only after user approval; do not add implementation here. Use separate focused PRs for Slice 0 pilot tooling, Slice 1a and Slice 1b, and later features. Each slice has an independent review/release decision; staff do not wait for the entire roadmap.
+Tracking issue: [#98](https://github.com/Cainmani/ai-docker-sandbox/issues/98). On 9 October the user explicitly requested implementation in draft #97, followed by local testing before merge/release. That supersedes the previous docs-only/separate-PR packaging decision. #97 now contains pilot tooling, 1a and 1b together and remains draft. Conditional later features still require pilot evidence and a specific need; they are not silently promoted into this release.
 
-## Verified baseline corrections
+Implementation: [local acceptance checklist](USABILITY_ACCEPTANCE.md). The candidate implements health/native sign-in, safe fixed-action launch and vendor resume, older-container fallback, selected Claude/Codex repair, shared maintenance admission and disposable localhost SSH pilot tooling. Automated checks certify these contracts; real Windows sign-in, Desktop installation ownership and colleague acceptance remain local gates. No merge, release, live pilot or company-data approval is implied.
+
+## Verified baseline corrections (1.6, before implementation)
 
 | Area | Current code at e903677 | Design consequence |
 | --- | --- | --- |
@@ -88,7 +90,7 @@ Show one configured/default agent and a main Open action. Put other agents and d
 
 ### Launch and environment
 
-- [ ] Replace string-built launches through cmd/Windows Terminal with a PS5.1-compatible child launch contract. Allow only fixed actions and validated local identifiers; resolve any folder inside the child, never interpolate user text into executable shell code.
+- [ ] Replace string-built launches through cmd/Windows Terminal with a PS5.1-compatible child launch contract. Allow only fixed actions and validated folders encoded as data for the child; resolve and check folder containment inside the child, never interpolate user text into executable shell code.
 - [ ] Read actual container mounts/user from docker inspect; .env expresses requested state and can differ from a running container. Check expected image/container identity and missing or mismatched mounts before acting.
 - [ ] Native interactive launch must match the plain terminal environment and select the working directory after startup files run. Use a fixed command such as `bash -li -c 'cd -- "$1" && exec claude' bash <validated-folder>`, with the folder passed as a positional argument through the safe child contract; use an equivalent fixed Codex command. The example describes argument boundaries, not a Windows command string to concatenate. Test .bashrc/.profile behavior and prove the tool starts in the selected folder on both new and real 1.6 containers despite their startup `cd /workspace`. Use explicit noninteractive environments for status probes rather than assuming bash -lc loads interactive exports/wrappers.
 - [ ] Slice 1a acceptance: a missing, renamed or inaccessible selected folder shows a plain actionable message, does not start the agent in a different folder, and leaves an interactive shell open so the user can read the error. Test on new and 1.6 containers. The compact launch example above describes the success path; implementation must handle this failure explicitly.
@@ -104,7 +106,7 @@ Show one configured/default agent and a main Open action. Put other agents and d
 - [ ] Define interruption/recovery behavior, install-marker writes, package-stage handling and safe UI-close semantics. Never remove a working binary before validating its replacement. Show progress and actionable failure without logging secrets.
 - [ ] Keep rescue checks on recreate/uninstall, volumes intact, and repositories/virtualenvs/scratch dependencies report-only. No generic reset or clean-everything action.
 
-A repair control is enabled only after Slice 1b's coordination/recovery tests pass. Slice 1a can ship independently with accurate troubleshooting and an explicitly labelled existing recovery route; do not label a full repair as selected-tool repair or imply 1a fixes existing maintenance races.
+The repair control is included with Slice 1b coordination/recovery tests and remains subject to local acceptance. Slice 1a can ship independently with accurate troubleshooting and an explicitly labelled existing recovery route; do not label a full repair as selected-tool repair or imply 1a fixes existing maintenance races.
 
 ## Read-only inputs and future folder screen
 
@@ -127,7 +129,7 @@ A later New project option may carry approved folder structure, naming guidance,
 | Legacy support | Real 1.6/unknown-version container never receives guessed flags; no interactive menu in a background probe; explicit unknown/busy/failure outcomes |
 | Native compatibility | Claude/Codex supported-version table for launch/login/status/resume, native account modes, preserved custom settings/MCP/hooks, conditional authentication classification |
 | Mutation safety, Slice 1b | Updater/installer/Vibe contention, missing flock, broken-but-present binaries, launch-versus-repair race, interrupted repair, active/manual/Desktop sessions and vendor self-update limits |
-| Windows execution | PS5.1 plus applicable PS7 helper tests; both terminal hosts; hostile path characters; interactive environment parity; post-startup selected directory on new and 1.6 containers; async stale results and cancellation |
+| Windows execution | PS5.1 plus applicable PS7 helper tests; native PowerShell console with either Windows console host or Windows Terminal configured as the default host; hostile path characters; interactive environment parity; post-startup selected directory on new and 1.6 containers; async stale results and cancellation |
 | Desktop pilot | Localhost-only SSH, recorded authorised seat/account type and actual user/home/auth/tool ownership, before/after installation checks, reconnect/recreate/resume, non-Git folder, synthetic/public inputs and pilot-only credential teardown |
 | Later company-data trial | Vendor account/data-use settings and responsible confidentiality approval recorded separately from approved source/read-only/output handling; no confidential input before both gates pass |
 | Persistence/migration | Existing 1.6 install retains work/volumes/config; mount drift detected; old-container terminal fallback; preference schema/recovery if picker is approved |
@@ -140,7 +142,7 @@ Mock tools certify argument/error ordering, not real login or Desktop behavior. 
 
 - [ ] Reconcile review findings and ensure the plan has no contradictory pilot, directory or release requirements.
 - [ ] Documentation checks and applicable existing CI pass on the final planning commit; no claim of runtime/pilot completion from docs CI.
-- [ ] User approves merging documentation-only PR #97. The pilot and implementation gates below are not prerequisites for merging an agreed plan, and remain unchecked in their own PRs.
+- [ ] User completes local acceptance and approves merging draft PR #97, including its implementation. Pilot/native sign-in/company-data gates stay explicit; no release is published automatically.
 
 ## Implementation release and review gates
 
@@ -149,7 +151,7 @@ Mock tools certify argument/error ordering, not real login or Desktop behavior. 
 - [ ] Implementation commits/PRs remain focused; description and evidence match the actual slice. Later items do not block a completed smaller slice.
 - [ ] Maintenance ownership, supported CLI versions and a bounded support budget are agreed; add adapters only after observed need.
 - [ ] Required CI plus applicable runtime/Windows/native-login/colleague evidence pass on the final candidate commit for each slice. Mutation gates apply to Slice 1b, not as a blocker on observation/login-only Slice 1a. Keep evidence of mock, automated runtime and real-user checks distinct.
-- [ ] Update migration, troubleshooting and truthful credential/folder boundaries. For the proposed container-side 1.7 changes, bump ContainerBaselineVersion to that release together with VERSION and required metadata. No bump in this planning revision.
+- [ ] Update migration, troubleshooting and truthful credential/folder boundaries. For the proposed container-side 1.7 changes, bump ContainerBaselineVersion to that release together with VERSION and required metadata. The implementation candidate now uses 1.7.0 consistently; release tagging waits for local acceptance.
 - [ ] User approves final scope and candidate behavior before ready/merge; release tag/publication remains separate.
 
 ## Later alternatives and source discipline

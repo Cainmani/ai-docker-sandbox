@@ -62,7 +62,7 @@ function Invoke-DockerCommand {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $DockerPath
         $psi.Arguments = ($Arguments | ForEach-Object {
-            if ($_ -match '\s|"') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+            '"' + ([regex]::Replace($_, '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
         }) -join ' '
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true

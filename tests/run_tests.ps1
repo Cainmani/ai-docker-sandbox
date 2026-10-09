@@ -277,7 +277,7 @@ Test-Assertion "entrypoint.sh grants passwordless sudo" {
 Test-Assertion "entrypoint.sh sets ownership of .claude directory" {
     if (Test-Path $entrypointFile) {
         $content = Get-Content $entrypointFile -Raw
-        $content -match 'chown.*\.claude'
+        $content -match '(chown|own_tree).*\.claude'
     } else {
         $false
     }
@@ -334,15 +334,13 @@ Test-Assertion "setup_wizard.ps1 checks the fixed image name" {
     }
 } "Setup wizard still references the folder-derived legacy image name"
 
-# Test setup wizard uses shared readiness helper instead of fixed sleeps
-Test-Assertion "setup_wizard.ps1 uses Wait-ContainerReady" {
+# The wizard polls the structured installation marker and distinguishes partial readiness.
+Test-Assertion "setup_wizard.ps1 polls structured install readiness" {
     if (Test-Path $setupWizardFile) {
         $content = Get-Content $setupWizardFile -Raw
-        $content -match 'Wait-ContainerReady'
-    } else {
-        $false
-    }
-} "Setup wizard should poll container readiness via Wait-ContainerReady"
+        ($content -match '\.cli_tools_installed') -and ($content -match 'while.*waitedTime') -and ($content -match 'ok\|partial\|legacy')
+    } else { $false }
+} "Setup wizard should poll installation state and distinguish degraded readiness"
 
 # Test setup wizard writes .env next to the compose file (canonical location)
 Test-Assertion "setup_wizard.ps1 uses canonical .env location (docker folder)" {
@@ -564,9 +562,9 @@ Test-Assertion "auto_update.sh dynamically checks and updates global npm tools" 
     }
 } "Updater must discover global npm tools dynamically rather than hardcoding Vibe Kanban"
 
-# Test AI_Docker_Launcher.ps1 has Vibe Kanban button
-$launcherFile = Join-Path $projectRoot 'scripts\AI_Docker_Launcher.ps1'
-Test-Assertion "AI_Docker_Launcher.ps1 has Vibe Kanban button" {
+# Test AI_Docker_Complete.ps1 has Vibe Kanban button
+$launcherFile = Join-Path $projectRoot 'scripts\AI_Docker_Complete.ps1'
+Test-Assertion "AI_Docker_Complete.ps1 has Vibe Kanban button" {
     if (Test-Path $launcherFile) {
         $content = Get-Content $launcherFile -Raw
         ($content -match 'btnVibeKanban') -and ($content -match 'LAUNCH VIBE KANBAN')

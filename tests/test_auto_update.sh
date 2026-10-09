@@ -47,6 +47,8 @@ setup_case() {
     export FAKE_NPM_ROOT=''
     mkdir -p "$HOME" "$CASE_DIR/bin"
     : > "$FAKE_LOG"
+    export AI_MAINTENANCE_PROC_ROOT="$CASE_DIR/proc"
+    mkdir -p "$AI_MAINTENANCE_PROC_ROOT"
 
     cat > "$CASE_DIR/bin/npm" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -271,8 +273,8 @@ holder=$!
 sleep 0.5
 run_updater --force
 wait "$holder"
-assert_eq "concurrent run exits cleanly" 0 "$RUN_RC"
-assert_contains "concurrent run says it is already running" "$RUN_OUTPUT" "already running"
+assert_eq "concurrent run reports busy" 75 "$RUN_RC"
+assert_contains "concurrent run says it is already running" "$RUN_OUTPUT" "LOCK=busy"
 assert_log_not_contains "concurrent run does not touch npm" "npm outdated -g"
 
 # Versions are snapshotted before/after, and a tool broken by the update is caught.
