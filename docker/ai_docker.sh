@@ -35,7 +35,8 @@ status_value() {
 update_lock_held() {
     command -v flock >/dev/null 2>&1 || return 1
     [ -e "$STATE_DIR/update.lock" ] || return 1
-    ! flock -n "$STATE_DIR/update.lock" true 2>/dev/null
+    # Agent shared locks do not prove an updater is running.
+    ! flock -sn "$STATE_DIR/update.lock" true 2>/dev/null
 }
 
 # days_since <iso-timestamp>: whole days elapsed, or nothing if unparseable.

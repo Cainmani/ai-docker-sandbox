@@ -137,7 +137,11 @@ exit 0''')
 
     def test_repair_remains_owned_and_replaceable_by_real_npm(self):
         npm = shutil.which('npm')
-        if not npm: self.skipTest('npm unavailable')
+        node = shutil.which('node')
+        if not npm or not node: self.skipTest('npm/node unavailable')
+        # Hosted runners keep Node outside /usr/bin; preserve only this required
+        # executable rather than widening the isolated fixture PATH.
+        (self.bin/'node').symlink_to(node)
         for name in ('claude','gh','python3','pip3'):
             self.tool(name,'echo "version 1.0.0"; exit 0')
         package=self.root/'package'
