@@ -300,7 +300,7 @@ Configuration stored in: C:\Users\...\AppData\Local\AI_Docker_Manager
 
 ## Phase 5: First Launch Test (CRITICAL!)
 
-**This tests the fix for the permission error your boss encountered!**
+**This tests the fix for the permission error a user encountered!**
 
 ### Step 5.1: Launch AI Workspace
 
@@ -363,7 +363,7 @@ ls -la ~ | grep .claude
 
 ### Step 5.3: First Run of Claude (THE CRITICAL TEST!)
 
-**This is where your boss got the permission error!**
+**This is where the permission error appeared!**
 
 In the terminal, type:
 ```bash
