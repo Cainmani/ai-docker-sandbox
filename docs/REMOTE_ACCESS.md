@@ -262,7 +262,7 @@ Replace:
 
 #### Example
 ```bash
-mosh --ssh="ssh -p 2222" john@100.64.0.1
+mosh --ssh="ssh -p 2222" <user>@<tailnet-ip>
 ```
 
 ### Step 4: Start a tmux Session
