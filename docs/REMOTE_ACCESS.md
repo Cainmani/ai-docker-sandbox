@@ -374,14 +374,14 @@ Phone ←──SSH──→ Container
 **Workflow:**
 ```bash
 # On your phone - start a persistent session
-ssh -p 2222 caide@100.88.201.29
+ssh -p 2222 <user>@<tailnet-ip>
 tmux new -s work
 claude
 
 # ... connection drops (plane, tunnel, etc.) ...
 
 # Later - reconnect and reattach
-ssh -p 2222 caide@100.88.201.29
+ssh -p 2222 <user>@<tailnet-ip>
 tmux attach -t work
 # Claude is right there, mid-conversation!
 ```
@@ -410,7 +410,7 @@ tmux new -s shared
 claude
 
 # On your phone - attach to the SAME session
-ssh -p 2222 caide@100.88.201.29
+ssh -p 2222 <user>@<tailnet-ip>
 tmux attach -t shared
 
 # Now both devices see and control the same Claude session!

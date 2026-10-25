@@ -20,9 +20,9 @@ We'll go through each critical fix:
 ## ✅ Fix #1: .claude Directory Permission Error (MOST CRITICAL!)
 
 ### What This Fix Does:
-**Problem**: When your boss ran `claude`, he got:
+**Problem**: When a user ran `claude`, they got:
 ```
-Error: EACCES: permission denied, mkdir '/home/mniszl/.claude/debug'
+Error: EACCES: permission denied, mkdir '/home/<user>/.claude/debug'
 ```
 
 **Root Cause**: The `.claude` directory was owned by root, not the user.
