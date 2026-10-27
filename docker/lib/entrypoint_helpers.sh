@@ -201,7 +201,7 @@ migrate_codex_wire_api() {
 # Bump this whenever the generated router-wrapper block changes; the installer
 # below replaces any older version (and known legacy unversioned blocks) with
 # the current one without touching user-authored content.
-MANAGED_BLOCK_VERSION=5
+MANAGED_BLOCK_VERSION=6
 MANAGED_BLOCK_BEGIN="# >>> ai-docker managed: router-wrappers"
 MANAGED_BLOCK_END="# <<< ai-docker managed: router-wrappers <<<"
 
@@ -269,6 +269,8 @@ if [ -f /usr/local/lib/router_utils.sh ]; then
     9router()   { ai_router_exec 9router   "$@"; }
     omniroute() { ai_router_exec omniroute "$@"; }
 fi
+# Native sign-in preserves vendor-selected models and permissions.
+case $- in *i*) echo "Sign in: claude auth login | codex login (configure-tools is legacy API configuration)." ;; esac
 # One-line health summary when an interactive shell starts (details:
 # `ai-docker status`). Reads small status files only; never runs the tools.
 case $- in
@@ -332,7 +334,11 @@ setup_auto_update_cron() {
     local user="$1"
 
     if crontab -u "$user" -l 2>/dev/null | grep -q "auto_update.sh"; then
-        eh_log "INFO" "Auto-update cron job already configured, skipping"
+        # Upgrade only our exact legacy line; preserve custom cron commands.
+        if crontab -u "$user" -l 2>/dev/null | grep -Fxq "0 2 * * 0 . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1"; then
+            crontab -u "$user" -l | sed 's|/usr/local/bin/auto_update.sh >/dev/null|/usr/local/bin/auto_update.sh --scheduled >/dev/null|' | crontab -u "$user" - || return 1
+        fi
+        eh_log "INFO" "Auto-update cron job already configured"
         return 0
     fi
 
@@ -340,7 +346,7 @@ setup_auto_update_cron() {
     # Source the proxy/CA login profile first: cron runs in a bare environment
     # that inherits neither the compose env nor the user's .bashrc/.profile, so
     # without this the updater loses proxy/CA config on corporate networks.
-    if (crontab -u "$user" -l 2>/dev/null; printf '%s\n' "0 2 * * 0 . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1") \
+    if (crontab -u "$user" -l 2>/dev/null; printf '%s\n' "0 2 * * 0 . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh --scheduled >/dev/null 2>&1") \
         | crontab -u "$user" -; then
         eh_log "INFO" "Auto-update cron job configured successfully"
         return 0
@@ -365,7 +371,7 @@ start_background_update() {
         eh_log "INFO" "Startup update check disabled (AI_DOCKER_STARTUP_UPDATE=0)"
         return 0
     fi
-    if su_preserving_env "$user" "setsid -f '$updater' >/dev/null 2>&1 < /dev/null"; then
+    if su_preserving_env "$user" "setsid -f '$updater' --scheduled >/dev/null 2>&1 < /dev/null"; then
         eh_log "INFO" "Started background update check (runs only if the last check is 7+ days old)"
     else
         eh_log "WARN" "Could not start the background update check - run update-container-tools manually"

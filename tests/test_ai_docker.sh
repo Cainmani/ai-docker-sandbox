@@ -231,6 +231,14 @@ wait "$holder"
 assert_eq "update in progress is not an error" 0 "$RUN_RC"
 assert_contains "update in progress is shown" "$RUN_OUTPUT" "update running"
 
+# Shared agent admission must not hide a previously interrupted update.
+( flock -s 9; sleep 3 ) 9> "$HOME/.ai-docker/update.lock" &
+holder=$!; sleep 0.5
+run_cli status --brief
+wait "$holder"
+assert_eq "agent session does not hide an interrupted update" 1 "$RUN_RC"
+assert_contains "shared session keeps interrupted status honest" "$RUN_OUTPUT" "last update was interrupted"
+
 # Review regression: a broken installed tool makes full status unhealthy.
 setup_case
 write_status updated "$(days_ago 1)" "$(days_ago 1)" ""

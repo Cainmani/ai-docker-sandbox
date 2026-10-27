@@ -117,7 +117,7 @@ chmod +x "$cron_bin/crontab" "$cron_bin/pgrep" "$cron_bin/cron"
 
 cron_env=(env PATH="$cron_bin:$PATH" TEST_CRONTAB_STATE="$cron_state" TEST_CRON_RUNNING="$cron_running" CRON_START_WAIT_SECONDS=0)
 assert_true "installs weekly auto-update cron entry" "${cron_env[@]}" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; setup_auto_update_cron testuser"
-assert_true "writes expected weekly cron schedule" grep -Fxq '0 2 * * 0 . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh >/dev/null 2>&1' "$cron_state"
+assert_true "writes expected weekly cron schedule" grep -Fxq '0 2 * * 0 . /etc/profile.d/ai-docker-proxy.sh 2>/dev/null; /usr/local/bin/auto_update.sh --scheduled >/dev/null 2>&1' "$cron_state"
 assert_true "cron entry sources proxy/CA login profile" grep -q '/etc/profile.d/ai-docker-proxy.sh' "$cron_state"
 cron_before=$(cksum < "$cron_state")
 assert_true "cron registration is idempotent" "${cron_env[@]}" bash -c "source '$ROOT_DIR/docker/lib/entrypoint_helpers.sh'; setup_auto_update_cron testuser"

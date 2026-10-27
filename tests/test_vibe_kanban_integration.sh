@@ -120,23 +120,23 @@ else
     fail "launch_vibe_kanban.ps1 missing browser launch" "Browser open not configured"
 fi
 
-# Test 5: AI_Docker_Launcher.ps1 has Vibe Kanban button
+# Test 5: AI_Docker_Complete.ps1 has Vibe Kanban button
 echo ""
 echo "Testing main launcher changes..."
 
-if grep -q "LAUNCH VIBE KANBAN" scripts/AI_Docker_Launcher.ps1; then
-    pass "AI_Docker_Launcher.ps1 has Vibe Kanban button"
+if grep -q "LAUNCH VIBE KANBAN" scripts/AI_Docker_Complete.ps1; then
+    pass "AI_Docker_Complete.ps1 has Vibe Kanban button"
 else
     fail "AI_Docker_Launcher.ps1 missing Vibe Kanban button" "Button not added"
 fi
 
-if grep -q "btnVibeKanban" scripts/AI_Docker_Launcher.ps1; then
+if grep -q "btnVibeKanban" scripts/AI_Docker_Complete.ps1; then
     pass "AI_Docker_Launcher.ps1 has btnVibeKanban control"
 else
     fail "AI_Docker_Launcher.ps1 missing button control" "Button control not defined"
 fi
 
-if grep -q "launch_vibe_kanban.ps1" scripts/AI_Docker_Launcher.ps1; then
+if grep -q "launch_vibe_kanban.ps1" scripts/AI_Docker_Complete.ps1; then
     pass "AI_Docker_Launcher.ps1 references launch_vibe_kanban.ps1"
 else
     fail "AI_Docker_Launcher.ps1 missing script reference" "Launcher script not linked"

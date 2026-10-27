@@ -305,3 +305,7 @@ This project is licensed under the [MIT License](LICENSE).
 <p align="center">
   <sub>Built with ❤️ for secure AI development</sub>
 </p>
+
+### Usability candidate
+
+Draft PR #97 adds health/native sign-in and safe Claude/Codex launch/resume, plus coordinated selected repair. Version 1.7.0 is unreleased. See [local acceptance](docs/USABILITY_ACCEPTANCE.md) before merge/release and [the implementation plan](docs/USABILITY_PLAN.md) for conditional later work.

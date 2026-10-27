@@ -30,13 +30,13 @@ if (-not (Test-Path $ExePath)) {
 $logFile = Join-Path $env:LOCALAPPDATA 'AI-Docker-CLI\logs\ai-docker.log'
 
 $successPatterns = @(
-    'Docker Desktop is not running',
-    'Performing startup update check'
+    'Connections smoke passed'
 )
 $failurePatterns = @(
     'running scripts is disabled',
     'is not recognized as the name of a cmdlet',
-    'Docker check failed unexpectedly'
+    'Docker check failed unexpectedly',
+    'Connections smoke failed'
 )
 
 # The whole point of this test: the EXE must work under the Windows DEFAULT
@@ -53,6 +53,7 @@ $status = 'timeout'
 $matched = ''
 try {
     Write-Host "[INFO] Launching $ExePath (timeout ${TimeoutSeconds}s)..."
+    $env:AI_DOCKER_CONNECTIONS_SMOKE = '1'
     $process = Start-Process -FilePath $ExePath -PassThru
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
@@ -95,6 +96,7 @@ try {
         }
     }
 } finally {
+    Remove-Item Env:\AI_DOCKER_CONNECTIONS_SMOKE -ErrorAction SilentlyContinue
     if ($process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
