@@ -163,8 +163,11 @@ fi
 # Review regression: an old Claude Code version that is still running (a long
 # session started before an update) must not be deleted.
 setup_case
-cp /bin/sleep "$HOME/.local/share/claude/versions/2.1.1"
-"$HOME/.local/share/claude/versions/2.1.1" 30 &
+# A copy of bash, not of sleep: multi-call coreutils (uutils, now on the CI
+# runners) refuses to run under an unknown name such as "2.1.1". The loop keeps
+# bash itself running, so /proc/<pid>/exe stays this path.
+cp "$(command -v bash)" "$HOME/.local/share/claude/versions/2.1.1"
+"$HOME/.local/share/claude/versions/2.1.1" -c 'while :; do sleep 1; done' &
 running=$!
 sleep 0.3
 run_cleanup "\ny\ny\n\n" --apply

@@ -242,8 +242,8 @@ Scripts are mounted read-only. Only for local development.
 Commits are authored by the maintainer making the change, never by a former contributor or the org account. Set the identity per clone and check it before committing:
 
 ```
-git config user.name "Mike Niszl"
-git config user.email "mniszl@cainmani.com"
+git config user.name "Your Name"
+git config user.email "you@example.com"
 git config user.email   # verify before the first commit in a fresh clone
 ```
 

@@ -91,7 +91,7 @@ Describe 'Invoke-ContainerRescueScan' {
             $line = $Arguments -join ' '
             $script:dockerCalls.Add($line)
             if ($line -like 'inspect*State.Running*') { return New-DockerResult 0 "$script:running`n" }
-            if ($line -like '*printenv USER_NAME*') { return New-DockerResult 0 "mike`n" }
+            if ($line -like '*printenv USER_NAME*') { return New-DockerResult 0 "devuser`n" }
             if ($line -like '*rescue-scan*') { return New-DockerResult $script:scanExit $script:scanOutput }
             return New-DockerResult 0 ''
         }
@@ -111,9 +111,9 @@ Describe 'Invoke-ContainerRescueScan' {
     It 'Runs the scan as the container user with the copied library' {
         Invoke-ContainerRescueScan -ScannerDir $scannerDir -DockerPath 'docker' | Out-Null
         $scan = $script:dockerCalls | Where-Object { $_ -like '*rescue-scan*' }
-        $scan | Should -Match '-u mike'
+        $scan | Should -Match '-u devuser'
         $scan | Should -Match 'AI_DOCKER_LIB_DIR=/tmp/ai-docker-rescue'
-        $scan | Should -Match 'HOME=/home/mike'
+        $scan | Should -Match 'HOME=/home/devuser'
     }
 
     It 'Starts a stopped container before scanning' {
@@ -177,7 +177,7 @@ Describe 'Inspection failures are not "no container"' {
         Mock Invoke-DockerCommand {
             $line = $Arguments -join ' '
             if ($line -like 'inspect*State.Running*') { return @{ Success = $true; ExitCode = 0; Output = "true`n"; Error = ''; TimedOut = $false } }
-            if ($line -like '*printenv USER_NAME*') { return @{ Success = $true; ExitCode = 0; Output = "mike`n"; Error = ''; TimedOut = $false } }
+            if ($line -like '*printenv USER_NAME*') { return @{ Success = $true; ExitCode = 0; Output = "devuser`n"; Error = ''; TimedOut = $false } }
             if ($line -like '*rescue-scan*') { return @{ Success = $false; ExitCode = 4; Output = 'could not be read: /tmp/x'; Error = ''; TimedOut = $false } }
             return @{ Success = $true; ExitCode = 0; Output = ''; Error = ''; TimedOut = $false }
         }
