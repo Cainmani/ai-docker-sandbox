@@ -1,5 +1,23 @@
 # ai-docker/Dockerfile
 # Pinned: 2026-02-19 — refresh quarterly via: docker manifest inspect ubuntu:24.04
+FROM ubuntu:24.04@sha256:786a8b558f7be160c6c8c4a54f9a57274f3b4fb1491cf65146521ae77ff1dc54 AS git-builder
+
+# Relative worktree links require Git >= 2.48 on every participating client.
+# Build into the image instead of depending on a running-container upgrade.
+# Source checksum: https://www.kernel.org/pub/software/scm/git/sha256sums.asc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl xz-utils perl pkg-config \
+    libcurl4-openssl-dev libexpat1-dev libssl-dev libpcre2-dev zlib1g-dev
+WORKDIR /build
+RUN curl --fail --show-error --location --proto '=https' \
+      https://www.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz -o git.tar.xz \
+    && echo '26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3  git.tar.xz' | sha256sum --check --strict \
+    && tar -xJf git.tar.xz --strip-components=1 \
+    && make -j"$(nproc)" prefix=/usr/local NO_RUST=1 NO_TCLTK=1 \
+      NO_GETTEXT=1 USE_LIBPCRE2=YesPlease SKIP_DASHED_BUILT_INS=1 all \
+    && make prefix=/usr/local DESTDIR=/opt/git NO_RUST=1 NO_TCLTK=1 \
+      NO_GETTEXT=1 USE_LIBPCRE2=YesPlease SKIP_DASHED_BUILT_INS=1 install
+
 FROM ubuntu:24.04@sha256:786a8b558f7be160c6c8c4a54f9a57274f3b4fb1491cf65146521ae77ff1dc54
 
 ARG AI_DOCKER_VERSION=0.0.0
@@ -15,6 +33,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     git \
+    # Runtime libraries for the source-built Git (Ubuntu Git uses GnuTLS).
+    libcurl4t64 \
+    libexpat1 \
+    libpcre2-8-0 \
+    zlib1g \
+    perl \
     ca-certificates \
     # Codex uses bubblewrap for its Linux/WSL2 workspace sandbox.
     bubblewrap \
@@ -49,6 +73,13 @@ RUN apt-get update && apt-get install -y \
     iptables \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Keep Ubuntu Git available at /usr/bin/git; select the image build by normal
+# /usr/local/bin PATH precedence. No workspace binaries or startup downloads.
+COPY --from=git-builder /opt/git/usr/local/ /usr/local/
+RUN test "$(command -v git)" = /usr/local/bin/git \
+    && test "$(git --version)" = 'git version 2.56.0' \
+    && test -x "$(git --exec-path)/git-remote-https"
 
 # Configure locale (required for Mosh)
 RUN locale-gen en_US.UTF-8
