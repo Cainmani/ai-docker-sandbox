@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'docker/**'
+      - 'tests/test_git_worktree_portability.sh'
       - '.github/workflows/docker-smoke.yml'
   push:
     branches: [main]
     paths:
       - 'docker/**'
+      - 'tests/test_git_worktree_portability.sh'
       - '.github/workflows/docker-smoke.yml'
   workflow_dispatch:
   schedule:
@@ -115,6 +117,20 @@ jobs:
             pgrep -x cron
           '
 
+      - name: Verify image Git and relative worktree relocation
+        working-directory: docker
+        run: |
+          set -euo pipefail
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai sh -c '
+            test "$(command -v git)" = /usr/local/bin/git
+            test "$(git --version)" = "git version 2.56.0"
+            test -x "$(git --exec-path)/git-remote-https"
+          '
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai bash -s < ../tests/test_git_worktree_portability.sh
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" \
+            -e GIT_CONFIG_NOSYSTEM=1 -e GIT_CONFIG_GLOBAL=/dev/null -e GIT_TERMINAL_PROMPT=0 ai \
+            git ls-remote https://github.com/git/git.git HEAD
+
       - name: Verify diagnostics and proxy/CA env propagation
         working-directory: docker
         run: |
@@ -190,6 +206,11 @@ jobs:
             exit 1
           fi
           docker compose -p "$COMPOSE_PROJECT_NAME" exec -T ai grep -Fxq preserved /home/smokeuser/.tool-auth/smoke-preserved
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai sh -c '
+            test "$(command -v git)" = /usr/local/bin/git
+            test "$(git --version)" = "git version 2.56.0"
+          '
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T --user "$USER_NAME" ai bash -s < ../tests/test_git_worktree_portability.sh
 
       - name: Show logs on failure
         if: failure()
